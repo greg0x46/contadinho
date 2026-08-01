@@ -100,9 +100,17 @@ func scenarioTransactionDTOFor(ctx context.Context, conn *sql.DB, st scenarios.S
 
 type scenarioDetailDTO struct {
 	scenarioDTO
-	Transactions []scenarioTransactionDTO `json:"transactions"`
+	Transactions         []scenarioTransactionDTO `json:"transactions"`
+	AccumulatedDeviation string                   `json:"accumulated_deviation"`
 }
 
+// loadScenarioDetail also computes accumulated_deviation — Σ amount − Σ
+// realizedTotal across every installment whose projected_at is on or before
+// today (roadmap task 6). A positive value means the plan is behind (less
+// was actually allocated than planned so far); negative means ahead.
+// Installments not yet due don't count toward it, matching the spec's
+// "ritmo necessário vs. ritmo real" framing — only what should already have
+// happened factors into whether the plan is on track.
 func loadScenarioDetail(w http.ResponseWriter, r *http.Request, conn *sql.DB, id string) (scenarioDetailDTO, bool) {
 	s, err := scenarios.GetScenario(r.Context(), conn, id)
 	if errors.Is(err, scenarios.ErrScenarioNotFound) {
@@ -118,16 +126,24 @@ func loadScenarioDetail(w http.ResponseWriter, r *http.Request, conn *sql.DB, id
 		scenariosUnavailableProblem(w)
 		return scenarioDetailDTO{}, false
 	}
+	today := todayUTC()
+	deviation := decimal.Zero
 	dtos := make([]scenarioTransactionDTO, len(list))
 	for i, st := range list {
-		dto, err := scenarioTransactionDTOFor(r.Context(), conn, st)
+		realizedTotal, err := scenarios.RealizedTotal(r.Context(), conn, st.ID)
 		if err != nil {
 			scenariosUnavailableProblem(w)
 			return scenarioDetailDTO{}, false
 		}
-		dtos[i] = dto
+		dtos[i] = scenarioTransactionToDTO(st, today, realizedTotal)
+		if !st.ProjectedAt.After(today) {
+			deviation = deviation.Add(st.Amount.Sub(realizedTotal))
+		}
 	}
-	return scenarioDetailDTO{scenarioDTO: scenarioToDTO(s), Transactions: dtos}, true
+	return scenarioDetailDTO{
+		scenarioDTO: scenarioToDTO(s), Transactions: dtos,
+		AccumulatedDeviation: money.CanonicalDecimal(deviation),
+	}, true
 }
 
 type scenarioCreateRequest struct {
@@ -159,7 +175,9 @@ func handleCreateDebtScenario(conn *sql.DB) http.HandlerFunc {
 			scenariosUnavailableProblem(w)
 			return
 		}
-		writeJSON(w, http.StatusCreated, scenarioDetailDTO{scenarioDTO: scenarioToDTO(s), Transactions: []scenarioTransactionDTO{}})
+		writeJSON(w, http.StatusCreated, scenarioDetailDTO{
+			scenarioDTO: scenarioToDTO(s), Transactions: []scenarioTransactionDTO{}, AccumulatedDeviation: "0.00",
+		})
 	}
 }
 

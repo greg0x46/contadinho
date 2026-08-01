@@ -1165,6 +1165,7 @@ export interface ScenarioTransaction {
 
 export interface ScenarioDetail extends Scenario {
   transactions: ScenarioTransaction[];
+  accumulated_deviation: string;
 }
 
 export interface ScenarioCreate {
@@ -1269,11 +1270,19 @@ export function parseScenarioTransactionList(value: unknown): ScenarioTransactio
 }
 
 export function parseScenarioDetail(value: unknown): ScenarioDetail {
-  const detail = requiredRecord(value, [...scenarioKeys, "transactions"], "Detalhe de cenário inválido.");
+  const detail = requiredRecord(
+    value,
+    [...scenarioKeys, "transactions", "accumulated_deviation"],
+    "Detalhe de cenário inválido.",
+  );
   if (!Array.isArray(detail.transactions)) {
     throw new TypeError("Detalhe de cenário inválido.");
   }
-  return { ...scenarioFieldsFrom(detail), transactions: detail.transactions.map(parseScenarioTransaction) };
+  return {
+    ...scenarioFieldsFrom(detail),
+    transactions: detail.transactions.map(parseScenarioTransaction),
+    accumulated_deviation: decimal(detail.accumulated_deviation),
+  };
 }
 
 export interface SetupStatus {

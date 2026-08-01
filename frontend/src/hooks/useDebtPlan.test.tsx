@@ -34,6 +34,7 @@ const scenarioDetail: ScenarioDetail = {
       status: "projetada",
     },
   ],
+  accumulated_deviation: "0.00",
 };
 
 function setup() {
@@ -87,6 +88,7 @@ describe("useDebtPlan", () => {
     vi.mocked(scenariosApi.createDebtScenario).mockResolvedValue({
       ...scenarioSummary,
       transactions: [],
+      accumulated_deviation: "0.00",
     });
     const { client, wrapper } = setup();
     const invalidateSpy = vi.spyOn(client, "invalidateQueries");
