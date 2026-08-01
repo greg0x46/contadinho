@@ -17,6 +17,34 @@ function linkLabel(link: DebtLinkedTransaction): string {
   return `${date} · ${description} · ${formatBRL(link.current_amount)}`;
 }
 
+// AccumulatedDeviationBanner surfaces roadmap task 6's Σ amount − Σ
+// realizedTotal across every due installment: positive means less was
+// actually allocated than planned so far ("atrasado"), negative means more
+// ("adiantado"). Only due installments feed this number (computed
+// server-side), so an unpaid future installment never counts against it.
+function AccumulatedDeviationBanner({ value }: { value: string }) {
+  const isAhead = value.startsWith("-");
+  const isOnTrack = !isAhead && Number(value) === 0;
+  const magnitude = formatBRL(isAhead ? value.slice(1) : value);
+
+  if (isOnTrack) {
+    return (
+      <Alert type="success" showIcon message="Em dia com o plano de pagamento até hoje." />
+    );
+  }
+  return (
+    <Alert
+      type={isAhead ? "success" : "warning"}
+      showIcon
+      message={
+        isAhead
+          ? `Adiantado ${magnitude} em relação ao plano até hoje.`
+          : `Atrasado ${magnitude} em relação ao plano até hoje.`
+      }
+    />
+  );
+}
+
 export function DebtPlanSection({
   debtId,
   links,
@@ -124,12 +152,15 @@ export function DebtPlanSection({
           </Button>
         </Flex>
       ) : (
-        <DebtPlanTable
-          installments={plan.plan.transactions}
-          deletingId={deletingId}
-          onDelete={deleteInstallment}
-          onAllocate={openAllocation}
-        />
+        <>
+          <AccumulatedDeviationBanner value={plan.plan.accumulated_deviation} />
+          <DebtPlanTable
+            installments={plan.plan.transactions}
+            deletingId={deletingId}
+            onDelete={deleteInstallment}
+            onAllocate={openAllocation}
+          />
+        </>
       )}
 
       <Modal

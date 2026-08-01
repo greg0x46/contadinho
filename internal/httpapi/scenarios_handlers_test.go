@@ -276,6 +276,56 @@ func TestDeleteRealizationRevertsStatus(t *testing.T) {
 	}
 }
 
+func TestAccumulatedDeviationSumsOnlyDueInstallments(t *testing.T) {
+	srv, conn := newTestServer(t)
+
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	var debt map[string]any
+	decodeJSON(t, resp, &debt)
+	debtID := debt["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	var scenario map[string]any
+	decodeJSON(t, resp, &scenario)
+	scenarioID := scenario["id"].(string)
+	if scenario["accumulated_deviation"] != "0.00" {
+		t.Errorf("accumulated_deviation on creation = %v, want 0.00", scenario["accumulated_deviation"])
+	}
+
+	past := time.Now().UTC().AddDate(0, 0, -10).Format("2006-01-02")
+	future := time.Now().UTC().AddDate(0, 0, 10).Format("2006-01-02")
+
+	// Due, paid only in part: contributes 100.00 - 60.00 = 40.00 to the deviation.
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/transactions", map[string]any{
+		"description": "Parcela vencida", "amount": "100.00", "projected_at": past,
+	})
+	var overdueTx map[string]any
+	decodeJSON(t, resp, &overdueTx)
+	overdueID := overdueTx["id"].(string)
+
+	// Not due yet: must NOT contribute to the deviation, however unpaid.
+	doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/transactions", map[string]any{
+		"description": "Parcela futura", "amount": "300.00", "projected_at": future,
+	}).Body.Close()
+
+	txID := insertTransaction(t, conn)
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/links", map[string]any{"transaction_id": txID})
+	var link map[string]any
+	decodeJSON(t, resp, &link)
+	linkID := link["id"].(string)
+
+	doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/transactions/"+overdueID+"/realizations", map[string]any{
+		"debt_link_id": linkID, "allocated_amount": "60.00",
+	}).Body.Close()
+
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/scenarios/"+scenarioID, nil)
+	var detail map[string]any
+	decodeJSON(t, resp, &detail)
+	if detail["accumulated_deviation"] != "40.00" {
+		t.Errorf("accumulated_deviation = %v, want 40.00", detail["accumulated_deviation"])
+	}
+}
+
 func TestGenerateInstallmentsCreatesMonthlyPlanFromRemainingAmount(t *testing.T) {
 	srv, _ := newTestServer(t)
 
