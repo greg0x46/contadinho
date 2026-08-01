@@ -7,6 +7,7 @@ import { isUuid, type DebtLinkedTransaction } from "../api/contracts";
 import { LoadingState, UnavailableState } from "../components/AsyncState";
 import { DebtLinkForm } from "../components/debts/DebtLinkForm";
 import { DebtLinkList } from "../components/debts/DebtLinkList";
+import { DebtPlanSection } from "../components/debts/DebtPlanSection";
 import { useDebtDetail } from "../hooks/useDebtDetail";
 import { debtStatusColor, debtStatusLabel } from "../presentation/debtLabels";
 import { formatBRL } from "../presentation/money";
@@ -106,6 +107,13 @@ function ValidDebtDetail({ id }: { id: string }) {
                 </Tag>
               </Descriptions.Item>
             </Descriptions>
+
+            <section aria-labelledby="plan-title">
+              <Typography.Title id="plan-title" level={2}>
+                Plano de pagamento
+              </Typography.Title>
+              <DebtPlanSection debtId={id} />
+            </section>
 
             <section aria-labelledby="link-form-title">
               <Typography.Title id="link-form-title" level={2}>

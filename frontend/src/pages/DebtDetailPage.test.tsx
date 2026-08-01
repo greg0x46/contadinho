@@ -1,14 +1,20 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as debtsApi from "../api/debts";
+import * as scenariosApi from "../api/scenarios";
 import type { DebtDetail, EligibleTransaction } from "../api/contracts";
 import { QueryTestProvider } from "../test/QueryTestProvider";
 import { DebtDetailPage } from "./DebtDetailPage";
 
 vi.mock("../api/debts");
+vi.mock("../api/scenarios");
+
+beforeEach(() => {
+  vi.mocked(scenariosApi.listDebtScenarios).mockResolvedValue([]);
+});
 
 const debtId = "44444444-4444-4444-8444-444444444444";
 const linkId = "66666666-6666-4666-8666-666666666666";
