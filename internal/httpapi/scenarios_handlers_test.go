@@ -1,6 +1,7 @@
 package httpapi_test
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 )
@@ -91,6 +92,50 @@ func TestScenarioLifecycleOverHTTP(t *testing.T) {
 	resp = doJSON(t, http.MethodGet, srv.URL+"/api/scenarios/"+scenarioID, nil)
 	if resp.StatusCode != 404 {
 		t.Fatalf("get deleted scenario status = %d, want 404", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestGenerateInstallmentsCreatesMonthlyPlanFromRemainingAmount(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	var debt map[string]any
+	decodeJSON(t, resp, &debt)
+	debtID := debt["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	var scenario map[string]any
+	decodeJSON(t, resp, &scenario)
+	scenarioID := scenario["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/generate-installments", map[string]any{
+		"months": 3, "start_date": "2026-09-01",
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+	var created []map[string]any
+	decodeJSON(t, resp, &created)
+	if len(created) != 3 {
+		t.Fatalf("len(created) = %d, want 3", len(created))
+	}
+	sum := 0.0
+	for _, ins := range created {
+		var amount float64
+		if _, err := fmt.Sscanf(ins["amount"].(string), "%f", &amount); err != nil {
+			t.Fatalf("parse amount: %v", err)
+		}
+		sum += amount
+	}
+	if sum < 1199.99 || sum > 1200.01 {
+		t.Errorf("sum of generated installments = %v, want ~1200.00", sum)
+	}
+
+	// A second call must not silently duplicate installments.
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/generate-installments", map[string]any{"months": 2})
+	if resp.StatusCode != 409 {
+		t.Fatalf("second generate status = %d, want 409", resp.StatusCode)
 	}
 	resp.Body.Close()
 }

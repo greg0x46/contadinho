@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
@@ -239,6 +240,115 @@ func handleUpdateScenarioTransaction(conn *sql.DB) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, scenarioTransactionToDTO(st))
 	}
+}
+
+type generateInstallmentsRequest struct {
+	Months    int     `json:"months"`
+	StartDate *string `json:"start_date"`
+}
+
+// handleGenerateInstallments mirrors task 2 of the roadmap: given the
+// scenario's debt remaining amount (computed the same way summarize does
+// for debts) and a number of months, it creates that many monthly
+// scenario_transactions, the last absorbing the division's remainder. It
+// refuses to run on a scenario that already has installments — this button
+// is meant to seed an empty plan once, not silently pile on duplicates; a
+// caller that wants to regenerate deletes the existing ones first.
+func handleGenerateInstallments(conn *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		scenarioID := r.PathValue("id")
+		s, err := scenarios.GetScenario(r.Context(), conn, scenarioID)
+		if errors.Is(err, scenarios.ErrScenarioNotFound) {
+			scenarioNotFoundProblem(w)
+			return
+		}
+		if err != nil {
+			scenariosUnavailableProblem(w)
+			return
+		}
+		if s.DebtID == nil {
+			invalidScenarioProblem(w, "Este cenário não está associado a uma dívida.")
+			return
+		}
+
+		existing, err := scenarios.ListScenarioTransactions(r.Context(), conn, scenarioID)
+		if err != nil {
+			scenariosUnavailableProblem(w)
+			return
+		}
+		if len(existing) > 0 {
+			writeProblem(w, 409, "scenario-already-has-installments", "Plano já possui parcelas",
+				"Exclua as parcelas existentes antes de gerar um novo conjunto.")
+			return
+		}
+
+		var req generateInstallmentsRequest
+		if err := decodeStrict(r, &req); err != nil || req.Months < 1 {
+			invalidScenarioTransactionProblem(w, "Informe um número de meses válido (>= 1).")
+			return
+		}
+		startDate := time.Now().UTC()
+		if req.StartDate != nil {
+			parsed, err := time.Parse(dateOnlyLayout, *req.StartDate)
+			if err != nil {
+				invalidScenarioTransactionProblem(w, "Data inicial inválida.")
+				return
+			}
+			startDate = parsed
+		}
+
+		debt, err := debts.Get(r.Context(), conn, *s.DebtID)
+		if errors.Is(err, debts.ErrNotFound) {
+			debtNotFoundProblem(w)
+			return
+		}
+		if err != nil {
+			debtUnavailableProblem(w)
+			return
+		}
+		remaining, err := debtRemainingAmount(r.Context(), conn, debt)
+		if err != nil {
+			debtUnavailableProblem(w)
+			return
+		}
+
+		drafts, err := scenarios.GenerateInstallments(remaining, req.Months, startDate)
+		if err != nil {
+			invalidScenarioTransactionProblem(w, "A dívida não possui valor restante para gerar parcelas.")
+			return
+		}
+		created, err := scenarios.CreateGeneratedInstallments(r.Context(), conn, scenarioID, drafts)
+		if err != nil {
+			scenariosUnavailableProblem(w)
+			return
+		}
+		dtos := make([]scenarioTransactionDTO, len(created))
+		for i, st := range created {
+			dtos[i] = scenarioTransactionToDTO(st)
+		}
+		writeJSON(w, http.StatusCreated, dtos)
+	}
+}
+
+// debtRemainingAmount recomputes a debt's remaining_amount the same way
+// summarize (debts_handlers.go) does for the debts endpoints — duplicated
+// here rather than imported because summarize returns a full debtDTO and
+// this only needs the one number.
+func debtRemainingAmount(ctx context.Context, conn *sql.DB, d debts.Debt) (decimal.Decimal, error) {
+	links, err := debts.Links(ctx, conn, d.ID)
+	if err != nil {
+		return decimal.Decimal{}, err
+	}
+	amounts := make([]decimal.Decimal, len(links))
+	for i, l := range links {
+		amt, err := debts.LinkEffectiveAmount(ctx, conn, l.TransactionID)
+		if err != nil {
+			return decimal.Decimal{}, err
+		}
+		amounts[i] = amt
+	}
+	paid := debts.PaidAmount(d.StartingPaidAmount, amounts)
+	return debts.RemainingAmount(d.TotalAmount, paid), nil
 }
 
 func handleDeleteScenarioTransaction(conn *sql.DB) http.HandlerFunc {
