@@ -59,14 +59,29 @@ type scenarioTransactionDTO struct {
 	Amount      string  `json:"amount"`
 	ProjectedAt string  `json:"projected_at"`
 	Category    *string `json:"category"`
+	Status      string  `json:"status"`
 }
 
-func scenarioTransactionToDTO(st scenarios.ScenarioTransaction) scenarioTransactionDTO {
+// todayUTC is "today" for ScenarioTransaction.Status purposes: midnight UTC,
+// so an installment projected for today itself doesn't read as late just
+// because the wall-clock time of day is already past midnight.
+func todayUTC() time.Time {
+	now := time.Now().UTC()
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// scenarioTransactionToDTO mirrors summarize's role for debts: status is
+// always recomputed here from today's date and realizedTotal, never read off
+// a stored column. realizedTotal is decimal.Zero until task 5 wires up
+// scenario_transaction_realizations — until then Status can only ever
+// resolve to "projetada" or "atrasada", exactly as roadmap task 4 specifies.
+func scenarioTransactionToDTO(st scenarios.ScenarioTransaction, today time.Time, realizedTotal decimal.Decimal) scenarioTransactionDTO {
 	return scenarioTransactionDTO{
 		ID: st.ID, ScenarioID: st.ScenarioID, Description: st.Description,
 		Amount:      money.CanonicalDecimal(st.Amount),
 		ProjectedAt: st.ProjectedAt.Format(dateOnlyLayout),
 		Category:    st.Category,
+		Status:      string(st.Status(today, realizedTotal)),
 	}
 }
 
@@ -90,9 +105,10 @@ func loadScenarioDetail(w http.ResponseWriter, r *http.Request, conn *sql.DB, id
 		scenariosUnavailableProblem(w)
 		return scenarioDetailDTO{}, false
 	}
+	today := todayUTC()
 	dtos := make([]scenarioTransactionDTO, len(list))
 	for i, st := range list {
-		dtos[i] = scenarioTransactionToDTO(st)
+		dtos[i] = scenarioTransactionToDTO(st, today, decimal.Zero)
 	}
 	return scenarioDetailDTO{scenarioDTO: scenarioToDTO(s), Transactions: dtos}, true
 }
@@ -211,7 +227,7 @@ func handleCreateScenarioTransaction(conn *sql.DB) http.HandlerFunc {
 			scenariosUnavailableProblem(w)
 			return
 		}
-		writeJSON(w, http.StatusCreated, scenarioTransactionToDTO(st))
+		writeJSON(w, http.StatusCreated, scenarioTransactionToDTO(st, todayUTC(), decimal.Zero))
 	}
 }
 
@@ -238,7 +254,7 @@ func handleUpdateScenarioTransaction(conn *sql.DB) http.HandlerFunc {
 			scenariosUnavailableProblem(w)
 			return
 		}
-		writeJSON(w, http.StatusOK, scenarioTransactionToDTO(st))
+		writeJSON(w, http.StatusOK, scenarioTransactionToDTO(st, todayUTC(), decimal.Zero))
 	}
 }
 
@@ -323,8 +339,9 @@ func handleGenerateInstallments(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 		dtos := make([]scenarioTransactionDTO, len(created))
+		today := todayUTC()
 		for i, st := range created {
-			dtos[i] = scenarioTransactionToDTO(st)
+			dtos[i] = scenarioTransactionToDTO(st, today, decimal.Zero)
 		}
 		writeJSON(w, http.StatusCreated, dtos)
 	}

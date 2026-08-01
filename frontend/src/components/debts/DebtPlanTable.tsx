@@ -1,9 +1,14 @@
 import type { ProColumns } from "@ant-design/pro-table";
 import ProTable from "@ant-design/pro-table";
-import { Button, Popconfirm } from "antd";
+import { Button, Popconfirm, Tag } from "antd";
 
 import type { ScenarioTransaction } from "../../api/contracts";
 import { formatBRL } from "../../presentation/money";
+import {
+  scenarioTransactionStatusColor,
+  scenarioTransactionStatusDashed,
+  scenarioTransactionStatusLabel,
+} from "../../presentation/scenarioLabels";
 
 function formatProjectedDate(value: string): string {
   const [year, month, day] = value.split("-");
@@ -30,6 +35,18 @@ export function DebtPlanTable({
       title: "Valor previsto",
       dataIndex: "amount",
       render: (_, row) => formatBRL(row.amount),
+    },
+    {
+      title: "Situação",
+      dataIndex: "status",
+      render: (_, row) => (
+        <Tag
+          color={scenarioTransactionStatusColor[row.status]}
+          style={scenarioTransactionStatusDashed[row.status] ? { borderStyle: "dashed" } : undefined}
+        >
+          {scenarioTransactionStatusLabel[row.status]}
+        </Tag>
+      ),
     },
     {
       title: "Ação",

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 )
 
 func TestScenarioLifecycleOverHTTP(t *testing.T) {
@@ -94,6 +95,41 @@ func TestScenarioLifecycleOverHTTP(t *testing.T) {
 		t.Fatalf("get deleted scenario status = %d, want 404", resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+func TestScenarioTransactionStatusReflectsProjectedDate(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	var debt map[string]any
+	decodeJSON(t, resp, &debt)
+	debtID := debt["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	var scenario map[string]any
+	decodeJSON(t, resp, &scenario)
+	scenarioID := scenario["id"].(string)
+
+	past := time.Now().UTC().AddDate(0, 0, -5).Format("2006-01-02")
+	future := time.Now().UTC().AddDate(0, 0, 5).Format("2006-01-02")
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/transactions", map[string]any{
+		"description": "Parcela atrasada", "amount": "100.00", "projected_at": past,
+	})
+	var overdue map[string]any
+	decodeJSON(t, resp, &overdue)
+	if overdue["status"] != "atrasada" {
+		t.Errorf("overdue status = %v, want atrasada", overdue["status"])
+	}
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/transactions", map[string]any{
+		"description": "Parcela futura", "amount": "100.00", "projected_at": future,
+	})
+	var upcoming map[string]any
+	decodeJSON(t, resp, &upcoming)
+	if upcoming["status"] != "projetada" {
+		t.Errorf("upcoming status = %v, want projetada", upcoming["status"])
+	}
 }
 
 func TestGenerateInstallmentsCreatesMonthlyPlanFromRemainingAmount(t *testing.T) {

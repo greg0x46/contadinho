@@ -1144,6 +1144,15 @@ export interface Scenario {
   updated_at: string;
 }
 
+export const scenarioTransactionStatuses = [
+  "atrasada",
+  "projetada",
+  "paga_parcialmente",
+  "paga",
+  "paga_a_mais",
+] as const;
+export type ScenarioTransactionStatus = (typeof scenarioTransactionStatuses)[number];
+
 export interface ScenarioTransaction {
   id: string;
   scenario_id: string;
@@ -1151,6 +1160,7 @@ export interface ScenarioTransaction {
   amount: string;
   projected_at: string;
   category: string | null;
+  status: ScenarioTransactionStatus;
 }
 
 export interface ScenarioDetail extends Scenario {
@@ -1216,6 +1226,7 @@ const scenarioTransactionKeys = [
   "amount",
   "projected_at",
   "category",
+  "status",
 ] as const;
 
 export function parseScenarioTransaction(value: unknown): ScenarioTransaction {
@@ -1229,7 +1240,8 @@ export function parseScenarioTransaction(value: unknown): ScenarioTransaction {
     item.description === "" ||
     typeof item.projected_at !== "string" ||
     !dateOnlyPattern.test(item.projected_at) ||
-    !isNullableString(item.category)
+    !isNullableString(item.category) ||
+    !scenarioTransactionStatuses.includes(item.status as ScenarioTransactionStatus)
   ) {
     throw new TypeError("Parcela inválida.");
   }
@@ -1240,6 +1252,7 @@ export function parseScenarioTransaction(value: unknown): ScenarioTransaction {
     amount: decimal(item.amount),
     projected_at: item.projected_at,
     category: item.category,
+    status: item.status as ScenarioTransactionStatus,
   };
 }
 
