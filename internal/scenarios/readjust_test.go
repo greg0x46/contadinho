@@ -15,7 +15,7 @@ func TestReadjustReduceTermRecomputesCountFromReferenceAmount(t *testing.T) {
 	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
 
 	// Three 400.00 installments (1200.00 total), none allocated.
-	drafts, _ := scenarios.GenerateInstallments(dec(t, "1200.00"), 3, date(t, "2026-09-01"))
+	drafts, _ := scenarios.GenerateInstallments(dec(t, "1200.00"), 3, date(t, "2026-09-01"), scenarios.CadenceMonthly)
 	if _, err := scenarios.CreateGeneratedInstallments(ctx, conn, s.ID, drafts); err != nil {
 		t.Fatalf("CreateGeneratedInstallments: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestReadjustRedistributePreservesInstallmentCountAndDates(t *testing.T) {
 	d := newDebt(t, conn)
 	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
 
-	drafts, _ := scenarios.GenerateInstallments(dec(t, "1200.00"), 3, date(t, "2026-09-01"))
+	drafts, _ := scenarios.GenerateInstallments(dec(t, "1200.00"), 3, date(t, "2026-09-01"), scenarios.CadenceMonthly)
 	if _, err := scenarios.CreateGeneratedInstallments(ctx, conn, s.ID, drafts); err != nil {
 		t.Fatalf("CreateGeneratedInstallments: %v", err)
 	}

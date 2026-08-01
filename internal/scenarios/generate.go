@@ -11,7 +11,7 @@ import (
 )
 
 // ErrInvalidInstallmentPlan is returned by GenerateInstallments when
-// totalAmount or months can't produce a sensible monthly plan.
+// totalAmount, months, or cadence can't produce a sensible plan.
 var ErrInvalidInstallmentPlan = errors.New("invalid installment plan")
 
 // GeneratedInstallment is one row GenerateInstallments proposes — not yet
@@ -20,6 +20,37 @@ type GeneratedInstallment struct {
 	Description string
 	Amount      decimal.Decimal
 	ProjectedAt time.Time
+}
+
+// Cadence is how often generated installments repeat.
+type Cadence string
+
+const (
+	CadenceMonthly  Cadence = "mensal"
+	CadenceWeekly   Cadence = "semanal"
+	CadenceBiweekly Cadence = "quinzenal"
+)
+
+// IsValid reports whether c is one of the defined cadences.
+func (c Cadence) IsValid() bool {
+	switch c {
+	case CadenceMonthly, CadenceWeekly, CadenceBiweekly:
+		return true
+	default:
+		return false
+	}
+}
+
+// step advances t by n cadence periods (n=0 returns t unchanged).
+func (c Cadence) step(t time.Time, n int) time.Time {
+	switch c {
+	case CadenceWeekly:
+		return t.AddDate(0, 0, 7*n)
+	case CadenceBiweekly:
+		return t.AddDate(0, 0, 14*n)
+	default: // CadenceMonthly
+		return t.AddDate(0, n, 0)
+	}
 }
 
 // splitEvenly divides totalAmount into n shares at 2-decimal (BRL cents)
@@ -43,23 +74,69 @@ func splitEvenly(totalAmount decimal.Decimal, n int) []decimal.Decimal {
 	return shares
 }
 
-// GenerateInstallments splits totalAmount into months equal monthly
-// installments, one per calendar month starting at startDate.
-func GenerateInstallments(totalAmount decimal.Decimal, months int, startDate time.Time) ([]GeneratedInstallment, error) {
+// GenerateInstallments splits totalAmount into count equal installments,
+// spaced by cadence starting at startDate.
+func GenerateInstallments(totalAmount decimal.Decimal, count int, startDate time.Time, cadence Cadence) ([]GeneratedInstallment, error) {
 	if !totalAmount.IsPositive() {
 		return nil, ErrInvalidInstallmentPlan
 	}
-	if months < 1 {
+	if count < 1 {
+		return nil, ErrInvalidInstallmentPlan
+	}
+	if !cadence.IsValid() {
 		return nil, ErrInvalidInstallmentPlan
 	}
 
-	shares := splitEvenly(totalAmount, months)
-	installments := make([]GeneratedInstallment, months)
+	shares := splitEvenly(totalAmount, count)
+	installments := make([]GeneratedInstallment, count)
 	for i, amount := range shares {
 		installments[i] = GeneratedInstallment{
-			Description: fmt.Sprintf("Parcela %d/%d", i+1, months),
+			Description: fmt.Sprintf("Parcela %d/%d", i+1, count),
 			Amount:      amount,
-			ProjectedAt: startDate.AddDate(0, i, 0),
+			ProjectedAt: cadence.step(startDate, i),
+		}
+	}
+	return installments, nil
+}
+
+// splitByAmount divides totalAmount into installments of installmentAmount
+// each — however many it takes to cover it (ceil(totalAmount /
+// installmentAmount)) — with the last absorbing whatever floor-division
+// left over, so the installments always sum to exactly totalAmount. Shared
+// with the "abater do final" readjustment strategy (Readjust), which needs
+// the same "fixed value, derived count" math.
+func splitByAmount(totalAmount, installmentAmount decimal.Decimal) []decimal.Decimal {
+	count := int(totalAmount.Div(installmentAmount).Ceil().IntPart())
+	if count < 1 {
+		count = 1
+	}
+	amounts := make([]decimal.Decimal, count)
+	for i := 0; i < count-1; i++ {
+		amounts[i] = installmentAmount
+	}
+	amounts[count-1] = totalAmount.Sub(installmentAmount.Mul(decimal.NewFromInt(int64(count - 1))))
+	return amounts
+}
+
+// GenerateInstallmentsForAmount splits totalAmount into installments worth
+// installmentAmount each, spaced by cadence starting at startDate — the
+// count is derived rather than chosen (see splitByAmount).
+func GenerateInstallmentsForAmount(totalAmount, installmentAmount decimal.Decimal, startDate time.Time, cadence Cadence) ([]GeneratedInstallment, error) {
+	if !totalAmount.IsPositive() || !installmentAmount.IsPositive() {
+		return nil, ErrInvalidInstallmentPlan
+	}
+	if !cadence.IsValid() {
+		return nil, ErrInvalidInstallmentPlan
+	}
+
+	amounts := splitByAmount(totalAmount, installmentAmount)
+	count := len(amounts)
+	installments := make([]GeneratedInstallment, count)
+	for i, amount := range amounts {
+		installments[i] = GeneratedInstallment{
+			Description: fmt.Sprintf("Parcela %d/%d", i+1, count),
+			Amount:      amount,
+			ProjectedAt: cadence.step(startDate, i),
 		}
 	}
 	return installments, nil

@@ -1,7 +1,7 @@
-import { Alert, Button, Flex, InputNumber, Modal, Popconfirm, Select, Typography } from "antd";
+import { Alert, Button, Flex, InputNumber, Modal, Popconfirm, Radio, Select, Typography } from "antd";
 import { useState } from "react";
 
-import type { DebtLinkedTransaction, ScenarioTransaction } from "../../api/contracts";
+import type { Cadence, DebtLinkedTransaction, ScenarioTransaction } from "../../api/contracts";
 import { useDebtPlan } from "../../hooks/useDebtPlan";
 import { formatOptionalDate } from "../../presentation/dates";
 import { formatBRL } from "../../presentation/money";
@@ -53,7 +53,10 @@ export function DebtPlanSection({
   links: DebtLinkedTransaction[];
 }) {
   const plan = useDebtPlan(debtId);
+  const [cadence, setCadence] = useState<Cadence>("mensal");
+  const [generateBy, setGenerateBy] = useState<"months" | "amount">("months");
   const [months, setMonths] = useState<number | null>(6);
+  const [installmentAmount, setInstallmentAmount] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [allocatingInstallment, setAllocatingInstallment] = useState<ScenarioTransaction | null>(null);
@@ -72,9 +75,16 @@ export function DebtPlanSection({
   const createPlan = () => runAction(() => plan.createPlan("Plano de pagamento"), "Não foi possível criar o plano.");
 
   const generate = () => {
-    if (months === null || months < 1) return;
+    if (generateBy === "months") {
+      if (months === null || months < 1) return;
+      return runAction(
+        () => plan.generateInstallments({ cadence, months }),
+        "Não foi possível gerar as parcelas.",
+      );
+    }
+    if (installmentAmount === null || installmentAmount <= 0) return;
     return runAction(
-      () => plan.generateInstallments({ months }),
+      () => plan.generateInstallments({ cadence, installment_amount: installmentAmount }),
       "Não foi possível gerar as parcelas.",
     );
   };
@@ -140,19 +150,50 @@ export function DebtPlanSection({
           </Button>
         </Flex>
       ) : plan.plan.transactions.length === 0 ? (
-        <Flex gap="small" align="center" wrap>
-          <Typography.Text>Gerar parcelas mensais a partir do valor restante em</Typography.Text>
-          <InputNumber
-            aria-label="Número de meses"
-            min={1}
-            max={120}
-            value={months}
-            onChange={(value) => setMonths(value)}
-          />
-          <Typography.Text>meses</Typography.Text>
-          <Button type="primary" loading={plan.isGenerating} onClick={generate}>
-            Gerar parcelas
-          </Button>
+        <Flex vertical gap="small">
+          <Typography.Text>Gerar parcelas a partir do valor restante da dívida</Typography.Text>
+          <Flex gap="small" align="center" wrap>
+            <Typography.Text>Cadência:</Typography.Text>
+            <Radio.Group
+              value={cadence}
+              onChange={(e) => setCadence(e.target.value as Cadence)}
+              optionType="button"
+            >
+              <Radio.Button value="mensal">Mensal</Radio.Button>
+              <Radio.Button value="semanal">Semanal</Radio.Button>
+              <Radio.Button value="quinzenal">Quinzenal</Radio.Button>
+            </Radio.Group>
+          </Flex>
+          <Radio.Group value={generateBy} onChange={(e) => setGenerateBy(e.target.value)}>
+            <Radio value="months">Número de parcelas</Radio>
+            <Radio value="amount">Valor da parcela</Radio>
+          </Radio.Group>
+          <Flex gap="small" align="center" wrap>
+            {generateBy === "months" ? (
+              <>
+                <InputNumber
+                  aria-label="Número de parcelas"
+                  min={1}
+                  max={520}
+                  value={months}
+                  onChange={(value) => setMonths(value)}
+                />
+                <Typography.Text>parcelas</Typography.Text>
+              </>
+            ) : (
+              <InputNumber
+                aria-label="Valor de cada parcela"
+                addonBefore="R$"
+                min={0.01}
+                step={0.01}
+                value={installmentAmount}
+                onChange={(value) => setInstallmentAmount(value)}
+              />
+            )}
+            <Button type="primary" loading={plan.isGenerating} onClick={generate}>
+              Gerar parcelas
+            </Button>
+          </Flex>
         </Flex>
       ) : (
         <>

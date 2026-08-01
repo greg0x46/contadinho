@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import * as scenariosApi from "../../api/scenarios";
@@ -62,5 +63,42 @@ describe("DebtPlanSection accumulated deviation banner", () => {
   it("shows an on-track message for a zero deviation", async () => {
     renderSection(detailWith("0.00"));
     expect(await screen.findByText("Em dia com o plano de pagamento até hoje.")).toBeVisible();
+  });
+});
+
+describe("DebtPlanSection generation form", () => {
+  const emptyPlan: ScenarioDetail = { ...scenarioSummary, transactions: [], accumulated_deviation: "0.00" };
+
+  it("generates by number of installments with the selected cadence", async () => {
+    const user = userEvent.setup();
+    vi.mocked(scenariosApi.generateInstallments).mockResolvedValue([]);
+    renderSection(emptyPlan);
+
+    await user.click(await screen.findByText("Semanal"));
+    await user.click(screen.getByRole("button", { name: "Gerar parcelas" }));
+
+    await waitFor(() =>
+      expect(scenariosApi.generateInstallments).toHaveBeenCalledWith(scenarioId, {
+        cadence: "semanal",
+        months: 6,
+      }),
+    );
+  });
+
+  it("generates by installment value when that mode is selected", async () => {
+    const user = userEvent.setup();
+    vi.mocked(scenariosApi.generateInstallments).mockResolvedValue([]);
+    renderSection(emptyPlan);
+
+    await user.click(await screen.findByRole("radio", { name: "Valor da parcela" }));
+    await user.type(screen.getByLabelText("Valor de cada parcela"), "400");
+    await user.click(screen.getByRole("button", { name: "Gerar parcelas" }));
+
+    await waitFor(() =>
+      expect(scenariosApi.generateInstallments).toHaveBeenCalledWith(scenarioId, {
+        cadence: "mensal",
+        installment_amount: 400,
+      }),
+    );
   });
 });

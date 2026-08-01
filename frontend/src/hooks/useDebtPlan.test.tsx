@@ -77,9 +77,12 @@ describe("useDebtPlan", () => {
     const { result } = renderHook(() => useDebtPlan(debtId), { wrapper });
     await waitFor(() => expect(result.current.plan).not.toBeNull());
 
-    await act(() => result.current.generateInstallments({ months: 3 }));
+    await act(() => result.current.generateInstallments({ cadence: "mensal", months: 3 }));
 
-    expect(scenariosApi.generateInstallments).toHaveBeenCalledWith(scenarioId, { months: 3 });
+    expect(scenariosApi.generateInstallments).toHaveBeenCalledWith(scenarioId, {
+      cadence: "mensal",
+      months: 3,
+    });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["debts", debtId, "scenarios"] });
   });
 

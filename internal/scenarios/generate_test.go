@@ -9,7 +9,7 @@ import (
 
 func TestGenerateInstallmentsSumMatchesTotalWithLastAbsorbingRemainder(t *testing.T) {
 	total := dec(t, "1000.00")
-	got, err := scenarios.GenerateInstallments(total, 3, date(t, "2026-09-01"))
+	got, err := scenarios.GenerateInstallments(total, 3, date(t, "2026-09-01"), scenarios.CadenceMonthly)
 	if err != nil {
 		t.Fatalf("GenerateInstallments: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestGenerateInstallmentsSumMatchesTotalWithLastAbsorbingRemainder(t *testin
 }
 
 func TestGenerateInstallmentsEvenDivisionHasNoRemainder(t *testing.T) {
-	got, err := scenarios.GenerateInstallments(dec(t, "900.00"), 3, date(t, "2026-09-01"))
+	got, err := scenarios.GenerateInstallments(dec(t, "900.00"), 3, date(t, "2026-09-01"), scenarios.CadenceMonthly)
 	if err != nil {
 		t.Fatalf("GenerateInstallments: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestGenerateInstallmentsEvenDivisionHasNoRemainder(t *testing.T) {
 }
 
 func TestGenerateInstallmentsMonthlyDates(t *testing.T) {
-	got, err := scenarios.GenerateInstallments(dec(t, "300.00"), 3, date(t, "2026-01-31"))
+	got, err := scenarios.GenerateInstallments(dec(t, "300.00"), 3, date(t, "2026-01-31"), scenarios.CadenceMonthly)
 	if err != nil {
 		t.Fatalf("GenerateInstallments: %v", err)
 	}
@@ -59,13 +59,13 @@ func TestGenerateInstallmentsMonthlyDates(t *testing.T) {
 }
 
 func TestGenerateInstallmentsRejectsInvalidInput(t *testing.T) {
-	if _, err := scenarios.GenerateInstallments(dec(t, "0"), 3, date(t, "2026-01-01")); !errors.Is(err, scenarios.ErrInvalidInstallmentPlan) {
+	if _, err := scenarios.GenerateInstallments(dec(t, "0"), 3, date(t, "2026-01-01"), scenarios.CadenceMonthly); !errors.Is(err, scenarios.ErrInvalidInstallmentPlan) {
 		t.Errorf("zero amount: err = %v, want ErrInvalidInstallmentPlan", err)
 	}
-	if _, err := scenarios.GenerateInstallments(dec(t, "-100"), 3, date(t, "2026-01-01")); !errors.Is(err, scenarios.ErrInvalidInstallmentPlan) {
+	if _, err := scenarios.GenerateInstallments(dec(t, "-100"), 3, date(t, "2026-01-01"), scenarios.CadenceMonthly); !errors.Is(err, scenarios.ErrInvalidInstallmentPlan) {
 		t.Errorf("negative amount: err = %v, want ErrInvalidInstallmentPlan", err)
 	}
-	if _, err := scenarios.GenerateInstallments(dec(t, "100"), 0, date(t, "2026-01-01")); !errors.Is(err, scenarios.ErrInvalidInstallmentPlan) {
+	if _, err := scenarios.GenerateInstallments(dec(t, "100"), 0, date(t, "2026-01-01"), scenarios.CadenceMonthly); !errors.Is(err, scenarios.ErrInvalidInstallmentPlan) {
 		t.Errorf("zero months: err = %v, want ErrInvalidInstallmentPlan", err)
 	}
 }
@@ -75,7 +75,7 @@ func TestCreateGeneratedInstallmentsPersistsAll(t *testing.T) {
 	d := newDebt(t, conn)
 	s, _ := scenarios.CreateScenario(t.Context(), conn, scenarios.KindDebtPlan, "Plano", &d.ID)
 
-	drafts, err := scenarios.GenerateInstallments(dec(t, "1200.00"), 4, date(t, "2026-09-01"))
+	drafts, err := scenarios.GenerateInstallments(dec(t, "1200.00"), 4, date(t, "2026-09-01"), scenarios.CadenceMonthly)
 	if err != nil {
 		t.Fatalf("GenerateInstallments: %v", err)
 	}
@@ -93,5 +93,86 @@ func TestCreateGeneratedInstallmentsPersistsAll(t *testing.T) {
 	}
 	if len(list) != 4 {
 		t.Fatalf("len(list) = %d, want 4", len(list))
+	}
+}
+
+func TestGenerateInstallmentsWeeklyCadence(t *testing.T) {
+	got, err := scenarios.GenerateInstallments(dec(t, "300.00"), 3, date(t, "2026-01-01"), scenarios.CadenceWeekly)
+	if err != nil {
+		t.Fatalf("GenerateInstallments: %v", err)
+	}
+	wantDates := []string{"2026-01-01", "2026-01-08", "2026-01-15"}
+	for i, ins := range got {
+		if got := ins.ProjectedAt.Format("2006-01-02"); got != wantDates[i] {
+			t.Errorf("installment[%d].ProjectedAt = %s, want %s", i, got, wantDates[i])
+		}
+	}
+}
+
+func TestGenerateInstallmentsBiweeklyCadence(t *testing.T) {
+	got, err := scenarios.GenerateInstallments(dec(t, "300.00"), 3, date(t, "2026-01-01"), scenarios.CadenceBiweekly)
+	if err != nil {
+		t.Fatalf("GenerateInstallments: %v", err)
+	}
+	wantDates := []string{"2026-01-01", "2026-01-15", "2026-01-29"}
+	for i, ins := range got {
+		if got := ins.ProjectedAt.Format("2006-01-02"); got != wantDates[i] {
+			t.Errorf("installment[%d].ProjectedAt = %s, want %s", i, got, wantDates[i])
+		}
+	}
+}
+
+func TestGenerateInstallmentsRejectsInvalidCadence(t *testing.T) {
+	if _, err := scenarios.GenerateInstallments(dec(t, "100"), 3, date(t, "2026-01-01"), scenarios.Cadence("bogus")); !errors.Is(err, scenarios.ErrInvalidInstallmentPlan) {
+		t.Errorf("err = %v, want ErrInvalidInstallmentPlan", err)
+	}
+}
+
+func TestGenerateInstallmentsForAmountDerivesCountAndAbsorbsRemainder(t *testing.T) {
+	got, err := scenarios.GenerateInstallmentsForAmount(dec(t, "1000.00"), dec(t, "400.00"), date(t, "2026-09-01"), scenarios.CadenceMonthly)
+	if err != nil {
+		t.Fatalf("GenerateInstallmentsForAmount: %v", err)
+	}
+	// ceil(1000/400) = 3 installments: 400, 400, 200.
+	if len(got) != 3 {
+		t.Fatalf("len(got) = %d, want 3", len(got))
+	}
+	sum := dec(t, "0")
+	for i, ins := range got {
+		sum = sum.Add(ins.Amount)
+		if i < 2 && !ins.Amount.Equal(dec(t, "400.00")) {
+			t.Errorf("installment[%d] = %s, want 400.00", i, ins.Amount)
+		}
+	}
+	if !got[2].Amount.Equal(dec(t, "200.00")) {
+		t.Errorf("last installment = %s, want 200.00 (absorbs remainder)", got[2].Amount)
+	}
+	if !sum.Equal(dec(t, "1000.00")) {
+		t.Errorf("sum = %s, want 1000.00", sum)
+	}
+}
+
+func TestGenerateInstallmentsForAmountWithBiweeklyCadence(t *testing.T) {
+	got, err := scenarios.GenerateInstallmentsForAmount(dec(t, "600.00"), dec(t, "300.00"), date(t, "2026-01-01"), scenarios.CadenceBiweekly)
+	if err != nil {
+		t.Fatalf("GenerateInstallmentsForAmount: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len(got) = %d, want 2", len(got))
+	}
+	wantDates := []string{"2026-01-01", "2026-01-15"}
+	for i, ins := range got {
+		if got := ins.ProjectedAt.Format("2006-01-02"); got != wantDates[i] {
+			t.Errorf("installment[%d].ProjectedAt = %s, want %s", i, got, wantDates[i])
+		}
+	}
+}
+
+func TestGenerateInstallmentsForAmountRejectsInvalidInput(t *testing.T) {
+	if _, err := scenarios.GenerateInstallmentsForAmount(dec(t, "0"), dec(t, "100"), date(t, "2026-01-01"), scenarios.CadenceMonthly); !errors.Is(err, scenarios.ErrInvalidInstallmentPlan) {
+		t.Errorf("zero total: err = %v, want ErrInvalidInstallmentPlan", err)
+	}
+	if _, err := scenarios.GenerateInstallmentsForAmount(dec(t, "100"), dec(t, "0"), date(t, "2026-01-01"), scenarios.CadenceMonthly); !errors.Is(err, scenarios.ErrInvalidInstallmentPlan) {
+		t.Errorf("zero installment amount: err = %v, want ErrInvalidInstallmentPlan", err)
 	}
 }
