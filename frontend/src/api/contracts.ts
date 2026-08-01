@@ -1132,6 +1132,132 @@ export function parseDebtLink(value: unknown): DebtLink {
   };
 }
 
+export const scenarioKinds = ["debt_plan"] as const;
+export type ScenarioKind = (typeof scenarioKinds)[number];
+
+export interface Scenario {
+  id: string;
+  kind: ScenarioKind;
+  name: string;
+  debt_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScenarioTransaction {
+  id: string;
+  scenario_id: string;
+  description: string;
+  amount: string;
+  projected_at: string;
+  category: string | null;
+}
+
+export interface ScenarioDetail extends Scenario {
+  transactions: ScenarioTransaction[];
+}
+
+export interface ScenarioCreate {
+  name: string;
+}
+
+export interface ScenarioTransactionWrite {
+  description: string;
+  amount: number;
+  projected_at: string;
+  category?: string | null;
+}
+
+export interface GenerateInstallmentsWrite {
+  months: number;
+  start_date?: string;
+}
+
+const scenarioKeys = ["id", "kind", "name", "debt_id", "created_at", "updated_at"] as const;
+
+function scenarioFieldsFrom(scenario: Record<string, unknown>): Scenario {
+  if (
+    typeof scenario.id !== "string" ||
+    !isUuid(scenario.id) ||
+    !scenarioKinds.includes(scenario.kind as ScenarioKind) ||
+    typeof scenario.name !== "string" ||
+    scenario.name === "" ||
+    !(scenario.debt_id === null || (typeof scenario.debt_id === "string" && isUuid(scenario.debt_id))) ||
+    !isValidDate(scenario.created_at) ||
+    !isValidDate(scenario.updated_at)
+  ) {
+    throw new TypeError("Cenário inválido.");
+  }
+  return {
+    id: scenario.id,
+    kind: scenario.kind as ScenarioKind,
+    name: scenario.name,
+    debt_id: scenario.debt_id as string | null,
+    created_at: scenario.created_at,
+    updated_at: scenario.updated_at,
+  };
+}
+
+export function parseScenario(value: unknown): Scenario {
+  return scenarioFieldsFrom(requiredRecord(value, scenarioKeys, "Cenário inválido."));
+}
+
+export function parseScenarioList(value: unknown): Scenario[] {
+  if (!Array.isArray(value)) {
+    throw new TypeError("Lista de cenários inválida.");
+  }
+  return value.map(parseScenario);
+}
+
+const scenarioTransactionKeys = [
+  "id",
+  "scenario_id",
+  "description",
+  "amount",
+  "projected_at",
+  "category",
+] as const;
+
+export function parseScenarioTransaction(value: unknown): ScenarioTransaction {
+  const item = requiredRecord(value, scenarioTransactionKeys, "Parcela inválida.");
+  if (
+    typeof item.id !== "string" ||
+    !isUuid(item.id) ||
+    typeof item.scenario_id !== "string" ||
+    !isUuid(item.scenario_id) ||
+    typeof item.description !== "string" ||
+    item.description === "" ||
+    typeof item.projected_at !== "string" ||
+    !dateOnlyPattern.test(item.projected_at) ||
+    !isNullableString(item.category)
+  ) {
+    throw new TypeError("Parcela inválida.");
+  }
+  return {
+    id: item.id,
+    scenario_id: item.scenario_id,
+    description: item.description,
+    amount: decimal(item.amount),
+    projected_at: item.projected_at,
+    category: item.category,
+  };
+}
+
+export function parseScenarioTransactionList(value: unknown): ScenarioTransaction[] {
+  if (!Array.isArray(value)) {
+    throw new TypeError("Lista de parcelas inválida.");
+  }
+  return value.map(parseScenarioTransaction);
+}
+
+export function parseScenarioDetail(value: unknown): ScenarioDetail {
+  const detail = requiredRecord(value, [...scenarioKeys, "transactions"], "Detalhe de cenário inválido.");
+  if (!Array.isArray(detail.transactions)) {
+    throw new TypeError("Detalhe de cenário inválido.");
+  }
+  return { ...scenarioFieldsFrom(detail), transactions: detail.transactions.map(parseScenarioTransaction) };
+}
+
 export interface SetupStatus {
   configured: boolean;
   unlocked: boolean;
