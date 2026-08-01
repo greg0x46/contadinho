@@ -1,0 +1,393 @@
+package pluggy
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// Config is the subset of app config the adapter needs — the settings
+// package (phase 4's credential storage) supplies ClientID/ClientSecret
+// decrypted from the settings table instead of environment variables.
+type Config struct {
+	BaseURL            string
+	ClientID           string
+	ClientSecret       string
+	ItemID             string
+	ConnectTimeout     time.Duration
+	ReadTimeout        time.Duration
+	MaxRateLimitWait   time.Duration
+	MaxAttempts        int
+	MaxPagesPerAccount int
+}
+
+// DefaultConfig fills in the same defaults as Settings' field defaults in
+// the Python reference.
+func DefaultConfig() Config {
+	return Config{
+		BaseURL:            "https://api.pluggy.ai",
+		ConnectTimeout:     5 * time.Second,
+		ReadTimeout:        30 * time.Second,
+		MaxRateLimitWait:   60 * time.Second,
+		MaxAttempts:        3,
+		MaxPagesPerAccount: 1000,
+	}
+}
+
+// Adapter mirrors PluggyAdapter.
+type Adapter struct {
+	config Config
+	writer RawEnvelopeWriter
+	client *http.Client
+	sleep  func(time.Duration)
+
+	apiKey      string
+	institution *string
+}
+
+// NewAdapter builds an Adapter. httpClient defaults to one with the
+// configured timeouts when nil; tests pass one pointed at an httptest server.
+func NewAdapter(config Config, writer RawEnvelopeWriter, httpClient *http.Client) *Adapter {
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: config.ConnectTimeout + config.ReadTimeout}
+	}
+	return &Adapter{config: config, writer: writer, client: httpClient, sleep: time.Sleep}
+}
+
+func (a *Adapter) authenticate(ctx context.Context) error {
+	body, err := json.Marshal(map[string]string{
+		"clientId":     a.config.ClientID,
+		"clientSecret": a.config.ClientSecret,
+	})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.config.BaseURL+"/auth", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return &ProviderError{Code: "provider_unavailable", Stage: StageAuth, SafeMessage: "Financial provider is temporarily unavailable"}
+	}
+	defer resp.Body.Close()
+	content, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return &ProviderError{Code: "invalid_provider_credentials", Stage: StageAuth, SafeMessage: "Financial provider credentials are invalid"}
+	}
+	if resp.StatusCode >= 400 {
+		return &ProviderError{Code: "provider_unavailable", Stage: StageAuth, SafeMessage: "Financial provider authentication failed"}
+	}
+
+	var payload struct {
+		APIKey string `json:"apiKey"`
+	}
+	if err := json.Unmarshal(content, &payload); err != nil || payload.APIKey == "" {
+		return &ProviderError{Code: "invalid_provider_payload", Stage: StageAuth, SafeMessage: "Financial provider authentication response was invalid"}
+	}
+	a.apiKey = payload.APIKey
+	return nil
+}
+
+func (a *Adapter) ensureAuthenticated(ctx context.Context) (string, error) {
+	if a.apiKey == "" {
+		if err := a.authenticate(ctx); err != nil {
+			return "", err
+		}
+	}
+	return a.apiKey, nil
+}
+
+func retryWait(resp *http.Response) time.Duration {
+	if v := resp.Header.Get("retry-after"); v != "" {
+		if seconds, err := strconv.ParseFloat(v, 64); err == nil && seconds >= 0 {
+			return time.Duration(seconds * float64(time.Second))
+		}
+	}
+	if v := resp.Header.Get("ratelimit-reset"); v != "" {
+		if unix, err := strconv.ParseFloat(v, 64); err == nil {
+			wait := time.Until(time.Unix(int64(unix), 0))
+			if wait < 0 {
+				wait = 0
+			}
+			return wait
+		}
+	}
+	return 250 * time.Millisecond
+}
+
+// read mirrors PluggyAdapter._read: authenticate once, retry on network
+// errors/429/5xx up to MaxAttempts, and persist every response that actually
+// came back from the wire (network-level failures that never got a response
+// are not — there is nothing to persist) before trusting its body.
+func (a *Adapter) read(
+	ctx context.Context, scope Scope, path string, stage FailureStage, pageSequence int, externalAccountID *string,
+) (map[string]any, string, error) {
+	apiKey, err := a.ensureAuthenticated(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var lastNetErr error
+	for attempt := 1; attempt <= a.config.MaxAttempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.config.BaseURL+path, nil)
+		if err != nil {
+			return nil, "", err
+		}
+		req.Header.Set("X-API-KEY", apiKey)
+
+		resp, err := a.client.Do(req)
+		if err != nil {
+			lastNetErr = err
+			if attempt < a.config.MaxAttempts && isRetryableNetError(err) {
+				a.sleep(time.Duration(attempt) * 250 * time.Millisecond)
+				continue
+			}
+			return nil, "", &ProviderError{
+				Code: "provider_unavailable", Stage: stage, SafeMessage: "Financial provider is temporarily unavailable",
+				ExternalAccountID: externalAccountID,
+			}
+		}
+
+		content, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		rawImportID, writeErr := a.writer.Write(RawResponseEnvelope{
+			Scope: scope, Method: http.MethodGet, Path: req.URL.String(), StatusCode: resp.StatusCode,
+			Headers: flattenHeader(resp.Header), Content: content, PageSequence: pageSequence,
+			RequestAttempt: attempt, ExternalAccountID: externalAccountID, ReceivedAt: time.Now().UTC(),
+		})
+		if writeErr != nil {
+			return nil, "", fmt.Errorf("persist raw import: %w", writeErr)
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			wait := retryWait(resp)
+			if attempt < a.config.MaxAttempts && wait <= a.config.MaxRateLimitWait {
+				a.sleep(wait)
+				continue
+			}
+			return nil, "", &ProviderError{
+				Code: "provider_rate_limited", Stage: stage, SafeMessage: "Financial provider rate limit was exceeded",
+				RawImportID: &rawImportID, ExternalAccountID: externalAccountID,
+			}
+		}
+		if resp.StatusCode >= 500 {
+			if attempt < a.config.MaxAttempts {
+				a.sleep(time.Duration(attempt) * 250 * time.Millisecond)
+				continue
+			}
+			return nil, "", &ProviderError{
+				Code: "provider_unavailable", Stage: stage, SafeMessage: "Financial provider is temporarily unavailable",
+				RawImportID: &rawImportID, ExternalAccountID: externalAccountID,
+			}
+		}
+		if resp.StatusCode >= 400 {
+			return nil, "", &ProviderError{
+				Code: "provider_request_failed", Stage: stage, SafeMessage: "Financial provider rejected a read request",
+				RawImportID: &rawImportID, ExternalAccountID: externalAccountID,
+			}
+		}
+
+		payload, err := decodeJSON(content)
+		if err != nil {
+			var mapErr *MappingError
+			if errors.As(err, &mapErr) {
+				return nil, "", &ProviderError{
+					Code: mapErr.Code, Stage: stage, SafeMessage: mapErr.SafeMessage,
+					RawImportID: &rawImportID, ExternalAccountID: externalAccountID,
+				}
+			}
+			return nil, "", err
+		}
+		return payload, rawImportID, nil
+	}
+	return nil, "", fmt.Errorf("retry loop exhausted: %w", lastNetErr)
+}
+
+func isRetryableNetError(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr)
+}
+
+func flattenHeader(h http.Header) map[string]string {
+	out := make(map[string]string, len(h))
+	for k, v := range h {
+		if len(v) > 0 {
+			out[k] = v[0]
+		}
+	}
+	return out
+}
+
+// GetSource mirrors PluggyAdapter.get_source, including
+// _interpret_item_status's checks that turn a login-error or
+// no-safely-updated-product item into a ProviderError instead of proceeding.
+func (a *Adapter) GetSource(ctx context.Context) (SourceSnapshot, string, error) {
+	payload, rawImportID, err := a.read(ctx, ScopeItem, "/items/"+a.config.ItemID, StageItem, 1, nil)
+	if err != nil {
+		return SourceSnapshot{}, "", err
+	}
+	source, err := mapSource(payload, a.config.ItemID)
+	if err != nil {
+		var mapErr *MappingError
+		errors.As(err, &mapErr)
+		return SourceSnapshot{}, "", &ProviderError{Code: mapErr.Code, Stage: StageItem, SafeMessage: mapErr.SafeMessage, RawImportID: &rawImportID}
+	}
+	source, err = interpretItemStatus(source, payload, rawImportID)
+	if err != nil {
+		return SourceSnapshot{}, "", err
+	}
+	a.institution = source.InstitutionName
+	return source, rawImportID, nil
+}
+
+func interpretItemStatus(source SourceSnapshot, payload map[string]any, rawImportID string) (SourceSnapshot, error) {
+	status := strField2(source.ProviderStatus)
+	execution := strField2(source.ProviderExecutionStatus)
+	if status == "LOGIN_ERROR" || execution == "INVALID_CREDENTIALS" {
+		return SourceSnapshot{}, &ProviderError{
+			Code: "item_invalid_credentials", Stage: StageItem,
+			SafeMessage: "The financial connection requires updated credentials", RawImportID: &rawImportID,
+		}
+	}
+	if status == "OUTDATED" && execution != "PARTIAL_SUCCESS" {
+		return SourceSnapshot{}, &ProviderError{
+			Code: "item_unavailable", Stage: StageItem,
+			SafeMessage: "The financial connection has no safely updated products", RawImportID: &rawImportID,
+		}
+	}
+	if execution != "PARTIAL_SUCCESS" {
+		source.SafeProducts = map[string]bool{"ACCOUNTS": true, "TRANSACTIONS": true}
+		return source, nil
+	}
+	safe := safeProducts(payload["statusDetail"])
+	if len(safe) == 0 {
+		return SourceSnapshot{}, &ProviderError{
+			Code: "item_unavailable", Stage: StageItem,
+			SafeMessage: "The financial connection has no safely updated products", RawImportID: &rawImportID,
+		}
+	}
+	source.Warnings = append(source.Warnings, "provider_partial_result")
+	source.SafeProducts = safe
+	return source, nil
+}
+
+func strField2(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func safeProducts(statusDetail any) map[string]bool {
+	safe := make(map[string]bool)
+	switch detail := statusDetail.(type) {
+	case map[string]any:
+		for product, v := range detail {
+			if isSuccessStatus(v) {
+				safe[strings.ToUpper(product)] = true
+			}
+		}
+	case []any:
+		for _, item := range detail {
+			entry, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			product, _ := entry["product"].(string)
+			if product != "" && isSuccessStatus(entry["status"]) {
+				safe[strings.ToUpper(product)] = true
+			}
+		}
+	}
+	return safe
+}
+
+func isSuccessStatus(v any) bool {
+	var status string
+	switch value := v.(type) {
+	case string:
+		status = value
+	case map[string]any:
+		status, _ = value["status"].(string)
+	}
+	return status == "SUCCESS" || status == "UPDATED"
+}
+
+// GetAccounts mirrors PluggyAdapter.get_accounts.
+func (a *Adapter) GetAccounts(ctx context.Context) (AccountsPage, error) {
+	payload, rawImportID, err := a.read(ctx, ScopeAccounts, "/accounts?itemId="+a.config.ItemID, StageAccounts, 1, nil)
+	if err != nil {
+		return AccountsPage{}, err
+	}
+	accounts, rejections, err := mapAccountsPage(payload, a.institution)
+	if err != nil {
+		var mapErr *MappingError
+		errors.As(err, &mapErr)
+		return AccountsPage{}, &ProviderError{Code: mapErr.Code, Stage: StageAccounts, SafeMessage: mapErr.SafeMessage, RawImportID: &rawImportID}
+	}
+	return AccountsPage{RawImportID: rawImportID, Accounts: accounts, Rejections: rejections}, nil
+}
+
+// IterTransactionPages mirrors PluggyAdapter.iter_transaction_pages: handle
+// is called once per page in order; returning an error from handle aborts
+// pagination and propagates that error.
+func (a *Adapter) IterTransactionPages(ctx context.Context, externalAccountID string, handle func(TransactionsPage) error) error {
+	var cursor *string
+	seenCursors := make(map[string]bool)
+
+	for pageSequence := 1; pageSequence <= a.config.MaxPagesPerAccount; pageSequence++ {
+		path := "/v2/transactions?accountId=" + externalAccountID
+		if cursor != nil {
+			path += "&after=" + *cursor
+		}
+		payload, rawImportID, err := a.read(ctx, ScopeTransactions, path, StageTransactions, pageSequence, &externalAccountID)
+		if err != nil {
+			return err
+		}
+		transactions, rejections, err := mapTransactionsPage(payload, externalAccountID)
+		if err != nil {
+			var mapErr *MappingError
+			errors.As(err, &mapErr)
+			return &ProviderError{Code: mapErr.Code, Stage: StageTransactions, SafeMessage: mapErr.SafeMessage, RawImportID: &rawImportID, ExternalAccountID: &externalAccountID}
+		}
+		nextCursor, err := extractCursor(payload["next"], externalAccountID)
+		if err != nil {
+			var mapErr *MappingError
+			errors.As(err, &mapErr)
+			return &ProviderError{Code: mapErr.Code, Stage: StageTransactions, SafeMessage: mapErr.SafeMessage, RawImportID: &rawImportID, ExternalAccountID: &externalAccountID}
+		}
+
+		if err := handle(TransactionsPage{RawImportID: rawImportID, Transactions: transactions, Rejections: rejections, NextCursor: nextCursor}); err != nil {
+			return err
+		}
+		if nextCursor == nil {
+			return nil
+		}
+		if seenCursors[*nextCursor] {
+			return &ProviderError{
+				Code: "invalid_provider_payload", Stage: StageTransactions,
+				SafeMessage: "Provider returned a repeated pagination cursor",
+				RawImportID: &rawImportID, ExternalAccountID: &externalAccountID,
+			}
+		}
+		seenCursors[*nextCursor] = true
+		cursor = nextCursor
+	}
+	return &ProviderError{
+		Code: "invalid_provider_payload", Stage: StageTransactions,
+		SafeMessage: "Provider exceeded the safe pagination limit", ExternalAccountID: &externalAccountID,
+	}
+}

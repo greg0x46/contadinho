@@ -1,0 +1,1 @@
+const a=new Intl.DateTimeFormat("pt-BR",{dateStyle:"short",timeStyle:"medium"});function n(t){const e=new Date(t);return Number.isNaN(e.getTime())?"Data inválida":a.format(e)}function o(t){return t===null?"Ainda não disponível":n(t)}export{o as a,n as f};

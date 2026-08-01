@@ -1,0 +1,174 @@
+package automation
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+
+	"contadinho-go/internal/money"
+	"contadinho-go/internal/syncsvc"
+	"contadinho-go/internal/transactions"
+)
+
+// extractCardNumber pulls the card number out of a financial_transactions
+// credit_card_metadata blob. The key is "cardNumber" (camelCase) because
+// package pluggy stores that JSON blob verbatim from Pluggy's wire format
+// rather than renaming it to snake_case the way the Python reference's typed
+// dataclass mapping does — see pluggy.TransactionSnapshot's doc comment.
+func extractCardNumber(metadata string) string {
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(metadata), &parsed); err != nil {
+		return ""
+	}
+	card, _ := parsed["cardNumber"].(string)
+	return card
+}
+
+func candidateFor(ctx context.Context, q transactions.Querier, transactionID string) (MatchCandidate, error) {
+	var description, creditCardMetadata, accountName, accountInstitution sql.NullString
+	err := q.QueryRowContext(ctx, `
+		SELECT ft.description, ft.credit_card_metadata, fa.name, fa.institution
+		FROM financial_transactions ft JOIN financial_accounts fa ON fa.id = ft.account_id
+		WHERE ft.id = ?`, transactionID,
+	).Scan(&description, &creditCardMetadata, &accountName, &accountInstitution)
+	if err != nil {
+		return MatchCandidate{}, err
+	}
+	candidate := MatchCandidate{}
+	if description.Valid {
+		candidate.Description = &description.String
+	}
+	if accountName.Valid {
+		candidate.AccountName = &accountName.String
+	}
+	if accountInstitution.Valid {
+		candidate.AccountInstitution = &accountInstitution.String
+	}
+	if creditCardMetadata.Valid {
+		if card := extractCardNumber(creditCardMetadata.String); card != "" {
+			candidate.CardNumber = &card
+		}
+	}
+	return candidate, nil
+}
+
+// ApplyToNewTransaction mirrors apply_rules_to_new_transaction: the first
+// active rule (in creation order) that matches wins and ignores the
+// transaction; later rules are never consulted, matching the reference's
+// early return. Despite the name, it also runs for a resync's update path
+// (see NewTransactionHook below and syncsvc.TransactionUpsertedHook) so a
+// transaction that starts out matching no rule gets re-evaluated once a
+// later sync changes a field a rule cares about — applyInclusion (package
+// transactions) already refuses to let a rule-origin decision overwrite a
+// manual one, so re-running this on an update is safe by construction.
+func ApplyToNewTransaction(
+	ctx context.Context, conn *sql.DB, transactionID string, onIgnored transactions.OnIgnoredHook,
+) error {
+	rules, err := ListActive(ctx, conn)
+	if err != nil {
+		return err
+	}
+	if len(rules) == 0 {
+		return nil
+	}
+	candidate, err := candidateFor(ctx, conn, transactionID)
+	if err != nil {
+		return err
+	}
+	for _, rule := range rules {
+		if Matches(candidate, rule.Conditions, rule.LogicOperator) {
+			_, err := transactions.SetInclusion(
+				ctx, conn, transactionID, money.Ignored, transactions.InclusionOriginRule, &rule.ID, &rule.Name, onIgnored,
+			)
+			return err
+		}
+	}
+	return nil
+}
+
+// NewTransactionHook adapts ApplyToNewTransaction to
+// syncsvc.TransactionUpsertedHook, closing over onIgnored (the debts-unlink
+// hook from package debts, once phase 6 provides one; nil is a valid no-op).
+func NewTransactionHook(onIgnored transactions.OnIgnoredHook) syncsvc.TransactionUpsertedHook {
+	return func(ctx context.Context, conn *sql.DB, transactionID, _ string) error {
+		return ApplyToNewTransaction(ctx, conn, transactionID, onIgnored)
+	}
+}
+
+// RetroactiveResult mirrors RetroactiveApplyResult.
+type RetroactiveResult struct {
+	Matched int
+	Ignored int
+}
+
+// ApplyRetroactively mirrors apply_retroactively: silently returns a zero
+// result for an unknown rule id, matching the reference (the caller already
+// validated the rule exists when creating/updating it in the same request).
+func ApplyRetroactively(ctx context.Context, conn *sql.DB, ruleID string, onIgnored transactions.OnIgnoredHook) (RetroactiveResult, error) {
+	rule, err := Get(ctx, conn, ruleID)
+	if err != nil {
+		if err == ErrNotFound {
+			return RetroactiveResult{}, nil
+		}
+		return RetroactiveResult{}, err
+	}
+
+	rows, err := conn.QueryContext(ctx, `
+		SELECT ft.id, ft.description, ft.credit_card_metadata, fa.name, fa.institution
+		FROM financial_transactions ft JOIN financial_accounts fa ON fa.id = ft.account_id`)
+	if err != nil {
+		return RetroactiveResult{}, err
+	}
+	type row struct {
+		id        string
+		candidate MatchCandidate
+	}
+	var candidates []row
+	for rows.Next() {
+		var id string
+		var description, creditCardMetadata, accountName, accountInstitution sql.NullString
+		if err := rows.Scan(&id, &description, &creditCardMetadata, &accountName, &accountInstitution); err != nil {
+			rows.Close()
+			return RetroactiveResult{}, err
+		}
+		candidate := MatchCandidate{}
+		if description.Valid {
+			candidate.Description = &description.String
+		}
+		if accountName.Valid {
+			candidate.AccountName = &accountName.String
+		}
+		if accountInstitution.Valid {
+			candidate.AccountInstitution = &accountInstitution.String
+		}
+		if creditCardMetadata.Valid {
+			if card := extractCardNumber(creditCardMetadata.String); card != "" {
+				candidate.CardNumber = &card
+			}
+		}
+		candidates = append(candidates, row{id: id, candidate: candidate})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return RetroactiveResult{}, err
+	}
+	rows.Close()
+
+	var result RetroactiveResult
+	for _, c := range candidates {
+		if !Matches(c.candidate, rule.Conditions, rule.LogicOperator) {
+			continue
+		}
+		result.Matched++
+		confirmation, err := transactions.SetInclusion(
+			ctx, conn, c.id, money.Ignored, transactions.InclusionOriginRule, &rule.ID, &rule.Name, onIgnored,
+		)
+		if err != nil {
+			return RetroactiveResult{}, err
+		}
+		if confirmation.Changed {
+			result.Ignored++
+		}
+	}
+	return result, nil
+}
