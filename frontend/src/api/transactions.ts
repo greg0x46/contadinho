@@ -67,13 +67,17 @@ export async function queryTransactions(
 export async function getSpendingByCategory(
   timezone: string,
   signal?: AbortSignal,
+  scenarioId?: string,
 ): Promise<SpendingByCategory> {
+  const params = new URLSearchParams({ timezone });
+  if (scenarioId !== undefined) params.set("scenario_id", scenarioId);
   let response: Response;
   try {
-    response = await fetch(
-      `/api/transactions/spending-by-category?timezone=${encodeURIComponent(timezone)}`,
-      { method: "GET", headers: { Accept: "application/json" }, signal },
-    );
+    response = await fetch(`/api/transactions/spending-by-category?${params.toString()}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal,
+    });
   } catch (error) {
     if (isAbortError(error)) throw error;
     throw new ApiError("transport", "Não foi possível consultar os gastos por categoria.");

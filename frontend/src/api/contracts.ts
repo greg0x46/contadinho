@@ -193,10 +193,14 @@ export interface TransactionQueryResult {
   };
 }
 
+export const categorySpendingSources = ["real", "projetado"] as const;
+export type CategorySpendingSource = (typeof categorySpendingSources)[number];
+
 export interface CategorySpendingItem {
   category_id: string | null;
   category_name: string;
   amount: string;
+  source: CategorySpendingSource;
 }
 
 export interface SpendingByCategory {
@@ -279,7 +283,7 @@ const monthOnlyPattern = /^\d{4}-\d{2}$/;
 function parseCategorySpendingItem(value: unknown): CategorySpendingItem {
   const item = requiredRecord(
     value,
-    ["category_id", "category_name", "amount"],
+    ["category_id", "category_name", "amount", "source"],
     "Gasto por categoria inválido.",
   );
   if (item.category_id !== null && typeof item.category_id !== "string") {
@@ -288,10 +292,14 @@ function parseCategorySpendingItem(value: unknown): CategorySpendingItem {
   if (typeof item.category_name !== "string" || item.category_name === "") {
     throw new TypeError("Gasto por categoria inválido.");
   }
+  if (!categorySpendingSources.includes(item.source as CategorySpendingSource)) {
+    throw new TypeError("Gasto por categoria inválido.");
+  }
   return {
     category_id: item.category_id,
     category_name: item.category_name,
     amount: decimal(item.amount),
+    source: item.source as CategorySpendingSource,
   };
 }
 

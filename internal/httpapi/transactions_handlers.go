@@ -1,16 +1,19 @@
 package httpapi
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/shopspring/decimal"
 
 	"contadinho-go/internal/categories"
 	"contadinho-go/internal/money"
+	"contadinho-go/internal/scenarios"
 	"contadinho-go/internal/transactions"
 )
 
@@ -373,6 +376,7 @@ type categorySpendingItemDTO struct {
 	CategoryID   *string `json:"category_id"`
 	CategoryName string  `json:"category_name"`
 	Amount       string  `json:"amount"`
+	Source       string  `json:"source"`
 }
 
 type spendingByCategoryDTO struct {
@@ -386,10 +390,66 @@ func spendingByCategoryUnavailableProblem(w http.ResponseWriter) {
 	writeProblem(w, 503, "spending-by-category-unavailable", "Gastos por categoria temporariamente indisponíveis", "Tente novamente em instantes.")
 }
 
+// dateWithinBounds reports whether t's calendar date (year/month/day, no
+// time-of-day/timezone — matching how scenario_transactions.projected_at is
+// stored) falls within [from, to] inclusive.
+func dateWithinBounds(t time.Time, from, to money.Date) bool {
+	d := money.Date{Year: t.Year(), Month: t.Month(), Day: t.Day()}
+	notBefore := d.Year > from.Year ||
+		(d.Year == from.Year && (d.Month > from.Month || (d.Month == from.Month && d.Day >= from.Day)))
+	notAfter := d.Year < to.Year ||
+		(d.Year == to.Year && (d.Month < to.Month || (d.Month == to.Month && d.Day <= to.Day)))
+	return notBefore && notAfter
+}
+
+// projectedSpendingByCategory mirrors task 8's opt-in union: every
+// scenario_transaction of scenarioID whose projected_at falls in [from, to],
+// grouped by its free-text category (nil/empty groups as "Sem categoria",
+// same convention as the real side) — never merged into a real category's
+// total, always its own row tagged source="projetado", so the response can
+// never conflate a hypothetical amount with a real one.
+func projectedSpendingByCategory(ctx context.Context, db *sql.DB, scenarioID string, from, to money.Date) ([]categorySpendingItemDTO, error) {
+	list, err := scenarios.ListScenarioTransactions(ctx, db, scenarioID)
+	if err != nil {
+		return nil, err
+	}
+	type accum struct {
+		name   string
+		amount decimal.Decimal
+	}
+	byCategory := make(map[string]*accum)
+	var order []string
+	for _, st := range list {
+		if !dateWithinBounds(st.ProjectedAt, from, to) {
+			continue
+		}
+		key, name := "", "Sem categoria"
+		if st.Category != nil && *st.Category != "" {
+			key, name = *st.Category, *st.Category
+		}
+		a, ok := byCategory[key]
+		if !ok {
+			a = &accum{name: name, amount: decimal.Zero}
+			byCategory[key] = a
+			order = append(order, key)
+		}
+		a.amount = a.amount.Add(st.Amount)
+	}
+	items := make([]categorySpendingItemDTO, len(order))
+	for i, key := range order {
+		a := byCategory[key]
+		items[i] = categorySpendingItemDTO{CategoryName: a.name, Amount: money.CanonicalDecimal(a.amount), Source: "projetado"}
+	}
+	return items, nil
+}
+
 // handleSpendingByCategory sums the requesting client's current calendar
 // month (in its own timezone, since "this month" depends on it) of outflow
 // transactions grouped by internal category, powering the dashboard's
-// spending widget.
+// spending widget. An optional scenario_id query param (task 8) unions in
+// that scenario's projected installments due in the same period as
+// separate, explicitly-tagged rows — never included unless asked for, and
+// never merged into the real totals.
 func handleSpendingByCategory(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		timezone := r.URL.Query().Get("timezone")
@@ -413,17 +473,41 @@ func handleSpendingByCategory(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		total := decimal.Zero
 		dtoItems := make([]categorySpendingItemDTO, len(items))
 		for i, it := range items {
+			dtoItems[i] = categorySpendingItemDTO{CategoryID: it.CategoryID, CategoryName: it.CategoryName, Amount: it.Amount, Source: "real"}
+		}
+
+		if scenarioID := r.URL.Query().Get("scenario_id"); scenarioID != "" {
+			if _, err := scenarios.GetScenario(r.Context(), db, scenarioID); errors.Is(err, scenarios.ErrScenarioNotFound) {
+				scenarioNotFoundProblem(w)
+				return
+			} else if err != nil {
+				spendingByCategoryUnavailableProblem(w)
+				return
+			}
+			projected, err := projectedSpendingByCategory(r.Context(), db, scenarioID, from, to)
+			if err != nil {
+				spendingByCategoryUnavailableProblem(w)
+				return
+			}
+			dtoItems = append(dtoItems, projected...)
+		}
+
+		total := decimal.Zero
+		for _, it := range dtoItems {
 			amount, err := decimal.NewFromString(it.Amount)
 			if err != nil {
 				spendingByCategoryUnavailableProblem(w)
 				return
 			}
 			total = total.Add(amount)
-			dtoItems[i] = categorySpendingItemDTO{CategoryID: it.CategoryID, CategoryName: it.CategoryName, Amount: it.Amount}
 		}
+		sort.SliceStable(dtoItems, func(i, j int) bool {
+			ai, _ := decimal.NewFromString(dtoItems[i].Amount)
+			aj, _ := decimal.NewFromString(dtoItems[j].Amount)
+			return ai.GreaterThan(aj)
+		})
 
 		writeJSON(w, http.StatusOK, spendingByCategoryDTO{
 			Month:        fmt.Sprintf("%04d-%02d", year, int(month)),
