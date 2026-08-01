@@ -1,4 +1,5 @@
-import { Alert, Button, Flex, InputNumber, Modal, Popconfirm, Radio, Select, Typography } from "antd";
+import { Alert, Button, DatePicker, Flex, InputNumber, Modal, Popconfirm, Radio, Select, Typography } from "antd";
+import dayjs, { type Dayjs } from "dayjs";
 import { useState } from "react";
 
 import type { Cadence, DebtLinkedTransaction, ScenarioTransaction } from "../../api/contracts";
@@ -57,6 +58,7 @@ export function DebtPlanSection({
   const [generateBy, setGenerateBy] = useState<"months" | "amount">("months");
   const [months, setMonths] = useState<number | null>(6);
   const [installmentAmount, setInstallmentAmount] = useState<number | null>(null);
+  const [startDate, setStartDate] = useState<Dayjs>(() => dayjs());
   const [actionError, setActionError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [allocatingInstallment, setAllocatingInstallment] = useState<ScenarioTransaction | null>(null);
@@ -75,16 +77,17 @@ export function DebtPlanSection({
   const createPlan = () => runAction(() => plan.createPlan("Plano de pagamento"), "Não foi possível criar o plano.");
 
   const generate = () => {
+    const start_date = startDate.format("YYYY-MM-DD");
     if (generateBy === "months") {
       if (months === null || months < 1) return;
       return runAction(
-        () => plan.generateInstallments({ cadence, months }),
+        () => plan.generateInstallments({ cadence, months, start_date }),
         "Não foi possível gerar as parcelas.",
       );
     }
     if (installmentAmount === null || installmentAmount <= 0) return;
     return runAction(
-      () => plan.generateInstallments({ cadence, installment_amount: installmentAmount }),
+      () => plan.generateInstallments({ cadence, installment_amount: installmentAmount, start_date }),
       "Não foi possível gerar as parcelas.",
     );
   };
@@ -168,6 +171,16 @@ export function DebtPlanSection({
             <Radio value="months">Número de parcelas</Radio>
             <Radio value="amount">Valor da parcela</Radio>
           </Radio.Group>
+          <Flex gap="small" align="center" wrap>
+            <Typography.Text>Data de início:</Typography.Text>
+            <DatePicker
+              aria-label="Data de início"
+              value={startDate}
+              onChange={(value) => value && setStartDate(value)}
+              format="DD/MM/YYYY"
+              allowClear={false}
+            />
+          </Flex>
           <Flex gap="small" align="center" wrap>
             {generateBy === "months" ? (
               <>

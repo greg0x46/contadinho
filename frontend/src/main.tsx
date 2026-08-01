@@ -1,3 +1,7 @@
+import { ConfigProvider } from "antd";
+import ptBR from "antd/locale/pt_BR";
+import dayjs from "dayjs";
+import "dayjs/locale/pt-br";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -10,6 +14,8 @@ import "./styles/sync-runs.css";
 import "./styles/transactions.css";
 import "./styles/home.css";
 
+dayjs.locale("pt-br");
+
 const root = document.getElementById("root");
 
 if (root === null) {
@@ -20,8 +26,10 @@ const queryClient = createAppQueryClient();
 
 createRoot(root).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <AppRouter />
-    </QueryClientProvider>
+    <ConfigProvider locale={ptBR}>
+      <QueryClientProvider client={queryClient}>
+        <AppRouter />
+      </QueryClientProvider>
+    </ConfigProvider>
   </StrictMode>,
 );
