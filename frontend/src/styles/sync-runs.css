@@ -1,0 +1,19 @@
+.failure-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.ant-pro-page-container-children-container {
+  padding-block-end: 2rem;
+}
+
+.ant-statistic-content,
+.ant-descriptions-item-content {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 40rem) {
+  .ant-pro-page-container-children-container {
+    padding-inline: 0.75rem;
+  }
+}

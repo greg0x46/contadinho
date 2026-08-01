@@ -1,0 +1,31 @@
+import type { TransactionClassification, TransactionItem } from "../api/contracts";
+
+export const classificationLabel: Record<TransactionClassification, string> = {
+  inflow: "Entrada",
+  outflow: "Saída",
+  unclassified: "Não classificada",
+};
+
+export function statusLabel(status: string | null): string {
+  if (status === null || status === "") return "Situação não informada";
+  if (status === "POSTED") return "Confirmada";
+  if (status === "PENDING") return "Pendente";
+  if (status === "CANCELLED") return "Cancelada";
+  return `${status} — situação desconhecida`;
+}
+
+export function inclusionOriginLabel(inclusion: TransactionItem["inclusion"]): string {
+  const action = inclusion.state === "ignored" ? "Ignorada" : "Restaurada";
+  if (inclusion.origin === "rule") {
+    return inclusion.rule_name ? `${action} pela regra "${inclusion.rule_name}"` : `${action} por regra`;
+  }
+  return `${action} manualmente`;
+}
+
+export const exclusionReasonLabel = {
+  ignored: "Fora dos totais: transação ignorada",
+  unclassified: "Fora dos totais: tipo não classificado",
+  ineligible_status: "Fora dos totais: situação não elegível",
+  missing_money_pair: "Fora dos totais: valor e moeda incompletos",
+  zero_value: "Fora dos totais: valor zero",
+} as const;
