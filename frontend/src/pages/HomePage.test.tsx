@@ -23,8 +23,8 @@ const spendingByCategory: SpendingByCategory = {
   currency_code: "BRL",
   total: "150.00",
   items: [
-    { category_id: "cat-mercado", category_name: "Mercado", amount: "100.00" },
-    { category_id: null, category_name: "Sem categoria", amount: "50.00" },
+    { category_id: "cat-mercado", category_name: "Mercado", amount: "100.00", source: "real" },
+    { category_id: null, category_name: "Sem categoria", amount: "50.00", source: "real" },
   ],
 };
 
@@ -92,12 +92,12 @@ describe("SpendingByCategoryCard", () => {
       currency_code: "BRL",
       total: "600.00",
       items: [
-        { category_id: "1", category_name: "Um", amount: "100.00" },
-        { category_id: "2", category_name: "Dois", amount: "100.00" },
-        { category_id: "3", category_name: "Tres", amount: "100.00" },
-        { category_id: "4", category_name: "Quatro", amount: "100.00" },
-        { category_id: "5", category_name: "Cinco", amount: "100.00" },
-        { category_id: "6", category_name: "Seis", amount: "100.00" },
+        { category_id: "1", category_name: "Um", amount: "100.00", source: "real" },
+        { category_id: "2", category_name: "Dois", amount: "100.00", source: "real" },
+        { category_id: "3", category_name: "Tres", amount: "100.00", source: "real" },
+        { category_id: "4", category_name: "Quatro", amount: "100.00", source: "real" },
+        { category_id: "5", category_name: "Cinco", amount: "100.00", source: "real" },
+        { category_id: "6", category_name: "Seis", amount: "100.00", source: "real" },
       ],
     });
     renderPage();
