@@ -413,6 +413,82 @@ func debtRemainingAmount(ctx context.Context, conn *sql.DB, d debts.Debt) (decim
 	return debts.RemainingAmount(d.TotalAmount, paid), nil
 }
 
+type readjustRequest struct {
+	Strategy string `json:"strategy"`
+}
+
+// handleReadjustInstallments mirrors task 7's "Reajustar parcelas
+// restantes": it replaces every installment with no allocation at all with
+// a fresh set that sums to the debt's current remaining amount minus what's
+// already reserved by partially/fully allocated installments — those are
+// never touched. See scenarios.Readjust for the two strategies.
+func handleReadjustInstallments(conn *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		scenarioID := r.PathValue("id")
+		s, err := scenarios.GetScenario(r.Context(), conn, scenarioID)
+		if errors.Is(err, scenarios.ErrScenarioNotFound) {
+			scenarioNotFoundProblem(w)
+			return
+		}
+		if err != nil {
+			scenariosUnavailableProblem(w)
+			return
+		}
+		if s.DebtID == nil {
+			invalidScenarioProblem(w, "Este cenário não está associado a uma dívida.")
+			return
+		}
+
+		var req readjustRequest
+		if err := decodeStrict(r, &req); err != nil {
+			invalidScenarioProblem(w, "Informe uma estratégia válida: abater_do_final ou redistribuir.")
+			return
+		}
+		strategy := scenarios.ReadjustStrategy(req.Strategy)
+		if strategy != scenarios.StrategyReduceTerm && strategy != scenarios.StrategyRedistribute {
+			invalidScenarioProblem(w, "Informe uma estratégia válida: abater_do_final ou redistribuir.")
+			return
+		}
+
+		debt, err := debts.Get(r.Context(), conn, *s.DebtID)
+		if errors.Is(err, debts.ErrNotFound) {
+			debtNotFoundProblem(w)
+			return
+		}
+		if err != nil {
+			debtUnavailableProblem(w)
+			return
+		}
+		remaining, err := debtRemainingAmount(r.Context(), conn, debt)
+		if err != nil {
+			debtUnavailableProblem(w)
+			return
+		}
+
+		created, err := scenarios.Readjust(r.Context(), conn, scenarioID, remaining, strategy)
+		switch {
+		case errors.Is(err, scenarios.ErrNoAffectedInstallments):
+			writeProblem(w, 422, "scenario-readjust-nothing-to-do", "Nada para reajustar",
+				"Todas as parcelas já possuem alguma alocação.")
+			return
+		case errors.Is(err, scenarios.ErrNothingToRedistribute):
+			writeProblem(w, 422, "scenario-readjust-no-balance", "Nada a redistribuir",
+				"Não há saldo restante para gerar novas parcelas.")
+			return
+		case err != nil:
+			scenariosUnavailableProblem(w)
+			return
+		}
+
+		today := todayUTC()
+		dtos := make([]scenarioTransactionDTO, len(created))
+		for i, st := range created {
+			dtos[i] = scenarioTransactionToDTO(st, today, decimal.Zero)
+		}
+		writeJSON(w, http.StatusOK, dtos)
+	}
+}
+
 func handleDeleteScenarioTransaction(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("transactionId")

@@ -1,4 +1,4 @@
-import { Alert, Button, Flex, InputNumber, Modal, Select, Typography } from "antd";
+import { Alert, Button, Flex, InputNumber, Modal, Popconfirm, Select, Typography } from "antd";
 import { useState } from "react";
 
 import type { DebtLinkedTransaction, ScenarioTransaction } from "../../api/contracts";
@@ -79,6 +79,9 @@ export function DebtPlanSection({
     );
   };
 
+  const readjust = (strategy: "abater_do_final" | "redistribuir") =>
+    runAction(() => plan.readjust({ strategy }), "Não foi possível reajustar as parcelas restantes.");
+
   const deleteInstallment = async (installment: ScenarioTransaction) => {
     setDeletingId(installment.id);
     try {
@@ -154,6 +157,26 @@ export function DebtPlanSection({
       ) : (
         <>
           <AccumulatedDeviationBanner value={plan.plan.accumulated_deviation} />
+          <Flex gap="small" wrap>
+            <Popconfirm
+              title="Abater do final"
+              description="Mantém o valor da parcela; o prazo (número de parcelas restantes) muda para cobrir o saldo."
+              onConfirm={() => readjust("abater_do_final")}
+              okText="Reajustar"
+              cancelText="Cancelar"
+            >
+              <Button loading={plan.isReadjusting}>Reajustar: abater do final</Button>
+            </Popconfirm>
+            <Popconfirm
+              title="Redistribuir entre os meses"
+              description="Mantém o prazo (mesmas datas restantes); o valor de cada parcela muda para cobrir o saldo."
+              onConfirm={() => readjust("redistribuir")}
+              okText="Reajustar"
+              cancelText="Cancelar"
+            >
+              <Button loading={plan.isReadjusting}>Reajustar: redistribuir entre os meses</Button>
+            </Popconfirm>
+          </Flex>
           <DebtPlanTable
             installments={plan.plan.transactions}
             deletingId={deletingId}
