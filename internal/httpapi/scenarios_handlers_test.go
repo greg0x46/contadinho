@@ -326,6 +326,67 @@ func TestAccumulatedDeviationSumsOnlyDueInstallments(t *testing.T) {
 	}
 }
 
+func TestReadjustReplacesUnallocatedInstallments(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	var debt map[string]any
+	decodeJSON(t, resp, &debt)
+	debtID := debt["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	var scenario map[string]any
+	decodeJSON(t, resp, &scenario)
+	scenarioID := scenario["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/generate-installments", map[string]any{
+		"months": 3, "start_date": "2026-09-01",
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("generate status = %d, want 201", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/readjust", map[string]any{"strategy": "redistribuir"})
+	if resp.StatusCode != 200 {
+		t.Fatalf("readjust status = %d, want 200", resp.StatusCode)
+	}
+	var readjusted []map[string]any
+	decodeJSON(t, resp, &readjusted)
+	if len(readjusted) != 3 {
+		t.Fatalf("len(readjusted) = %d, want 3", len(readjusted))
+	}
+	sum := 0.0
+	for _, ins := range readjusted {
+		var amount float64
+		fmt.Sscanf(ins["amount"].(string), "%f", &amount)
+		sum += amount
+	}
+	if sum < 1199.99 || sum > 1200.01 {
+		t.Errorf("sum after readjust = %v, want ~1200.00", sum)
+	}
+}
+
+func TestReadjustRejectsInvalidStrategyOverHTTP(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	var debt map[string]any
+	decodeJSON(t, resp, &debt)
+	debtID := debt["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	var scenario map[string]any
+	decodeJSON(t, resp, &scenario)
+	scenarioID := scenario["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/readjust", map[string]any{"strategy": "bogus"})
+	if resp.StatusCode != 422 {
+		t.Fatalf("status = %d, want 422", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
 func TestGenerateInstallmentsCreatesMonthlyPlanFromRemainingAmount(t *testing.T) {
 	srv, _ := newTestServer(t)
 

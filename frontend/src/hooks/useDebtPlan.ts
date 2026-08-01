@@ -7,8 +7,14 @@ import {
   generateInstallments,
   getScenario,
   listDebtScenarios,
+  readjustInstallments,
 } from "../api/scenarios";
-import type { GenerateInstallmentsWrite, RealizationWrite, ScenarioDetail } from "../api/contracts";
+import type {
+  GenerateInstallmentsWrite,
+  ReadjustWrite,
+  RealizationWrite,
+  ScenarioDetail,
+} from "../api/contracts";
 
 export const debtScenariosQueryKey = (debtId: string) => ["debts", debtId, "scenarios"] as const;
 
@@ -62,6 +68,14 @@ export function useDebtPlan(debtId: string) {
     onSuccess: invalidate,
   });
 
+  const readjustMutation = useMutation({
+    mutationFn: (write: ReadjustWrite) => {
+      if (planSummary === null) throw new Error("Nenhum plano ativo.");
+      return readjustInstallments(planSummary.id, write);
+    },
+    onSuccess: invalidate,
+  });
+
   const plan: ScenarioDetail | null = detailQuery.data ?? null;
 
   return {
@@ -76,5 +90,7 @@ export function useDebtPlan(debtId: string) {
     isDeletingInstallment: deleteTransactionMutation.isPending,
     allocateRealization: allocateMutation.mutateAsync,
     isAllocating: allocateMutation.isPending,
+    readjust: readjustMutation.mutateAsync,
+    isReadjusting: readjustMutation.isPending,
   };
 }

@@ -5,6 +5,7 @@ import {
   parseScenarioTransaction,
   type GenerateInstallmentsWrite,
   type Problem,
+  type ReadjustWrite,
   type RealizationWrite,
   type Scenario,
   type ScenarioCreate,
@@ -185,6 +186,22 @@ export function generateInstallments(
       body: JSON.stringify(write),
     },
     201,
+    parseScenarioTransactionArray,
+  );
+}
+
+export function readjustInstallments(
+  scenarioId: string,
+  write: ReadjustWrite,
+): Promise<ScenarioTransaction[]> {
+  return send(
+    `/api/scenarios/${encodeURIComponent(scenarioId)}/readjust`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(write),
+    },
+    200,
     parseScenarioTransactionArray,
   );
 }

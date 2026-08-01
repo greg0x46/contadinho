@@ -1189,6 +1189,13 @@ export interface GenerateInstallmentsWrite {
   start_date?: string;
 }
 
+export const readjustStrategies = ["abater_do_final", "redistribuir"] as const;
+export type ReadjustStrategy = (typeof readjustStrategies)[number];
+
+export interface ReadjustWrite {
+  strategy: ReadjustStrategy;
+}
+
 const scenarioKeys = ["id", "kind", "name", "debt_id", "created_at", "updated_at"] as const;
 
 function scenarioFieldsFrom(scenario: Record<string, unknown>): Scenario {

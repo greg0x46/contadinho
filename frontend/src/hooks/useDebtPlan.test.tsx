@@ -128,4 +128,19 @@ describe("useDebtPlan", () => {
     });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["debts", debtId, "scenarios"] });
   });
+
+  it("readjusts installments and invalidates the scenarios query", async () => {
+    vi.mocked(scenariosApi.listDebtScenarios).mockResolvedValue([scenarioSummary]);
+    vi.mocked(scenariosApi.getScenario).mockResolvedValue(scenarioDetail);
+    vi.mocked(scenariosApi.readjustInstallments).mockResolvedValue(scenarioDetail.transactions);
+    const { client, wrapper } = setup();
+    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
+    const { result } = renderHook(() => useDebtPlan(debtId), { wrapper });
+    await waitFor(() => expect(result.current.plan).not.toBeNull());
+
+    await act(() => result.current.readjust({ strategy: "redistribuir" }));
+
+    expect(scenariosApi.readjustInstallments).toHaveBeenCalledWith(scenarioId, { strategy: "redistribuir" });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["debts", debtId, "scenarios"] });
+  });
 });
