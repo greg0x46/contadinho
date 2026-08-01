@@ -5,6 +5,7 @@ import {
   parseScenarioTransaction,
   type GenerateInstallmentsWrite,
   type Problem,
+  type RealizationWrite,
   type Scenario,
   type ScenarioCreate,
   type ScenarioDetail,
@@ -131,6 +132,36 @@ export function updateScenarioTransaction(
 export function deleteScenarioTransaction(scenarioId: string, transactionId: string): Promise<void> {
   return send(
     `/api/scenarios/${encodeURIComponent(scenarioId)}/transactions/${encodeURIComponent(transactionId)}`,
+    { method: "DELETE" },
+    204,
+    null,
+  );
+}
+
+export function createRealization(
+  scenarioId: string,
+  transactionId: string,
+  write: RealizationWrite,
+): Promise<ScenarioTransaction> {
+  return send(
+    `/api/scenarios/${encodeURIComponent(scenarioId)}/transactions/${encodeURIComponent(transactionId)}/realizations`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(write),
+    },
+    201,
+    parseScenarioTransaction,
+  );
+}
+
+export function deleteRealization(
+  scenarioId: string,
+  transactionId: string,
+  realizationId: string,
+): Promise<void> {
+  return send(
+    `/api/scenarios/${encodeURIComponent(scenarioId)}/transactions/${encodeURIComponent(transactionId)}/realizations/${encodeURIComponent(realizationId)}`,
     { method: "DELETE" },
     204,
     null,

@@ -98,4 +98,32 @@ describe("useDebtPlan", () => {
     expect(scenariosApi.createDebtScenario).toHaveBeenCalledWith(debtId, { name: "Plano de pagamento" });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["debts", debtId, "scenarios"] });
   });
+
+  it("allocates a debt link to an installment and invalidates the scenarios query", async () => {
+    const transactionId = scenarioDetail.transactions[0].id;
+    vi.mocked(scenariosApi.listDebtScenarios).mockResolvedValue([scenarioSummary]);
+    vi.mocked(scenariosApi.getScenario).mockResolvedValue(scenarioDetail);
+    vi.mocked(scenariosApi.createRealization).mockResolvedValue({
+      ...scenarioDetail.transactions[0],
+      status: "paga",
+    });
+    const { client, wrapper } = setup();
+    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
+    const { result } = renderHook(() => useDebtPlan(debtId), { wrapper });
+    await waitFor(() => expect(result.current.plan).not.toBeNull());
+
+    const linkId = "77777777-7777-4777-8777-777777777777";
+    await act(() =>
+      result.current.allocateRealization({
+        transactionId,
+        write: { debt_link_id: linkId, allocated_amount: 333.33 },
+      }),
+    );
+
+    expect(scenariosApi.createRealization).toHaveBeenCalledWith(scenarioId, transactionId, {
+      debt_link_id: linkId,
+      allocated_amount: 333.33,
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["debts", debtId, "scenarios"] });
+  });
 });

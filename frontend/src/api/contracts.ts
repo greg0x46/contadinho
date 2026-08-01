@@ -1178,6 +1178,11 @@ export interface ScenarioTransactionWrite {
   category?: string | null;
 }
 
+export interface RealizationWrite {
+  debt_link_id: string;
+  allocated_amount: number;
+}
+
 export interface GenerateInstallmentsWrite {
   months: number;
   start_date?: string;

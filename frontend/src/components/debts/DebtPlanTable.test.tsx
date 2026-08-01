@@ -24,14 +24,14 @@ const upcoming: ScenarioTransaction = {
 describe("DebtPlanTable", () => {
   it("renders a status tag per installment", () => {
     render(
-      <DebtPlanTable installments={[overdue, upcoming]} deletingId={null} onDelete={vi.fn()} />,
+      <DebtPlanTable installments={[overdue, upcoming]} deletingId={null} onDelete={vi.fn()} onAllocate={vi.fn()} />,
     );
     expect(screen.getByText("Atrasada")).toBeVisible();
     expect(screen.getByText("Projeção")).toBeVisible();
   });
 
   it("shows the formatted date and amount", () => {
-    render(<DebtPlanTable installments={[overdue]} deletingId={null} onDelete={vi.fn()} />);
+    render(<DebtPlanTable installments={[overdue]} deletingId={null} onDelete={vi.fn()} onAllocate={vi.fn()} />);
     expect(screen.getByText("01/01/2026")).toBeVisible();
     expect(screen.getByText(/R\$\s*333,33/)).toBeVisible();
   });

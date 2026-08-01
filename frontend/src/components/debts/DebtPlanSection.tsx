@@ -1,19 +1,36 @@
-import { Alert, Button, Flex, InputNumber, Typography } from "antd";
+import { Alert, Button, Flex, InputNumber, Modal, Select, Typography } from "antd";
 import { useState } from "react";
 
-import type { ScenarioTransaction } from "../../api/contracts";
+import type { DebtLinkedTransaction, ScenarioTransaction } from "../../api/contracts";
 import { useDebtPlan } from "../../hooks/useDebtPlan";
+import { formatOptionalDate } from "../../presentation/dates";
+import { formatBRL } from "../../presentation/money";
 import { DebtPlanTable } from "./DebtPlanTable";
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
-export function DebtPlanSection({ debtId }: { debtId: string }) {
+function linkLabel(link: DebtLinkedTransaction): string {
+  const date = formatOptionalDate(link.occurred_at);
+  const description = link.description ?? "Sem descrição";
+  return `${date} · ${description} · ${formatBRL(link.current_amount)}`;
+}
+
+export function DebtPlanSection({
+  debtId,
+  links,
+}: {
+  debtId: string;
+  links: DebtLinkedTransaction[];
+}) {
   const plan = useDebtPlan(debtId);
   const [months, setMonths] = useState<number | null>(6);
   const [actionError, setActionError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [allocatingInstallment, setAllocatingInstallment] = useState<ScenarioTransaction | null>(null);
+  const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
+  const [allocatedAmount, setAllocatedAmount] = useState<number | null>(null);
 
   const runAction = async (action: () => Promise<unknown>, fallback: string) => {
     setActionError(null);
@@ -42,6 +59,33 @@ export function DebtPlanSection({ debtId }: { debtId: string }) {
       setActionError(errorMessage(error, "Não foi possível excluir a parcela."));
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const openAllocation = (installment: ScenarioTransaction) => {
+    setAllocatingInstallment(installment);
+    setSelectedLinkId(null);
+    setAllocatedAmount(Number(installment.amount));
+  };
+
+  const closeAllocation = () => {
+    setAllocatingInstallment(null);
+    setSelectedLinkId(null);
+    setAllocatedAmount(null);
+  };
+
+  const confirmAllocation = async () => {
+    if (allocatingInstallment === null || selectedLinkId === null || allocatedAmount === null || allocatedAmount <= 0) {
+      return;
+    }
+    try {
+      await plan.allocateRealization({
+        transactionId: allocatingInstallment.id,
+        write: { debt_link_id: selectedLinkId, allocated_amount: allocatedAmount },
+      });
+      closeAllocation();
+    } catch (error) {
+      setActionError(errorMessage(error, "Não foi possível alocar a transação."));
     }
   };
 
@@ -84,8 +128,44 @@ export function DebtPlanSection({ debtId }: { debtId: string }) {
           installments={plan.plan.transactions}
           deletingId={deletingId}
           onDelete={deleteInstallment}
+          onAllocate={openAllocation}
         />
       )}
+
+      <Modal
+        title="Alocar transação vinculada"
+        open={allocatingInstallment !== null}
+        onCancel={closeAllocation}
+        onOk={confirmAllocation}
+        okText="Alocar"
+        okButtonProps={{
+          disabled: selectedLinkId === null || allocatedAmount === null || allocatedAmount <= 0,
+          loading: plan.isAllocating,
+        }}
+      >
+        <Flex vertical gap="small">
+          <Typography.Text>
+            Qual transação vinculada quita a parcela «{allocatingInstallment?.description}»?
+          </Typography.Text>
+          <Select
+            aria-label="Transação vinculada"
+            placeholder="Selecione uma transação vinculada"
+            value={selectedLinkId}
+            onChange={(value: string | null) => setSelectedLinkId(value)}
+            options={links.map((link) => ({ value: link.id, label: linkLabel(link) }))}
+            notFoundContent="Nenhuma transação vinculada a esta dívida ainda."
+          />
+          <InputNumber
+            aria-label="Valor alocado"
+            addonBefore="R$"
+            min={0.01}
+            step={0.01}
+            style={{ width: "100%" }}
+            value={allocatedAmount}
+            onChange={(value) => setAllocatedAmount(value)}
+          />
+        </Flex>
+      </Modal>
     </Flex>
   );
 }

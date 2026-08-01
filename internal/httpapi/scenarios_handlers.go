@@ -85,6 +85,19 @@ func scenarioTransactionToDTO(st scenarios.ScenarioTransaction, today time.Time,
 	}
 }
 
+// scenarioTransactionDTOFor fetches st's real realizedTotal (the sum of its
+// scenario_transaction_realizations) before building the DTO — the one
+// place every handler that returns a single scenario_transaction goes
+// through, so Status always reflects real allocations, not the
+// decimal.Zero placeholder task 4 used before this table existed.
+func scenarioTransactionDTOFor(ctx context.Context, conn *sql.DB, st scenarios.ScenarioTransaction) (scenarioTransactionDTO, error) {
+	realizedTotal, err := scenarios.RealizedTotal(ctx, conn, st.ID)
+	if err != nil {
+		return scenarioTransactionDTO{}, err
+	}
+	return scenarioTransactionToDTO(st, todayUTC(), realizedTotal), nil
+}
+
 type scenarioDetailDTO struct {
 	scenarioDTO
 	Transactions []scenarioTransactionDTO `json:"transactions"`
@@ -105,10 +118,14 @@ func loadScenarioDetail(w http.ResponseWriter, r *http.Request, conn *sql.DB, id
 		scenariosUnavailableProblem(w)
 		return scenarioDetailDTO{}, false
 	}
-	today := todayUTC()
 	dtos := make([]scenarioTransactionDTO, len(list))
 	for i, st := range list {
-		dtos[i] = scenarioTransactionToDTO(st, today, decimal.Zero)
+		dto, err := scenarioTransactionDTOFor(r.Context(), conn, st)
+		if err != nil {
+			scenariosUnavailableProblem(w)
+			return scenarioDetailDTO{}, false
+		}
+		dtos[i] = dto
 	}
 	return scenarioDetailDTO{scenarioDTO: scenarioToDTO(s), Transactions: dtos}, true
 }
@@ -227,7 +244,12 @@ func handleCreateScenarioTransaction(conn *sql.DB) http.HandlerFunc {
 			scenariosUnavailableProblem(w)
 			return
 		}
-		writeJSON(w, http.StatusCreated, scenarioTransactionToDTO(st, todayUTC(), decimal.Zero))
+		dto, err := scenarioTransactionDTOFor(r.Context(), conn, st)
+		if err != nil {
+			scenariosUnavailableProblem(w)
+			return
+		}
+		writeJSON(w, http.StatusCreated, dto)
 	}
 }
 
@@ -254,7 +276,12 @@ func handleUpdateScenarioTransaction(conn *sql.DB) http.HandlerFunc {
 			scenariosUnavailableProblem(w)
 			return
 		}
-		writeJSON(w, http.StatusOK, scenarioTransactionToDTO(st, todayUTC(), decimal.Zero))
+		dto, err := scenarioTransactionDTOFor(r.Context(), conn, st)
+		if err != nil {
+			scenariosUnavailableProblem(w)
+			return
+		}
+		writeJSON(w, http.StatusOK, dto)
 	}
 }
 
@@ -375,6 +402,102 @@ func handleDeleteScenarioTransaction(conn *sql.DB) http.HandlerFunc {
 			scenarioTransactionNotFoundProblem(w)
 			return
 		} else if err != nil {
+			scenariosUnavailableProblem(w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func realizationNotFoundProblem(w http.ResponseWriter) {
+	writeProblem(w, 404, "scenario-realization-not-found", "Alocação não encontrada", "")
+}
+
+type realizationCreateRequest struct {
+	DebtLinkID      string          `json:"debt_link_id"`
+	AllocatedAmount decimal.Decimal `json:"allocated_amount"`
+}
+
+// handleCreateRealization mirrors task 5's "isso quita qual parcela
+// planejada?" flow: allocating (part of) an existing debt_transaction_links
+// row — created earlier through the ordinary "vincular transação" flow — to
+// a planned installment. It scopes the debt_link to the scenario's own
+// debt so a link from an unrelated debt can never be allocated here, but
+// otherwise places no cap on allocated_amount: over- and under-allocating
+// are both valid outcomes Status already models (paga_a_mais/
+// paga_parcialmente), and splitting one link across several installments or
+// funding one installment from several links is exactly what this table is
+// for.
+func handleCreateRealization(conn *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		scenarioID, transactionID := r.PathValue("id"), r.PathValue("transactionId")
+
+		s, err := scenarios.GetScenario(r.Context(), conn, scenarioID)
+		if errors.Is(err, scenarios.ErrScenarioNotFound) {
+			scenarioNotFoundProblem(w)
+			return
+		}
+		if err != nil {
+			scenariosUnavailableProblem(w)
+			return
+		}
+		st, err := scenarios.GetScenarioTransaction(r.Context(), conn, transactionID)
+		if errors.Is(err, scenarios.ErrTransactionNotFound) || (err == nil && st.ScenarioID != scenarioID) {
+			scenarioTransactionNotFoundProblem(w)
+			return
+		}
+		if err != nil {
+			scenariosUnavailableProblem(w)
+			return
+		}
+
+		var req realizationCreateRequest
+		if err := decodeStrict(r, &req); err != nil || req.DebtLinkID == "" || !req.AllocatedAmount.IsPositive() {
+			invalidScenarioTransactionProblem(w, "Informe um vínculo e um valor alocado válido (> 0).")
+			return
+		}
+
+		link, err := debts.GetLink(r.Context(), conn, req.DebtLinkID)
+		if errors.Is(err, debts.ErrLinkNotFound) {
+			writeProblem(w, 404, "debt-link-not-found", "Vínculo não encontrado", "")
+			return
+		}
+		if err != nil {
+			debtUnavailableProblem(w)
+			return
+		}
+		if s.DebtID == nil || link.DebtID != *s.DebtID {
+			invalidScenarioTransactionProblem(w, "O vínculo informado pertence a outra dívida.")
+			return
+		}
+
+		if _, err := scenarios.CreateRealization(r.Context(), conn, transactionID, req.DebtLinkID, req.AllocatedAmount); err != nil {
+			scenariosUnavailableProblem(w)
+			return
+		}
+		dto, err := scenarioTransactionDTOFor(r.Context(), conn, st)
+		if err != nil {
+			scenariosUnavailableProblem(w)
+			return
+		}
+		writeJSON(w, http.StatusCreated, dto)
+	}
+}
+
+func handleDeleteRealization(conn *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		transactionID, realizationID := r.PathValue("transactionId"), r.PathValue("realizationId")
+
+		realization, err := scenarios.GetRealization(r.Context(), conn, realizationID)
+		if errors.Is(err, scenarios.ErrRealizationNotFound) || (err == nil && realization.ScenarioTransactionID != transactionID) {
+			realizationNotFoundProblem(w)
+			return
+		}
+		if err != nil {
+			scenariosUnavailableProblem(w)
+			return
+		}
+		if err := scenarios.DeleteRealization(r.Context(), conn, realizationID); err != nil {
 			scenariosUnavailableProblem(w)
 			return
 		}

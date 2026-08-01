@@ -112,7 +112,7 @@ function ValidDebtDetail({ id }: { id: string }) {
               <Typography.Title id="plan-title" level={2}>
                 Plano de pagamento
               </Typography.Title>
-              <DebtPlanSection debtId={id} />
+              <DebtPlanSection debtId={id} links={debt.state.snapshot.links} />
             </section>
 
             <section aria-labelledby="link-form-title">

@@ -19,10 +19,12 @@ export function DebtPlanTable({
   installments,
   deletingId,
   onDelete,
+  onAllocate,
 }: {
   installments: ScenarioTransaction[];
   deletingId: string | null;
   onDelete: (installment: ScenarioTransaction) => void;
+  onAllocate: (installment: ScenarioTransaction) => void;
 }) {
   const columns: ProColumns<ScenarioTransaction>[] = [
     {
@@ -52,17 +54,22 @@ export function DebtPlanTable({
       title: "Ação",
       valueType: "option",
       render: (_, row) => (
-        <Popconfirm
-          title="Excluir parcela"
-          description="A parcela planejada será removida do plano."
-          onConfirm={() => onDelete(row)}
-          okText="Excluir"
-          cancelText="Cancelar"
-        >
-          <Button type="link" danger loading={deletingId === row.id}>
-            Excluir
+        <>
+          <Button type="link" onClick={() => onAllocate(row)}>
+            Alocar transação
           </Button>
-        </Popconfirm>
+          <Popconfirm
+            title="Excluir parcela"
+            description="A parcela planejada será removida do plano."
+            onConfirm={() => onDelete(row)}
+            okText="Excluir"
+            cancelText="Cancelar"
+          >
+            <Button type="link" danger loading={deletingId === row.id}>
+              Excluir
+            </Button>
+          </Popconfirm>
+        </>
       ),
     },
   ];

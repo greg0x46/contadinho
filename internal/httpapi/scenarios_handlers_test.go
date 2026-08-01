@@ -132,6 +132,150 @@ func TestScenarioTransactionStatusReflectsProjectedDate(t *testing.T) {
 	}
 }
 
+func TestRealizationAllocatesDebtLinkToInstallmentAndUpdatesStatus(t *testing.T) {
+	srv, conn := newTestServer(t)
+
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	var debt map[string]any
+	decodeJSON(t, resp, &debt)
+	debtID := debt["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	var scenario map[string]any
+	decodeJSON(t, resp, &scenario)
+	scenarioID := scenario["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/transactions", map[string]any{
+		"description": "Parcela 1", "amount": "42.00", "projected_at": "2026-01-01",
+	})
+	var st map[string]any
+	decodeJSON(t, resp, &st)
+	transactionID := st["id"].(string)
+	if st["status"] != "atrasada" {
+		t.Fatalf("initial status = %v, want atrasada", st["status"])
+	}
+
+	txID := insertTransaction(t, conn)
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/links", map[string]any{"transaction_id": txID})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create link status = %d, want 201", resp.StatusCode)
+	}
+	var link map[string]any
+	decodeJSON(t, resp, &link)
+	linkID := link["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/transactions/"+transactionID+"/realizations", map[string]any{
+		"debt_link_id": linkID, "allocated_amount": "42.00",
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create realization status = %d, want 201", resp.StatusCode)
+	}
+	var updated map[string]any
+	decodeJSON(t, resp, &updated)
+	if updated["status"] != "paga" {
+		t.Errorf("status after full realization = %v, want paga", updated["status"])
+	}
+
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/scenarios/"+scenarioID, nil)
+	var detail map[string]any
+	decodeJSON(t, resp, &detail)
+	txs := detail["transactions"].([]any)
+	if len(txs) != 1 || txs[0].(map[string]any)["status"] != "paga" {
+		t.Errorf("scenario detail transactions = %+v", txs)
+	}
+}
+
+func TestRealizationRejectsDebtLinkFromAnotherDebt(t *testing.T) {
+	srv, conn := newTestServer(t)
+
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Dívida A", "total_amount": "1000.00"})
+	var debtA map[string]any
+	decodeJSON(t, resp, &debtA)
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Dívida B", "total_amount": "1000.00"})
+	var debtB map[string]any
+	decodeJSON(t, resp, &debtB)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtA["id"].(string)+"/scenarios", map[string]any{"name": "Plano A"})
+	var scenario map[string]any
+	decodeJSON(t, resp, &scenario)
+	scenarioID := scenario["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/transactions", map[string]any{
+		"description": "Parcela 1", "amount": "42.00", "projected_at": "2026-01-01",
+	})
+	var st map[string]any
+	decodeJSON(t, resp, &st)
+	transactionID := st["id"].(string)
+
+	txID := insertTransaction(t, conn)
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtB["id"].(string)+"/links", map[string]any{"transaction_id": txID})
+	var link map[string]any
+	decodeJSON(t, resp, &link)
+	linkID := link["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/transactions/"+transactionID+"/realizations", map[string]any{
+		"debt_link_id": linkID, "allocated_amount": "42.00",
+	})
+	if resp.StatusCode != 422 {
+		t.Fatalf("status = %d, want 422", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestDeleteRealizationRevertsStatus(t *testing.T) {
+	srv, conn := newTestServer(t)
+
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	var debt map[string]any
+	decodeJSON(t, resp, &debt)
+	debtID := debt["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	var scenario map[string]any
+	decodeJSON(t, resp, &scenario)
+	scenarioID := scenario["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/transactions", map[string]any{
+		"description": "Parcela 1", "amount": "42.00", "projected_at": "2026-01-01",
+	})
+	var st map[string]any
+	decodeJSON(t, resp, &st)
+	transactionID := st["id"].(string)
+
+	txID := insertTransaction(t, conn)
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/links", map[string]any{"transaction_id": txID})
+	var link map[string]any
+	decodeJSON(t, resp, &link)
+	linkID := link["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/transactions/"+transactionID+"/realizations", map[string]any{
+		"debt_link_id": linkID, "allocated_amount": "42.00",
+	})
+	resp.Body.Close()
+
+	// The create-realization response is the updated scenario_transaction,
+	// not the realization itself, so its id isn't exposed there — read it
+	// straight from the (deterministically singular) row created above.
+	var storedRealizationID string
+	if err := conn.QueryRow(`SELECT id FROM scenario_transaction_realizations WHERE scenario_transaction_id = ?`, transactionID).Scan(&storedRealizationID); err != nil {
+		t.Fatalf("query realization id: %v", err)
+	}
+
+	resp = doJSON(t, http.MethodDelete, srv.URL+"/api/scenarios/"+scenarioID+"/transactions/"+transactionID+"/realizations/"+storedRealizationID, nil)
+	if resp.StatusCode != 204 {
+		t.Fatalf("delete realization status = %d, want 204", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/scenarios/"+scenarioID, nil)
+	var detail map[string]any
+	decodeJSON(t, resp, &detail)
+	txs := detail["transactions"].([]any)
+	if txs[0].(map[string]any)["status"] != "atrasada" {
+		t.Errorf("status after deleting realization = %v, want atrasada", txs[0].(map[string]any)["status"])
+	}
+}
+
 func TestGenerateInstallmentsCreatesMonthlyPlanFromRemainingAmount(t *testing.T) {
 	srv, _ := newTestServer(t)
 

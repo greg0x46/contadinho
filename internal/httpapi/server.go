@@ -72,6 +72,8 @@ func NewServer(db *sql.DB, frontend fs.FS, session *settings.Session) http.Handl
 	mux.HandleFunc("POST /api/scenarios/{id}/transactions", handleCreateScenarioTransaction(db))
 	mux.HandleFunc("PUT /api/scenarios/{id}/transactions/{transactionId}", handleUpdateScenarioTransaction(db))
 	mux.HandleFunc("DELETE /api/scenarios/{id}/transactions/{transactionId}", handleDeleteScenarioTransaction(db))
+	mux.HandleFunc("POST /api/scenarios/{id}/transactions/{transactionId}/realizations", handleCreateRealization(db))
+	mux.HandleFunc("DELETE /api/scenarios/{id}/transactions/{transactionId}/realizations/{realizationId}", handleDeleteRealization(db))
 
 	mux.Handle("/", spaHandler(frontend))
 
