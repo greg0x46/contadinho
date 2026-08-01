@@ -45,6 +45,17 @@ type ScenarioTransaction struct {
 	UpdatedAt   time.Time
 }
 
+// ScenarioTransactionRealization mirrors the scenario_transaction_realizations
+// table: (part of) a real debt_transaction_links row allocated to a planned
+// installment.
+type ScenarioTransactionRealization struct {
+	ID                    string
+	ScenarioTransactionID string
+	DebtLinkID            string
+	AllocatedAmount       decimal.Decimal
+	CreatedAt             time.Time
+}
+
 // Status is a ScenarioTransaction's recomputed-on-read state — never
 // persisted, mirroring debts.Status's pattern.
 type Status string

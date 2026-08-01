@@ -20,6 +20,10 @@ import (
 // matching row.
 var ErrNotFound = errors.New("debt not found")
 
+// ErrLinkNotFound is returned by GetLink when a debt_transaction_links id
+// has no matching row.
+var ErrLinkNotFound = errors.New("debt link not found")
+
 // Querier is satisfied by both *sql.DB and *sql.Tx, and structurally by
 // transactions.Querier too (same three methods), so it can also be passed
 // wherever that's expected — see UnlinkIfPresent.
@@ -173,6 +177,30 @@ func Links(ctx context.Context, q Querier, debtID string) ([]Link, error) {
 		links = append(links, l)
 	}
 	return links, rows.Err()
+}
+
+// GetLink mirrors reading a single debt_transaction_links row by id,
+// regardless of which debt it belongs to — callers that need to scope it to
+// a specific debt (e.g. DeleteLink) check Link.DebtID themselves.
+func GetLink(ctx context.Context, q Querier, id string) (Link, error) {
+	var l Link
+	var linkedAmountRaw, linkedAtRaw string
+	err := q.QueryRowContext(ctx,
+		`SELECT id, debt_id, transaction_id, linked_amount, linked_at FROM debt_transaction_links WHERE id = ?`, id,
+	).Scan(&l.ID, &l.DebtID, &l.TransactionID, &linkedAmountRaw, &linkedAtRaw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Link{}, ErrLinkNotFound
+	}
+	if err != nil {
+		return Link{}, err
+	}
+	if l.LinkedAmount, err = decimal.NewFromString(linkedAmountRaw); err != nil {
+		return Link{}, err
+	}
+	if l.LinkedAt, err = db.ParseTime(linkedAtRaw); err != nil {
+		return Link{}, err
+	}
+	return l, nil
 }
 
 // LinkEffectiveAmount mirrors link_effective_amount: recomputed from the

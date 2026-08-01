@@ -2,12 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   createDebtScenario,
+  createRealization,
   deleteScenarioTransaction,
   generateInstallments,
   getScenario,
   listDebtScenarios,
 } from "../api/scenarios";
-import type { GenerateInstallmentsWrite, ScenarioDetail } from "../api/contracts";
+import type { GenerateInstallmentsWrite, RealizationWrite, ScenarioDetail } from "../api/contracts";
 
 export const debtScenariosQueryKey = (debtId: string) => ["debts", debtId, "scenarios"] as const;
 
@@ -53,6 +54,14 @@ export function useDebtPlan(debtId: string) {
     onSuccess: invalidate,
   });
 
+  const allocateMutation = useMutation({
+    mutationFn: ({ transactionId, write }: { transactionId: string; write: RealizationWrite }) => {
+      if (planSummary === null) throw new Error("Nenhum plano ativo.");
+      return createRealization(planSummary.id, transactionId, write);
+    },
+    onSuccess: invalidate,
+  });
+
   const plan: ScenarioDetail | null = detailQuery.data ?? null;
 
   return {
@@ -65,5 +74,7 @@ export function useDebtPlan(debtId: string) {
     isGenerating: generateMutation.isPending,
     deleteInstallment: deleteTransactionMutation.mutateAsync,
     isDeletingInstallment: deleteTransactionMutation.isPending,
+    allocateRealization: allocateMutation.mutateAsync,
+    isAllocating: allocateMutation.isPending,
   };
 }
