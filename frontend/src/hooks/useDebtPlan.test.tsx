@@ -31,6 +31,7 @@ const scenarioDetail: ScenarioDetail = {
       amount: "333.33",
       projected_at: "2026-09-01",
       category: null,
+      status: "projetada",
     },
   ],
 };
