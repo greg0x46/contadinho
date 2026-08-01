@@ -126,16 +126,8 @@ func reduceTermInstallments(balance decimal.Decimal, affected []ScenarioTransact
 	referenceAmount := affected[len(affected)-1].Amount
 	startDate := affected[0].ProjectedAt
 
-	n := int(balance.Div(referenceAmount).Ceil().IntPart())
-	if n < 1 {
-		n = 1
-	}
-	amounts := make([]decimal.Decimal, n)
-	for i := 0; i < n-1; i++ {
-		amounts[i] = referenceAmount
-	}
-	amounts[n-1] = balance.Sub(referenceAmount.Mul(decimal.NewFromInt(int64(n - 1))))
-
+	amounts := splitByAmount(balance, referenceAmount)
+	n := len(amounts)
 	installments := make([]GeneratedInstallment, n)
 	for i, amount := range amounts {
 		installments[i] = GeneratedInstallment{

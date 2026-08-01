@@ -1192,8 +1192,13 @@ export interface RealizationWrite {
   allocated_amount: number;
 }
 
+export const cadences = ["mensal", "semanal", "quinzenal"] as const;
+export type Cadence = (typeof cadences)[number];
+
 export interface GenerateInstallmentsWrite {
-  months: number;
+  cadence: Cadence;
+  months?: number;
+  installment_amount?: number;
   start_date?: string;
 }
 

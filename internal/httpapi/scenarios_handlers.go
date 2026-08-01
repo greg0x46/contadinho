@@ -304,17 +304,21 @@ func handleUpdateScenarioTransaction(conn *sql.DB) http.HandlerFunc {
 }
 
 type generateInstallmentsRequest struct {
-	Months    int     `json:"months"`
-	StartDate *string `json:"start_date"`
+	Cadence           string           `json:"cadence"`
+	Months            *int             `json:"months"`
+	InstallmentAmount *decimal.Decimal `json:"installment_amount"`
+	StartDate         *string          `json:"start_date"`
 }
 
-// handleGenerateInstallments mirrors task 2 of the roadmap: given the
+// handleGenerateInstallments mirrors task 2 of the roadmap (extended to let
+// the caller pick a cadence and either the number of installments or the
+// value of each one — exactly one of the two, never both): given the
 // scenario's debt remaining amount (computed the same way summarize does
-// for debts) and a number of months, it creates that many monthly
-// scenario_transactions, the last absorbing the division's remainder. It
-// refuses to run on a scenario that already has installments — this button
-// is meant to seed an empty plan once, not silently pile on duplicates; a
-// caller that wants to regenerate deletes the existing ones first.
+// for debts), it creates that many scenario_transactions spaced by cadence,
+// the last absorbing whatever division left over. It refuses to run on a
+// scenario that already has installments — this button is meant to seed an
+// empty plan once, not silently pile on duplicates; a caller that wants to
+// regenerate deletes the existing ones first.
 func handleGenerateInstallments(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		scenarioID := r.PathValue("id")
@@ -344,8 +348,19 @@ func handleGenerateInstallments(conn *sql.DB) http.HandlerFunc {
 		}
 
 		var req generateInstallmentsRequest
-		if err := decodeStrict(r, &req); err != nil || req.Months < 1 {
-			invalidScenarioTransactionProblem(w, "Informe um número de meses válido (>= 1).")
+		if err := decodeStrict(r, &req); err != nil {
+			invalidScenarioTransactionProblem(w, "Revise os campos enviados.")
+			return
+		}
+		cadence := scenarios.Cadence(req.Cadence)
+		if !cadence.IsValid() {
+			invalidScenarioTransactionProblem(w, "Informe uma cadência válida: mensal, semanal ou quinzenal.")
+			return
+		}
+		hasMonths := req.Months != nil && *req.Months >= 1
+		hasAmount := req.InstallmentAmount != nil && req.InstallmentAmount.IsPositive()
+		if hasMonths == hasAmount {
+			invalidScenarioTransactionProblem(w, "Informe o número de parcelas OU o valor de cada parcela — não os dois, nem nenhum.")
 			return
 		}
 		startDate := time.Now().UTC()
@@ -373,7 +388,12 @@ func handleGenerateInstallments(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		drafts, err := scenarios.GenerateInstallments(remaining, req.Months, startDate)
+		var drafts []scenarios.GeneratedInstallment
+		if hasMonths {
+			drafts, err = scenarios.GenerateInstallments(remaining, *req.Months, startDate, cadence)
+		} else {
+			drafts, err = scenarios.GenerateInstallmentsForAmount(remaining, *req.InstallmentAmount, startDate, cadence)
+		}
 		if err != nil {
 			invalidScenarioTransactionProblem(w, "A dívida não possui valor restante para gerar parcelas.")
 			return

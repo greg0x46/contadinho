@@ -340,7 +340,7 @@ func TestReadjustReplacesUnallocatedInstallments(t *testing.T) {
 	scenarioID := scenario["id"].(string)
 
 	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/generate-installments", map[string]any{
-		"months": 3, "start_date": "2026-09-01",
+		"cadence": "mensal", "months": 3, "start_date": "2026-09-01",
 	})
 	if resp.StatusCode != 201 {
 		t.Fatalf("generate status = %d, want 201", resp.StatusCode)
@@ -401,7 +401,7 @@ func TestGenerateInstallmentsCreatesMonthlyPlanFromRemainingAmount(t *testing.T)
 	scenarioID := scenario["id"].(string)
 
 	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/generate-installments", map[string]any{
-		"months": 3, "start_date": "2026-09-01",
+		"cadence": "mensal", "months": 3, "start_date": "2026-09-01",
 	})
 	if resp.StatusCode != 201 {
 		t.Fatalf("status = %d, want 201", resp.StatusCode)
@@ -424,9 +424,93 @@ func TestGenerateInstallmentsCreatesMonthlyPlanFromRemainingAmount(t *testing.T)
 	}
 
 	// A second call must not silently duplicate installments.
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/generate-installments", map[string]any{"months": 2})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/generate-installments", map[string]any{"cadence": "mensal", "months": 2})
 	if resp.StatusCode != 409 {
 		t.Fatalf("second generate status = %d, want 409", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestGenerateInstallmentsWithWeeklyCadenceAndInstallmentAmount(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1000.00"})
+	var debt map[string]any
+	decodeJSON(t, resp, &debt)
+	debtID := debt["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	var scenario map[string]any
+	decodeJSON(t, resp, &scenario)
+	scenarioID := scenario["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/generate-installments", map[string]any{
+		"cadence": "semanal", "installment_amount": "400.00", "start_date": "2026-01-01",
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+	var created []map[string]any
+	decodeJSON(t, resp, &created)
+	// ceil(1000/400) = 3 installments: 400.00, 400.00, 200.00.
+	if len(created) != 3 {
+		t.Fatalf("len(created) = %d, want 3", len(created))
+	}
+	if created[0]["amount"] != "400.00" || created[2]["amount"] != "200.00" {
+		t.Errorf("created = %+v", created)
+	}
+	wantDates := []string{"2026-01-01", "2026-01-08", "2026-01-15"}
+	for i, ins := range created {
+		if ins["projected_at"] != wantDates[i] {
+			t.Errorf("created[%d].projected_at = %v, want %s", i, ins["projected_at"], wantDates[i])
+		}
+	}
+}
+
+func TestGenerateInstallmentsRejectsInvalidCadenceOverHTTP(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	var debt map[string]any
+	decodeJSON(t, resp, &debt)
+	debtID := debt["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	var scenario map[string]any
+	decodeJSON(t, resp, &scenario)
+	scenarioID := scenario["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/generate-installments", map[string]any{"cadence": "bogus", "months": 3})
+	if resp.StatusCode != 422 {
+		t.Fatalf("status = %d, want 422", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestGenerateInstallmentsRejectsBothOrNeitherOfMonthsAndAmount(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	var debt map[string]any
+	decodeJSON(t, resp, &debt)
+	debtID := debt["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	var scenario map[string]any
+	decodeJSON(t, resp, &scenario)
+	scenarioID := scenario["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/generate-installments", map[string]any{"cadence": "mensal"})
+	if resp.StatusCode != 422 {
+		t.Fatalf("neither given: status = %d, want 422", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/generate-installments", map[string]any{
+		"cadence": "mensal", "months": 3, "installment_amount": "400.00",
+	})
+	if resp.StatusCode != 422 {
+		t.Fatalf("both given: status = %d, want 422", resp.StatusCode)
 	}
 	resp.Body.Close()
 }
