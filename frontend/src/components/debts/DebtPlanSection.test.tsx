@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import dayjs from "dayjs";
 import { describe, expect, it, vi } from "vitest";
 
 import * as scenariosApi from "../../api/scenarios";
@@ -68,8 +69,9 @@ describe("DebtPlanSection accumulated deviation banner", () => {
 
 describe("DebtPlanSection generation form", () => {
   const emptyPlan: ScenarioDetail = { ...scenarioSummary, transactions: [], accumulated_deviation: "0.00" };
+  const today = dayjs().format("YYYY-MM-DD");
 
-  it("generates by number of installments with the selected cadence", async () => {
+  it("generates by number of installments with the selected cadence, defaulting the start date to today", async () => {
     const user = userEvent.setup();
     vi.mocked(scenariosApi.generateInstallments).mockResolvedValue([]);
     renderSection(emptyPlan);
@@ -81,6 +83,7 @@ describe("DebtPlanSection generation form", () => {
       expect(scenariosApi.generateInstallments).toHaveBeenCalledWith(scenarioId, {
         cadence: "semanal",
         months: 6,
+        start_date: today,
       }),
     );
   });
@@ -98,6 +101,27 @@ describe("DebtPlanSection generation form", () => {
       expect(scenariosApi.generateInstallments).toHaveBeenCalledWith(scenarioId, {
         cadence: "mensal",
         installment_amount: 400,
+        start_date: today,
+      }),
+    );
+  });
+
+  it("uses a manually chosen start date", async () => {
+    const user = userEvent.setup();
+    vi.mocked(scenariosApi.generateInstallments).mockResolvedValue([]);
+    renderSection(emptyPlan);
+
+    const dateInput = await screen.findByLabelText("Data de início");
+    await user.clear(dateInput);
+    await user.type(dateInput, "25/12/2026");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Gerar parcelas" }));
+
+    await waitFor(() =>
+      expect(scenariosApi.generateInstallments).toHaveBeenCalledWith(scenarioId, {
+        cadence: "mensal",
+        months: 6,
+        start_date: "2026-12-25",
       }),
     );
   });
