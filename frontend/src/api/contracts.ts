@@ -1161,6 +1161,13 @@ export const scenarioTransactionStatuses = [
 ] as const;
 export type ScenarioTransactionStatus = (typeof scenarioTransactionStatuses)[number];
 
+export interface Realization {
+  id: string;
+  debt_link_id: string;
+  allocated_amount: string;
+  created_at: string;
+}
+
 export interface ScenarioTransaction {
   id: string;
   scenario_id: string;
@@ -1169,6 +1176,7 @@ export interface ScenarioTransaction {
   projected_at: string;
   category: string | null;
   status: ScenarioTransactionStatus;
+  realizations: Realization[];
 }
 
 export interface ScenarioDetail extends Scenario {
@@ -1245,6 +1253,34 @@ export function parseScenarioList(value: unknown): Scenario[] {
   return value.map(parseScenario);
 }
 
+const realizationKeys = ["id", "debt_link_id", "allocated_amount", "created_at"] as const;
+
+function parseRealization(value: unknown): Realization {
+  const item = requiredRecord(value, realizationKeys, "Alocação inválida.");
+  if (
+    typeof item.id !== "string" ||
+    !isUuid(item.id) ||
+    typeof item.debt_link_id !== "string" ||
+    !isUuid(item.debt_link_id) ||
+    !isValidDate(item.created_at)
+  ) {
+    throw new TypeError("Alocação inválida.");
+  }
+  return {
+    id: item.id,
+    debt_link_id: item.debt_link_id,
+    allocated_amount: decimal(item.allocated_amount),
+    created_at: item.created_at,
+  };
+}
+
+function parseRealizationList(value: unknown): Realization[] {
+  if (!Array.isArray(value)) {
+    throw new TypeError("Lista de alocações inválida.");
+  }
+  return value.map(parseRealization);
+}
+
 const scenarioTransactionKeys = [
   "id",
   "scenario_id",
@@ -1253,6 +1289,7 @@ const scenarioTransactionKeys = [
   "projected_at",
   "category",
   "status",
+  "realizations",
 ] as const;
 
 export function parseScenarioTransaction(value: unknown): ScenarioTransaction {
@@ -1279,6 +1316,7 @@ export function parseScenarioTransaction(value: unknown): ScenarioTransaction {
     projected_at: item.projected_at,
     category: item.category,
     status: item.status as ScenarioTransactionStatus,
+    realizations: parseRealizationList(item.realizations),
   };
 }
 

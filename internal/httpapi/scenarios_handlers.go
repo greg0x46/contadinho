@@ -53,13 +53,38 @@ func scenarioToDTO(s scenarios.Scenario) scenarioDTO {
 }
 
 type scenarioTransactionDTO struct {
-	ID          string  `json:"id"`
-	ScenarioID  string  `json:"scenario_id"`
-	Description string  `json:"description"`
-	Amount      string  `json:"amount"`
-	ProjectedAt string  `json:"projected_at"`
-	Category    *string `json:"category"`
-	Status      string  `json:"status"`
+	ID           string           `json:"id"`
+	ScenarioID   string           `json:"scenario_id"`
+	Description  string           `json:"description"`
+	Amount       string           `json:"amount"`
+	ProjectedAt  string           `json:"projected_at"`
+	Category     *string          `json:"category"`
+	Status       string           `json:"status"`
+	Realizations []realizationDTO `json:"realizations"`
+}
+
+type realizationDTO struct {
+	ID              string    `json:"id"`
+	DebtLinkID      string    `json:"debt_link_id"`
+	AllocatedAmount string    `json:"allocated_amount"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+func realizationToDTO(r scenarios.ScenarioTransactionRealization) realizationDTO {
+	return realizationDTO{
+		ID:              r.ID,
+		DebtLinkID:      r.DebtLinkID,
+		AllocatedAmount: money.CanonicalDecimal(r.AllocatedAmount),
+		CreatedAt:       r.CreatedAt,
+	}
+}
+
+func realizationsToDTOs(list []scenarios.ScenarioTransactionRealization) []realizationDTO {
+	dtos := make([]realizationDTO, len(list))
+	for i, r := range list {
+		dtos[i] = realizationToDTO(r)
+	}
+	return dtos
 }
 
 // todayUTC is "today" for ScenarioTransaction.Status purposes: midnight UTC,
@@ -75,13 +100,14 @@ func todayUTC() time.Time {
 // a stored column. realizedTotal is decimal.Zero until task 5 wires up
 // scenario_transaction_realizations — until then Status can only ever
 // resolve to "projetada" or "atrasada", exactly as roadmap task 4 specifies.
-func scenarioTransactionToDTO(st scenarios.ScenarioTransaction, today time.Time, realizedTotal decimal.Decimal) scenarioTransactionDTO {
+func scenarioTransactionToDTO(st scenarios.ScenarioTransaction, today time.Time, realizedTotal decimal.Decimal, realizations []scenarios.ScenarioTransactionRealization) scenarioTransactionDTO {
 	return scenarioTransactionDTO{
 		ID: st.ID, ScenarioID: st.ScenarioID, Description: st.Description,
-		Amount:      money.CanonicalDecimal(st.Amount),
-		ProjectedAt: st.ProjectedAt.Format(dateOnlyLayout),
-		Category:    st.Category,
-		Status:      string(st.Status(today, realizedTotal)),
+		Amount:       money.CanonicalDecimal(st.Amount),
+		ProjectedAt:  st.ProjectedAt.Format(dateOnlyLayout),
+		Category:     st.Category,
+		Status:       string(st.Status(today, realizedTotal)),
+		Realizations: realizationsToDTOs(realizations),
 	}
 }
 
@@ -91,11 +117,15 @@ func scenarioTransactionToDTO(st scenarios.ScenarioTransaction, today time.Time,
 // through, so Status always reflects real allocations, not the
 // decimal.Zero placeholder task 4 used before this table existed.
 func scenarioTransactionDTOFor(ctx context.Context, conn *sql.DB, st scenarios.ScenarioTransaction) (scenarioTransactionDTO, error) {
-	realizedTotal, err := scenarios.RealizedTotal(ctx, conn, st.ID)
+	realizations, err := scenarios.ListRealizationsForTransaction(ctx, conn, st.ID)
 	if err != nil {
 		return scenarioTransactionDTO{}, err
 	}
-	return scenarioTransactionToDTO(st, todayUTC(), realizedTotal), nil
+	realizedTotal := decimal.Zero
+	for _, r := range realizations {
+		realizedTotal = realizedTotal.Add(r.AllocatedAmount)
+	}
+	return scenarioTransactionToDTO(st, todayUTC(), realizedTotal, realizations), nil
 }
 
 type scenarioDetailDTO struct {
@@ -130,12 +160,16 @@ func loadScenarioDetail(w http.ResponseWriter, r *http.Request, conn *sql.DB, id
 	deviation := decimal.Zero
 	dtos := make([]scenarioTransactionDTO, len(list))
 	for i, st := range list {
-		realizedTotal, err := scenarios.RealizedTotal(r.Context(), conn, st.ID)
+		realizations, err := scenarios.ListRealizationsForTransaction(r.Context(), conn, st.ID)
 		if err != nil {
 			scenariosUnavailableProblem(w)
 			return scenarioDetailDTO{}, false
 		}
-		dtos[i] = scenarioTransactionToDTO(st, today, realizedTotal)
+		realizedTotal := decimal.Zero
+		for _, real := range realizations {
+			realizedTotal = realizedTotal.Add(real.AllocatedAmount)
+		}
+		dtos[i] = scenarioTransactionToDTO(st, today, realizedTotal, realizations)
 		if !st.ProjectedAt.After(today) {
 			deviation = deviation.Add(st.Amount.Sub(realizedTotal))
 		}
@@ -406,7 +440,7 @@ func handleGenerateInstallments(conn *sql.DB) http.HandlerFunc {
 		dtos := make([]scenarioTransactionDTO, len(created))
 		today := todayUTC()
 		for i, st := range created {
-			dtos[i] = scenarioTransactionToDTO(st, today, decimal.Zero)
+			dtos[i] = scenarioTransactionToDTO(st, today, decimal.Zero, nil)
 		}
 		writeJSON(w, http.StatusCreated, dtos)
 	}
@@ -503,7 +537,7 @@ func handleReadjustInstallments(conn *sql.DB) http.HandlerFunc {
 		today := todayUTC()
 		dtos := make([]scenarioTransactionDTO, len(created))
 		for i, st := range created {
-			dtos[i] = scenarioTransactionToDTO(st, today, decimal.Zero)
+			dtos[i] = scenarioTransactionToDTO(st, today, decimal.Zero, nil)
 		}
 		writeJSON(w, http.StatusOK, dtos)
 	}
