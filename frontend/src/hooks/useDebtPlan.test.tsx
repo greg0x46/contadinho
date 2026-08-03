@@ -32,6 +32,7 @@ const scenarioDetail: ScenarioDetail = {
       projected_at: "2026-09-01",
       category: null,
       status: "projetada",
+      realizations: [],
     },
   ],
   accumulated_deviation: "0.00",
@@ -129,6 +130,23 @@ describe("useDebtPlan", () => {
       debt_link_id: linkId,
       allocated_amount: 333.33,
     });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["debts", debtId, "scenarios"] });
+  });
+
+  it("deallocates a realization from an installment and invalidates the scenarios query", async () => {
+    const transactionId = scenarioDetail.transactions[0].id;
+    vi.mocked(scenariosApi.listDebtScenarios).mockResolvedValue([scenarioSummary]);
+    vi.mocked(scenariosApi.getScenario).mockResolvedValue(scenarioDetail);
+    vi.mocked(scenariosApi.deleteRealization).mockResolvedValue(undefined);
+    const { client, wrapper } = setup();
+    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
+    const { result } = renderHook(() => useDebtPlan(debtId), { wrapper });
+    await waitFor(() => expect(result.current.plan).not.toBeNull());
+
+    const realizationId = "88888888-8888-4888-8888-888888888888";
+    await act(() => result.current.deallocateRealization({ transactionId, realizationId }));
+
+    expect(scenariosApi.deleteRealization).toHaveBeenCalledWith(scenarioId, transactionId, realizationId);
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["debts", debtId, "scenarios"] });
   });
 

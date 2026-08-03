@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createDebtScenario,
   createRealization,
+  deleteRealization,
   deleteScenarioTransaction,
   generateInstallments,
   getScenario,
@@ -68,6 +69,14 @@ export function useDebtPlan(debtId: string) {
     onSuccess: invalidate,
   });
 
+  const deallocateMutation = useMutation({
+    mutationFn: ({ transactionId, realizationId }: { transactionId: string; realizationId: string }) => {
+      if (planSummary === null) throw new Error("Nenhum plano ativo.");
+      return deleteRealization(planSummary.id, transactionId, realizationId);
+    },
+    onSuccess: invalidate,
+  });
+
   const readjustMutation = useMutation({
     mutationFn: (write: ReadjustWrite) => {
       if (planSummary === null) throw new Error("Nenhum plano ativo.");
@@ -90,6 +99,8 @@ export function useDebtPlan(debtId: string) {
     isDeletingInstallment: deleteTransactionMutation.isPending,
     allocateRealization: allocateMutation.mutateAsync,
     isAllocating: allocateMutation.isPending,
+    deallocateRealization: deallocateMutation.mutateAsync,
+    isDeallocating: deallocateMutation.isPending,
     readjust: readjustMutation.mutateAsync,
     isReadjusting: readjustMutation.isPending,
   };
