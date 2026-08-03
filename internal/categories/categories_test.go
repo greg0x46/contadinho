@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -32,12 +33,25 @@ func newTestDB(t *testing.T) *sql.DB {
 // to reference.
 func insertTransaction(t *testing.T, conn *sql.DB, sourceCategory *string) string {
 	t.Helper()
+	accountID, rawImportID := newTestAccount(t, conn)
+	var sourceCategoryValue string
+	if sourceCategory != nil {
+		sourceCategoryValue = *sourceCategory
+	}
+	return insertTransactionOnAccount(t, conn, accountID, rawImportID, sourceCategoryValue, nil, nil)
+}
+
+// newTestAccount creates the minimal sync-schema chain (data source, sync
+// run, raw import, financial account) shared by every transaction inserted
+// against it, returning the account id and the raw_import id new
+// transactions on that account should reference.
+func newTestAccount(t *testing.T, conn *sql.DB) (accountID, rawImportID string) {
+	t.Helper()
 	now := db.FormatTime(time.Now())
 	sourceID := uuid.NewString()
 	syncRunID := uuid.NewString()
-	rawImportID := uuid.NewString()
-	accountID := uuid.NewString()
-	txID := uuid.NewString()
+	rawImportID = uuid.NewString()
+	accountID = uuid.NewString()
 
 	exec := func(query string, args ...any) {
 		t.Helper()
@@ -59,11 +73,29 @@ func insertTransaction(t *testing.T, conn *sql.DB, sourceCategory *string) strin
 			id, source_id, external_id, currency_code, current_raw_import_id, normalized_hash,
 			created_at, updated_at
 		) VALUES (?, ?, ?, 'BRL', ?, 'hash', ?, ?)`, accountID, sourceID, accountID, rawImportID, now, now)
-	exec(`INSERT INTO financial_transactions (
-			id, source_id, account_id, external_id, source_category, current_raw_import_id,
-			normalized_hash, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, 'hash', ?, ?)`,
-		txID, sourceID, accountID, txID, sourceCategory, rawImportID, now, now)
+	return accountID, rawImportID
+}
+
+// insertTransactionOnAccount inserts one financial_transactions row on an
+// existing account, optionally with description and credit_card_metadata
+// (used for installment-grouping tests, where several transactions must
+// share one account).
+func insertTransactionOnAccount(t *testing.T, conn *sql.DB, accountID, rawImportID, sourceCategory string, description, creditCardMetadata *string) string {
+	t.Helper()
+	now := db.FormatTime(time.Now())
+	txID := uuid.NewString()
+	var sourceCategoryArg any
+	if sourceCategory != "" {
+		sourceCategoryArg = sourceCategory
+	}
+	if _, err := conn.Exec(`INSERT INTO financial_transactions (
+			id, source_id, account_id, external_id, description, credit_card_metadata,
+			source_category, current_raw_import_id, normalized_hash, created_at, updated_at
+		) VALUES (?, (SELECT source_id FROM financial_accounts WHERE id = ?), ?, ?, ?, ?, ?, ?, 'hash', ?, ?)`,
+		txID, accountID, accountID, txID, description, creditCardMetadata, sourceCategoryArg, rawImportID, now, now,
+	); err != nil {
+		t.Fatalf("insert transaction: %v", err)
+	}
 	return txID
 }
 
@@ -157,6 +189,82 @@ func TestAssignManualRejectsUnknownTransactionOrCategory(t *testing.T) {
 	}
 	if _, err := categories.AssignManual(ctx, conn, txID, custom.ID); !errors.Is(err, categories.ErrCategoryInvalid) {
 		t.Errorf("inactive category: err = %v, want ErrCategoryInvalid", err)
+	}
+}
+
+// installmentMetadata builds the credit_card_metadata JSON Pluggy attaches
+// to one parcela of a card purchase.
+func installmentMetadata(t *testing.T, cardNumber string, installmentNumber, totalInstallments int) string {
+	t.Helper()
+	return fmt.Sprintf(
+		`{"cardNumber":%q,"installmentNumber":%d,"totalInstallments":%d}`,
+		cardNumber, installmentNumber, totalInstallments,
+	)
+}
+
+func TestAssignManualCascadesAcrossInstallments(t *testing.T) {
+	conn := newTestDB(t)
+	ctx := context.Background()
+	accountID, rawImportID := newTestAccount(t, conn)
+
+	var installments [3]string
+	for i := 1; i <= 3; i++ {
+		description := fmt.Sprintf("Loja X %d/3", i)
+		metadata := installmentMetadata(t, "1234", i, 3)
+		installments[i-1] = insertTransactionOnAccount(t, conn, accountID, rawImportID, "", &description, &metadata)
+	}
+	unrelatedDescription := "Outra Compra"
+	unrelated := insertTransactionOnAccount(t, conn, accountID, rawImportID, "", &unrelatedDescription, nil)
+
+	// Assigning the middle installment should cascade to every parcela of
+	// the same purchase, and only to those.
+	d, err := categories.AssignManual(ctx, conn, installments[1], seededExpenseCategory)
+	if err != nil {
+		t.Fatalf("AssignManual: %v", err)
+	}
+	if d.TransactionID != installments[1] || d.CategoryID != seededExpenseCategory {
+		t.Errorf("returned decision = %+v", d)
+	}
+
+	for _, txID := range installments {
+		got, err := getDecision(t, conn, txID)
+		if err != nil {
+			t.Fatalf("getDecision(%s): %v", txID, err)
+		}
+		if got.categoryID != seededExpenseCategory || got.origin != "manual" {
+			t.Errorf("installment %s decision = %+v, want category=%s manual", txID, got, seededExpenseCategory)
+		}
+	}
+
+	if _, err := getDecision(t, conn, unrelated); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("unrelated transaction got a decision, err = %v", err)
+	}
+}
+
+func TestAssignManualDoesNotCrossMatchDifferentPurchases(t *testing.T) {
+	conn := newTestDB(t)
+	ctx := context.Background()
+	accountID, rawImportID := newTestAccount(t, conn)
+
+	descriptionA := "Loja Y 1/2"
+	metadataA := installmentMetadata(t, "1111", 1, 2)
+	txA := insertTransactionOnAccount(t, conn, accountID, rawImportID, "", &descriptionA, &metadataA)
+
+	// Same base description and totalInstallments, but a different card:
+	// coincidence, not the same purchase.
+	descriptionB := "Loja Y 2/2"
+	metadataB := installmentMetadata(t, "2222", 2, 2)
+	txB := insertTransactionOnAccount(t, conn, accountID, rawImportID, "", &descriptionB, &metadataB)
+
+	if _, err := categories.AssignManual(ctx, conn, txA, seededExpenseCategory); err != nil {
+		t.Fatalf("AssignManual: %v", err)
+	}
+
+	if _, err := getDecision(t, conn, txA); err != nil {
+		t.Fatalf("getDecision(txA): %v", err)
+	}
+	if _, err := getDecision(t, conn, txB); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("txB should not have been cascaded into, err = %v", err)
 	}
 }
 
