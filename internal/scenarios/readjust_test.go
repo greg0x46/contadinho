@@ -56,6 +56,45 @@ func TestReadjustReduceTermRecomputesCountFromReferenceAmount(t *testing.T) {
 	}
 }
 
+func TestReadjustReduceTermTwiceDoesNotLockOntoRemainderInstallment(t *testing.T) {
+	conn := newTestDB(t)
+	ctx := context.Background()
+	d := newDebt(t, conn)
+	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
+
+	// Three 400.00 installments (1200.00 total), none allocated.
+	drafts, _ := scenarios.GenerateInstallments(dec(t, "1200.00"), 3, date(t, "2026-09-01"), scenarios.CadenceMonthly)
+	if _, err := scenarios.CreateGeneratedInstallments(ctx, conn, s.ID, drafts); err != nil {
+		t.Fatalf("CreateGeneratedInstallments: %v", err)
+	}
+
+	// First readjust: 900.00 -> [400, 400, 100], per the other reduce-term
+	// test. The 100.00 is a remainder, not the plan's real installment
+	// value.
+	if _, err := scenarios.Readjust(ctx, conn, s.ID, dec(t, "900.00"), scenarios.StrategyReduceTerm); err != nil {
+		t.Fatalf("first Readjust: %v", err)
+	}
+
+	// Readjusting again for the same 900.00 (nothing paid, nothing changed)
+	// must reproduce the same [400, 400, 100] plan, not lock onto the
+	// 100.00 remainder as the reference amount and explode the count
+	// (ceil(900/100) = 9).
+	created, err := scenarios.Readjust(ctx, conn, s.ID, dec(t, "900.00"), scenarios.StrategyReduceTerm)
+	if err != nil {
+		t.Fatalf("second Readjust: %v", err)
+	}
+	if len(created) != 3 {
+		t.Fatalf("len(created) = %d, want 3 (must not lock onto the remainder installment as the reference amount)", len(created))
+	}
+	sum := dec(t, "0")
+	for _, ins := range created {
+		sum = sum.Add(ins.Amount)
+	}
+	if !sum.Equal(dec(t, "900.00")) {
+		t.Errorf("sum = %s, want 900.00", sum)
+	}
+}
+
 func TestReadjustRedistributePreservesInstallmentCountAndDates(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()
