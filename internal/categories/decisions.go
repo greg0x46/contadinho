@@ -117,9 +117,15 @@ func writeDecision(
 // AssignManual mirrors assign_transaction_category: always overrides any
 // prior decision (manual or automatic). Returns ErrTransactionNotFound or
 // ErrCategoryInvalid (category missing or inactive) instead of writing.
-func AssignManual(ctx context.Context, q Querier, transactionID, categoryID string) (Decision, error) {
+//
+// When transactionID is one installment of a card purchase split across
+// several financial_transactions rows (see findInstallmentGroup), the same
+// decision is written for every installment in that purchase, all inside a
+// single transaction — a card purchase has one category, not one per
+// parcela.
+func AssignManual(ctx context.Context, conn *sql.DB, transactionID, categoryID string) (Decision, error) {
 	var exists int
-	err := q.QueryRowContext(ctx,
+	err := conn.QueryRowContext(ctx,
 		`SELECT 1 FROM financial_transactions WHERE id = ?`, transactionID,
 	).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -129,7 +135,7 @@ func AssignManual(ctx context.Context, q Querier, transactionID, categoryID stri
 		return Decision{}, err
 	}
 
-	category, err := Get(ctx, q, categoryID)
+	category, err := Get(ctx, conn, categoryID)
 	if errors.Is(err, ErrNotFound) || !category.IsActive {
 		return Decision{}, ErrCategoryInvalid
 	}
@@ -137,8 +143,32 @@ func AssignManual(ctx context.Context, q Querier, transactionID, categoryID stri
 		return Decision{}, err
 	}
 
-	decision, _, err := writeDecision(ctx, q, transactionID, categoryID, OriginManual)
-	return decision, err
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return Decision{}, err
+	}
+	defer tx.Rollback()
+
+	group, err := findInstallmentGroup(ctx, tx, transactionID)
+	if err != nil {
+		return Decision{}, err
+	}
+
+	var primary Decision
+	for _, id := range group {
+		decision, _, err := writeDecision(ctx, tx, id, categoryID, OriginManual)
+		if err != nil {
+			return Decision{}, err
+		}
+		if id == transactionID {
+			primary = decision
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return Decision{}, err
+	}
+	return primary, nil
 }
 
 // ApplyAutomatic mirrors apply_automatic_category: writes an automatic
