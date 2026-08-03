@@ -85,7 +85,7 @@ describe("DebtDetailPage", () => {
     vi.mocked(debtsApi.listEligibleTransactions).mockResolvedValue([]);
     renderDetail();
     expect(await screen.findByText("Aberta")).toBeVisible();
-    expect(screen.getByText("Parcela 1")).toBeVisible();
+    expect(await screen.findByText(/Parcela 1/)).toBeVisible();
   });
 
   it("links a selected candidate transaction to the debt", async () => {
@@ -100,6 +100,7 @@ describe("DebtDetailPage", () => {
     });
     renderDetail();
 
+    await user.click(await screen.findByRole("button", { name: "Adicionar pagamento" }));
     const select = await screen.findByRole("combobox", {
       name: "Buscar transação para vincular",
     });

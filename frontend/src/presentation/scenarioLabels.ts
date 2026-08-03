@@ -2,7 +2,7 @@ import type { ScenarioTransactionStatus } from "../api/contracts";
 
 export const scenarioTransactionStatusLabel: Record<ScenarioTransactionStatus, string> = {
   atrasada: "Atrasada",
-  projetada: "Projeção",
+  projetada: "Planejado",
   paga_parcialmente: "Paga parcialmente",
   paga: "Paga",
   paga_a_mais: "Paga a mais",
