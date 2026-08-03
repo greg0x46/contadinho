@@ -1,16 +1,15 @@
 import { PageContainer } from "@ant-design/pro-layout";
-import { Alert, Button, Descriptions, Flex, Tag, Typography } from "antd";
+import { Alert, Button, Flex } from "antd";
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
-import { isUuid, type DebtLinkedTransaction } from "../api/contracts";
+import { isUuid } from "../api/contracts";
 import { LoadingState, UnavailableState } from "../components/AsyncState";
-import { DebtLinkForm } from "../components/debts/DebtLinkForm";
-import { DebtLinkList } from "../components/debts/DebtLinkList";
-import { DebtPlanSection } from "../components/debts/DebtPlanSection";
+import { DebtForm } from "../components/debts/DebtForm";
+import { DebtHeaderCard } from "../components/debts/DebtHeaderCard";
+import { DebtTimeline } from "../components/debts/DebtTimeline";
 import { useDebtDetail } from "../hooks/useDebtDetail";
-import { debtStatusColor, debtStatusLabel } from "../presentation/debtLabels";
-import { formatBRL } from "../presentation/money";
+import { useDebts } from "../hooks/useDebts";
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -30,28 +29,29 @@ function InvalidDebt() {
 
 function ValidDebtDetail({ id }: { id: string }) {
   const debt = useDebtDetail(id);
-  const [linkError, setLinkError] = useState<string | null>(null);
-  const [unlinkError, setUnlinkError] = useState<string | null>(null);
-  const [unlinkingLinkId, setUnlinkingLinkId] = useState<string | null>(null);
+  const debts = useDebts();
+  const navigate = useNavigate();
+  const [formOpen, setFormOpen] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const submitLink = async (transactionId: string) => {
-    setLinkError(null);
+  const submitEdit = async (write: { name: string; total_amount: number }) => {
+    setSaveError(null);
     try {
-      await debt.linkTransaction(transactionId);
+      await debts.updateDebt({ debtId: id, write: { name: write.name, total_amount: write.total_amount } });
+      setFormOpen(false);
     } catch (error) {
-      setLinkError(errorMessage(error, "Não foi possível vincular a transação."));
+      setSaveError(errorMessage(error, "Não foi possível salvar a dívida."));
     }
   };
 
-  const submitUnlink = async (link: DebtLinkedTransaction) => {
-    setUnlinkError(null);
-    setUnlinkingLinkId(link.id);
+  const submitDelete = async () => {
+    setDeleteError(null);
     try {
-      await debt.unlinkTransaction(link.id);
+      await debts.deleteDebt(id);
+      navigate("/dividas");
     } catch (error) {
-      setUnlinkError(errorMessage(error, "Não foi possível desvincular a transação."));
-    } finally {
-      setUnlinkingLinkId(null);
+      setDeleteError(errorMessage(error, "Não foi possível excluir a dívida."));
     }
   };
 
@@ -90,69 +90,50 @@ function ValidDebtDetail({ id }: { id: string }) {
                 }
               />
             )}
-            <Descriptions bordered column={4} size="small">
-              <Descriptions.Item label="Nome">{debt.state.snapshot.name}</Descriptions.Item>
-              <Descriptions.Item label="Valor total">
-                {formatBRL(debt.state.snapshot.total_amount)}
-              </Descriptions.Item>
-              <Descriptions.Item label="Valor pago">
-                {formatBRL(debt.state.snapshot.paid_amount)}
-              </Descriptions.Item>
-              <Descriptions.Item label="Valor restante">
-                {formatBRL(debt.state.snapshot.remaining_amount)}
-              </Descriptions.Item>
-              <Descriptions.Item label="Situação" span={4}>
-                <Tag color={debtStatusColor[debt.state.snapshot.status]}>
-                  {debtStatusLabel[debt.state.snapshot.status]}
-                </Tag>
-              </Descriptions.Item>
-            </Descriptions>
-
-            <section aria-labelledby="plan-title">
-              <Typography.Title id="plan-title" level={2}>
-                Plano de pagamento
-              </Typography.Title>
-              <DebtPlanSection debtId={id} links={debt.state.snapshot.links} />
-            </section>
-
-            <section aria-labelledby="link-form-title">
-              <Typography.Title id="link-form-title" level={2}>
-                Vincular transação
-              </Typography.Title>
-              <DebtLinkForm
-                search={debt.search}
-                onSearchChange={debt.setSearch}
-                candidates={debt.eligibleTransactions}
-                isSearching={debt.isSearching}
-                submitting={debt.isLinking}
-                submitError={linkError}
-                onSubmit={submitLink}
+            {deleteError && (
+              <Alert
+                type="error"
+                showIcon
+                closable
+                onClose={() => setDeleteError(null)}
+                message={deleteError}
               />
-            </section>
+            )}
 
-            <section aria-labelledby="links-title">
-              <Typography.Title id="links-title" level={2}>
-                Transações vinculadas
-              </Typography.Title>
-              {unlinkError && (
-                <Alert
-                  type="error"
-                  showIcon
-                  closable
-                  onClose={() => setUnlinkError(null)}
-                  message={unlinkError}
-                  style={{ marginBottom: 16 }}
-                />
-              )}
-              <DebtLinkList
-                links={debt.state.snapshot.links}
-                unlinkingLinkId={unlinkingLinkId}
-                onUnlink={submitUnlink}
-              />
-            </section>
+            <DebtHeaderCard
+              debt={debt.state.snapshot}
+              onEdit={() => {
+                setSaveError(null);
+                setFormOpen(true);
+              }}
+              onDelete={submitDelete}
+            />
+
+            <DebtTimeline
+              debtId={id}
+              links={debt.state.snapshot.links}
+              search={debt.search}
+              onSearchChange={debt.setSearch}
+              candidates={debt.eligibleTransactions}
+              isSearching={debt.isSearching}
+              isLinking={debt.isLinking}
+              onLinkTransaction={debt.linkTransaction}
+              onUnlinkTransaction={debt.unlinkTransaction}
+            />
           </>
         )}
       </Flex>
+
+      {debt.state.snapshot !== null && (
+        <DebtForm
+          open={formOpen}
+          debt={debt.state.snapshot}
+          submitting={debts.isUpdating}
+          submitError={saveError}
+          onSubmit={submitEdit}
+          onCancel={() => setFormOpen(false)}
+        />
+      )}
     </PageContainer>
   );
 }

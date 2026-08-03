@@ -13,6 +13,7 @@ import "./styles/global.css";
 import "./styles/sync-runs.css";
 import "./styles/transactions.css";
 import "./styles/home.css";
+import "./styles/debts.css";
 
 dayjs.locale("pt-br");
 

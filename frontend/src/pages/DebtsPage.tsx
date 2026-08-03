@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import type { Debt } from "../api/contracts";
 import { DebtForm } from "../components/debts/DebtForm";
 import { DebtList } from "../components/debts/DebtList";
+import { DebtsSummary } from "../components/debts/DebtsSummary";
 import { useDebts } from "../hooks/useDebts";
 
 function errorMessage(error: unknown): string {
@@ -106,6 +107,7 @@ export function DebtsPage() {
           style={{ marginBottom: 16 }}
         />
       )}
+      {!debts.isLoading && debts.debts.length > 0 && <DebtsSummary debts={debts.debts} />}
       <DebtList
         debts={debts.debts}
         isLoading={debts.isLoading}

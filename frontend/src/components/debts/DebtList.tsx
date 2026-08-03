@@ -1,3 +1,4 @@
+import { WalletOutlined } from "@ant-design/icons";
 import type { ProColumns } from "@ant-design/pro-table";
 import ProTable from "@ant-design/pro-table";
 import { Button, Popconfirm, Space, Tag } from "antd";
@@ -16,6 +17,28 @@ function deleteDescription(debt: Debt): string {
   }; as transações em si permanecem inalteradas.`;
 }
 
+function DebtProgress({ debt }: { debt: Debt }) {
+  const total = Number(debt.total_amount);
+  const paid = Number(debt.paid_amount);
+  const paidShare = total > 0 ? Math.min(100, Math.max(0, (paid / total) * 100)) : 0;
+
+  return (
+    <div className="debt-row-progress">
+      <div className="debt-row-meter" aria-hidden="true">
+        <span
+          className="debt-row-meter-segment debt-row-meter-paid"
+          style={{ width: `${paidShare}%` }}
+        />
+        <span
+          className="debt-row-meter-segment debt-row-meter-remaining"
+          style={{ width: `${100 - paidShare}%` }}
+        />
+      </div>
+      <span className="debt-row-caption">{formatBRL(debt.remaining_amount)} restantes</span>
+    </div>
+  );
+}
+
 export function DebtList({
   debts,
   isLoading,
@@ -32,19 +55,9 @@ export function DebtList({
   const columns: ProColumns<Debt>[] = [
     { title: "Nome", dataIndex: "name" },
     {
-      title: "Valor total",
-      dataIndex: "total_amount",
-      render: (_, debt) => formatBRL(debt.total_amount),
-    },
-    {
-      title: "Valor pago",
-      dataIndex: "paid_amount",
-      render: (_, debt) => formatBRL(debt.paid_amount),
-    },
-    {
-      title: "Valor restante",
+      title: "Progresso",
       dataIndex: "remaining_amount",
-      render: (_, debt) => formatBRL(debt.remaining_amount),
+      render: (_, debt) => <DebtProgress debt={debt} />,
     },
     {
       title: "Situação",
@@ -89,7 +102,14 @@ export function DebtList({
       pagination={false}
       cardBordered
       scroll={{ x: "max-content" }}
-      locale={{ emptyText: "Nenhuma dívida cadastrada ainda." }}
+      locale={{
+        emptyText: (
+          <div className="debt-list-empty">
+            <WalletOutlined className="debt-list-empty-icon" aria-hidden="true" />
+            <span>Nenhuma dívida cadastrada ainda.</span>
+          </div>
+        ),
+      }}
       onRow={(debt) => ({
         onClick: () => onOpen(debt),
         style: { cursor: "pointer" },
