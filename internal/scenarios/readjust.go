@@ -118,12 +118,22 @@ func Readjust(ctx context.Context, conn *sql.DB, scenarioID string, remainingAmo
 }
 
 // reduceTermInstallments implements "abater do final": every new
-// installment is worth referenceAmount (the last affected installment's
-// amount before the readjustment) except the last, which absorbs whatever
-// floor-division left over; the count is however many of those it takes to
-// cover balance, starting from the earliest affected installment's date.
+// installment is worth referenceAmount except the last, which absorbs
+// whatever floor-division left over; the count is however many of those it
+// takes to cover balance, starting from the earliest affected installment's
+// date. referenceAmount is the max amount among affected rather than simply
+// the last-dated one: splitByAmount always makes its last (remainder)
+// installment <= the regular amount, so if a previous readjustment's
+// remainder installment is still around, picking "last by date" can lock
+// onto that tiny remainder and blow the count up (e.g. 24 -> 95) instead of
+// the plan's actual installment value.
 func reduceTermInstallments(balance decimal.Decimal, affected []ScenarioTransaction) []GeneratedInstallment {
-	referenceAmount := affected[len(affected)-1].Amount
+	referenceAmount := affected[0].Amount
+	for _, st := range affected[1:] {
+		if st.Amount.GreaterThan(referenceAmount) {
+			referenceAmount = st.Amount
+		}
+	}
 	startDate := affected[0].ProjectedAt
 
 	amounts := splitByAmount(balance, referenceAmount)
