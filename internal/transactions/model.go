@@ -81,6 +81,15 @@ type TotalsEligibility struct {
 	Reason   *money.EligibilityReason
 }
 
+// CardInfo is the subset of Pluggy's opaque credit_card_metadata JSON that's
+// useful for display: which card a purchase was made on, and — for
+// installment purchases — which parcela this row is.
+type CardInfo struct {
+	Number            string
+	InstallmentNumber *int
+	TotalInstallments *int
+}
+
 // Item mirrors TransactionItem: one row of the query result, with every
 // derived field (classification, effective money, eligibility, group key)
 // already resolved so the HTTP layer never has to re-run domain logic.
@@ -99,6 +108,7 @@ type Item struct {
 	CurrencyCode            *string
 	AmountInAccountCurrency *string
 	EffectiveMoney          *EffectiveMoneyView
+	Card                    *CardInfo
 	Inclusion               Inclusion
 	TotalsEligibility       TotalsEligibility
 	GroupKey                string

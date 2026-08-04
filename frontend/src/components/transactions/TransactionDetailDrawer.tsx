@@ -1,4 +1,4 @@
-import { Alert, Button, Collapse, Descriptions, Drawer, Grid, Select } from "antd";
+import { Alert, Button, Collapse, Descriptions, Drawer, Grid, Select, Tag } from "antd";
 import { useMemo } from "react";
 
 import type { Category, TransactionInclusionState, TransactionItem } from "../../api/contracts";
@@ -9,9 +9,11 @@ import {
 import { formatMoney, formatSignedBRL, moneySourceLabel } from "../../presentation/money";
 import { movementTypeLabel } from "../../presentation/transactionLabels";
 import {
+  classificationColor,
   classificationLabel,
   exclusionReasonLabel,
   inclusionOriginLabel,
+  statusColor,
   statusLabel,
 } from "../../presentation/transactionStatus";
 
@@ -28,6 +30,11 @@ function dateTime(value: string | null): string {
     dateStyle: "long",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function installmentLabel(card: TransactionItem["card"]): string | null {
+  if (!card || card.installment_number == null || card.total_installments == null) return null;
+  return `Parcela ${card.installment_number}/${card.total_installments}`;
 }
 
 function categoryOptions(categories: Category[], item: TransactionItem | null) {
@@ -89,22 +96,21 @@ export function TransactionDetailDrawer({
         <div className="transaction-detail">
           <div className="transaction-detail-heading">
             <span>{item.description ?? "Descrição não informada"}</span>
-            <strong>{detailValue(item)}</strong>
+            <strong className={`transaction-amount transaction-detail-amount amount-${item.classification}`}>
+              {detailValue(item)}
+            </strong>
+            <div className="transaction-detail-tags">
+              <Tag color={classificationColor[item.classification]}>
+                {classificationLabel[item.classification]}
+              </Tag>
+              <Tag color={item.inclusion.state === "ignored" ? "default" : "success"}>
+                {item.inclusion.state === "ignored" ? "Ignorada" : "Considerada"}
+              </Tag>
+              <Tag color={statusColor(item.provider_status)}>{statusLabel(item.provider_status)}</Tag>
+            </div>
           </div>
-          <Descriptions column={1} size="small" colon={false}>
-            <Descriptions.Item label="Decisão">
-              {item.inclusion.state === "ignored" ? "Ignorada" : "Considerada"}
-            </Descriptions.Item>
-            {item.inclusion.changed_at && (
-              <>
-                <Descriptions.Item label="Origem da decisão">
-                  {inclusionOriginLabel(item.inclusion)}
-                </Descriptions.Item>
-                <Descriptions.Item label="Última mudança">
-                  {dateTime(item.inclusion.changed_at)}
-                </Descriptions.Item>
-              </>
-            )}
+
+          <Descriptions title="Quando & onde" column={1} size="small" colon={false}>
             <Descriptions.Item label="Data e hora">
               {dateTime(item.occurred_at)}
             </Descriptions.Item>
@@ -114,6 +120,19 @@ export function TransactionDetailDrawer({
             <Descriptions.Item label="Instituição">
               {item.account.institution ?? "Instituição não informada"}
             </Descriptions.Item>
+            {item.card && (
+              <Descriptions.Item label="Cartão">
+                {item.card.number}
+                {installmentLabel(item.card) && (
+                  <Tag className="transaction-card-installment" color="blue">
+                    {installmentLabel(item.card)}
+                  </Tag>
+                )}
+              </Descriptions.Item>
+            )}
+          </Descriptions>
+
+          <Descriptions title="Categoria" column={1} size="small" colon={false}>
             <Descriptions.Item label="Categoria">
               <Select
                 aria-label="Categoria"
@@ -147,25 +166,38 @@ export function TransactionDetailDrawer({
                 Sugestão do provedor — não afeta filtros ou totais.
               </div>
             </Descriptions.Item>
-            <Descriptions.Item label="Situação">
-              {statusLabel(item.provider_status)}
-            </Descriptions.Item>
-            <Descriptions.Item label="Classificação">
-              {classificationLabel[item.classification]}
-            </Descriptions.Item>
           </Descriptions>
-          <Button
-            loading={inclusionPending}
-            disabled={!onInclusion}
-            onClick={() =>
-              onInclusion?.(
-                item.id,
-                item.inclusion.state === "ignored" ? "considered" : "ignored",
-              )
-            }
-          >
-            {item.inclusion.state === "ignored" ? "Restaurar" : "Ignorar"}
-          </Button>
+
+          <Descriptions title="Decisão" column={1} size="small" colon={false}>
+            <Descriptions.Item label="Decisão">
+              {item.inclusion.state === "ignored" ? "Ignorada" : "Considerada"}
+            </Descriptions.Item>
+            {item.inclusion.changed_at && (
+              <>
+                <Descriptions.Item label="Origem da decisão">
+                  {inclusionOriginLabel(item.inclusion)}
+                </Descriptions.Item>
+                <Descriptions.Item label="Última mudança">
+                  {dateTime(item.inclusion.changed_at)}
+                </Descriptions.Item>
+              </>
+            )}
+          </Descriptions>
+          <div className="transaction-detail-decision-actions">
+            <Button
+              loading={inclusionPending}
+              disabled={!onInclusion}
+              onClick={() =>
+                onInclusion?.(
+                  item.id,
+                  item.inclusion.state === "ignored" ? "considered" : "ignored",
+                )
+              }
+            >
+              {item.inclusion.state === "ignored" ? "Restaurar" : "Ignorar"}
+            </Button>
+          </div>
+
           <Collapse
             ghost
             items={[

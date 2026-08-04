@@ -91,4 +91,46 @@ describe("TransactionDetailDrawer", () => {
     expect(screen.getByRole("combobox", { name: "Categoria" })).toBeVisible();
     expect(screen.getByText("Sem categoria")).toBeVisible();
   });
+
+  it("does not show a Cartão row when the transaction has no card info", () => {
+    render(
+      <TransactionDetailDrawer
+        item={{ ...transactionResult.items[0]!, card: null }}
+        categories={activeCategories}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("Cartão")).not.toBeInTheDocument();
+  });
+
+  it("shows the masked card number when present", () => {
+    render(
+      <TransactionDetailDrawer
+        item={{
+          ...transactionResult.items[0]!,
+          card: { number: "**** 4321", installment_number: null, total_installments: null },
+        }}
+        categories={activeCategories}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Cartão")).toBeVisible();
+    expect(screen.getByText("**** 4321")).toBeVisible();
+    expect(screen.queryByText(/Parcela/)).not.toBeInTheDocument();
+  });
+
+  it("shows the installment badge when the purchase is parcelada", () => {
+    render(
+      <TransactionDetailDrawer
+        item={{
+          ...transactionResult.items[0]!,
+          card: { number: "**** 1234", installment_number: 3, total_installments: 12 },
+        }}
+        categories={activeCategories}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("**** 1234")).toBeVisible();
+    expect(screen.getByText("Parcela 3/12")).toBeVisible();
+  });
 });

@@ -6,12 +6,25 @@ export const classificationLabel: Record<TransactionClassification, string> = {
   unclassified: "Não classificada",
 };
 
+export const classificationColor: Record<TransactionClassification, string> = {
+  inflow: "green",
+  outflow: "red",
+  unclassified: "default",
+};
+
 export function statusLabel(status: string | null): string {
   if (status === null || status === "") return "Situação não informada";
   if (status === "POSTED") return "Confirmada";
   if (status === "PENDING") return "Pendente";
   if (status === "CANCELLED") return "Cancelada";
   return `${status} — situação desconhecida`;
+}
+
+export function statusColor(status: string | null): string {
+  if (status === "POSTED") return "success";
+  if (status === "PENDING") return "gold";
+  if (status === "CANCELLED") return "default";
+  return "default";
 }
 
 export function inclusionOriginLabel(inclusion: TransactionItem["inclusion"]): string {

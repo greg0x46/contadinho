@@ -144,6 +144,12 @@ type totalsEligibilityDTO struct {
 	Reason   *string `json:"reason"`
 }
 
+type cardDTO struct {
+	Number            string `json:"number"`
+	InstallmentNumber *int   `json:"installment_number"`
+	TotalInstallments *int   `json:"total_installments"`
+}
+
 type transactionItemDTO struct {
 	ID                      string               `json:"id"`
 	ExternalID              string               `json:"external_id"`
@@ -159,6 +165,7 @@ type transactionItemDTO struct {
 	CurrencyCode            *string              `json:"currency_code"`
 	AmountInAccountCurrency *string              `json:"amount_in_account_currency"`
 	EffectiveMoney          *effectiveMoneyDTO   `json:"effective_money"`
+	Card                    *cardDTO             `json:"card"`
 	Inclusion               inclusionDTO         `json:"inclusion"`
 	TotalsEligibility       totalsEligibilityDTO `json:"totals_eligibility"`
 	GroupKey                string               `json:"group_key"`
@@ -201,6 +208,13 @@ func toItemDTO(item transactions.Item) transactionItemDTO {
 			Value:        item.EffectiveMoney.Value,
 			CurrencyCode: item.EffectiveMoney.CurrencyCode,
 			Source:       string(item.EffectiveMoney.Source),
+		}
+	}
+	if item.Card != nil {
+		dto.Card = &cardDTO{
+			Number:            item.Card.Number,
+			InstallmentNumber: item.Card.InstallmentNumber,
+			TotalInstallments: item.Card.TotalInstallments,
 		}
 	}
 	if item.InternalCategory != nil {
