@@ -86,6 +86,51 @@ func AccountHash(a AccountSnapshot) string {
 	)
 }
 
+func InvestmentHash(i InvestmentSnapshot) string {
+	return hashFields("InvestmentSnapshot",
+		i.ExternalID,
+		strField(i.InvestmentType),
+		strField(i.Subtype),
+		strField(i.Name),
+		decField(i.Balance),
+		strField(i.CurrencyCode),
+		strField(i.Number),
+		strField(i.Owner),
+		strField(i.TaxNumber),
+		timeField(i.DueDate),
+		strField(i.Issuer),
+		strField(i.IssuerCode),
+		decField(i.Rate),
+		strField(i.RateType),
+		decField(i.FixedAnnualRate),
+		decField(i.AnnualRate),
+		decField(i.LastTwelveMonthsRate),
+		decField(i.Quantity),
+		decField(i.Value),
+		decField(i.Amount),
+		decField(i.AmountProfit),
+		decField(i.AmountWithdrawal),
+		timeField(i.AsOfDate),
+		timeField(i.ProviderUpdatedAt),
+		strField(i.ISIN),
+		strField(i.Code),
+		strField(i.ProviderStatus),
+	)
+}
+
+func InvestmentTransactionHash(t InvestmentTransactionSnapshot) string {
+	return hashFields("InvestmentTransactionSnapshot",
+		t.ExternalID,
+		t.ExternalInvestmentID,
+		strField(t.MovementType),
+		decField(t.Quantity),
+		decField(t.Value),
+		decField(t.Amount),
+		timeField(t.OccurredAt),
+		timeField(t.TradeDate),
+	)
+}
+
 func TransactionHash(t TransactionSnapshot) string {
 	return hashFields("TransactionSnapshot",
 		t.ExternalID,

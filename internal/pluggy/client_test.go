@@ -179,6 +179,50 @@ func TestAdapterIteratesTransactionPagesUntilNoCursor(t *testing.T) {
 	}
 }
 
+func TestAdapterGetInvestmentsHappyPath(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/auth", authHandler)
+	mux.HandleFunc("/investments", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"results": []map[string]any{{"id": "inv-1", "name": "Fundo XYZ", "balance": 1000.50}},
+		})
+	})
+	adapter, writer := newTestAdapter(t, mux)
+
+	page, err := adapter.GetInvestments(context.Background())
+	if err != nil {
+		t.Fatalf("GetInvestments: %v", err)
+	}
+	if len(page.Investments) != 1 || page.Investments[0].ExternalID != "inv-1" {
+		t.Errorf("Investments = %+v", page.Investments)
+	}
+	if len(writer.envelopes) != 1 || writer.envelopes[0].Scope != ScopeInvestments {
+		t.Errorf("envelopes = %+v", writer.envelopes)
+	}
+}
+
+func TestAdapterGetInvestmentTransactionsHappyPath(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/auth", authHandler)
+	mux.HandleFunc("/investments/inv-1/transactions", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"results": []map[string]any{{"id": "invtx-1", "investmentId": "inv-1", "type": "BUY", "amount": 500.00}},
+		})
+	})
+	adapter, writer := newTestAdapter(t, mux)
+
+	page, err := adapter.GetInvestmentTransactions(context.Background(), "inv-1")
+	if err != nil {
+		t.Fatalf("GetInvestmentTransactions: %v", err)
+	}
+	if len(page.Transactions) != 1 || page.Transactions[0].ExternalID != "invtx-1" {
+		t.Errorf("Transactions = %+v", page.Transactions)
+	}
+	if len(writer.envelopes) != 1 || writer.envelopes[0].Scope != ScopeInvestmentTransactions {
+		t.Errorf("envelopes = %+v", writer.envelopes)
+	}
+}
+
 func TestAdapterRejectsRepeatedCursor(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/auth", authHandler)
