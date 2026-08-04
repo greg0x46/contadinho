@@ -26,6 +26,7 @@ const scenarioSummary: Scenario = {
   kind: "debt_plan",
   name: "Plano de pagamento",
   debt_id: debtId,
+  receivable_id: null,
   created_at: "2026-07-30T12:00:00Z",
   updated_at: "2026-07-30T12:00:00Z",
 };
@@ -149,6 +150,7 @@ describe("DebtTimeline", () => {
             {
               id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
               debt_link_id: linkId,
+              receivable_link_id: null,
               allocated_amount: "150.00",
               created_at: "2026-07-31T12:00:00Z",
             },
@@ -239,7 +241,7 @@ describe("DebtTimeline", () => {
           projected_at: "2026-08-01",
           category: null,
           status: "paga",
-          realizations: [{ id: realizationId, debt_link_id: linkId, allocated_amount: "150.00", created_at: "2026-07-31T12:00:00Z" }],
+          realizations: [{ id: realizationId, debt_link_id: linkId, receivable_link_id: null, allocated_amount: "150.00", created_at: "2026-07-31T12:00:00Z" }],
         },
       ],
     };

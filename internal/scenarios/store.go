@@ -39,15 +39,16 @@ func parseDate(s string) (time.Time, error) { return time.Parse(dateLayout, s) }
 
 // CreateScenario mirrors creating a Scenario row. Callers are responsible
 // for enforcing kind-specific rules (e.g. debt_id required for
-// KindDebtPlan) before calling this — the schema also enforces it via a
-// CHECK constraint as defense in depth.
-func CreateScenario(ctx context.Context, q Querier, kind Kind, name string, debtID *string) (Scenario, error) {
+// KindDebtPlan, receivable_id required for KindReceivablePlan) before
+// calling this — the schema also enforces it via CHECK constraints as
+// defense in depth.
+func CreateScenario(ctx context.Context, q Querier, kind Kind, name string, debtID, receivableID *string) (Scenario, error) {
 	now := time.Now().UTC()
-	s := Scenario{ID: uuid.NewString(), Kind: kind, Name: name, DebtID: debtID, CreatedAt: now, UpdatedAt: now}
+	s := Scenario{ID: uuid.NewString(), Kind: kind, Name: name, DebtID: debtID, ReceivableID: receivableID, CreatedAt: now, UpdatedAt: now}
 	_, err := q.ExecContext(ctx, `
-		INSERT INTO scenarios (id, kind, name, debt_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		s.ID, string(s.Kind), s.Name, s.DebtID, db.FormatTime(now), db.FormatTime(now),
+		INSERT INTO scenarios (id, kind, name, debt_id, receivable_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		s.ID, string(s.Kind), s.Name, s.DebtID, s.ReceivableID, db.FormatTime(now), db.FormatTime(now),
 	)
 	if err != nil {
 		return Scenario{}, err
@@ -59,15 +60,18 @@ func scanScenario(row *sql.Row) (Scenario, error) {
 	var (
 		s                          Scenario
 		kind                       string
-		debtID                     sql.NullString
+		debtID, receivableID       sql.NullString
 		createdAtRaw, updatedAtRaw string
 	)
-	if err := row.Scan(&s.ID, &kind, &s.Name, &debtID, &createdAtRaw, &updatedAtRaw); err != nil {
+	if err := row.Scan(&s.ID, &kind, &s.Name, &debtID, &receivableID, &createdAtRaw, &updatedAtRaw); err != nil {
 		return Scenario{}, err
 	}
 	s.Kind = Kind(kind)
 	if debtID.Valid {
 		s.DebtID = &debtID.String
+	}
+	if receivableID.Valid {
+		s.ReceivableID = &receivableID.String
 	}
 	var err error
 	if s.CreatedAt, err = db.ParseTime(createdAtRaw); err != nil {
@@ -81,7 +85,7 @@ func scanScenario(row *sql.Row) (Scenario, error) {
 
 // GetScenario mirrors reading a single Scenario by id.
 func GetScenario(ctx context.Context, q Querier, id string) (Scenario, error) {
-	row := q.QueryRowContext(ctx, `SELECT id, kind, name, debt_id, created_at, updated_at FROM scenarios WHERE id = ?`, id)
+	row := q.QueryRowContext(ctx, `SELECT id, kind, name, debt_id, receivable_id, created_at, updated_at FROM scenarios WHERE id = ?`, id)
 	s, err := scanScenario(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Scenario{}, ErrScenarioNotFound
@@ -92,8 +96,18 @@ func GetScenario(ctx context.Context, q Querier, id string) (Scenario, error) {
 // ListScenariosByDebt mirrors listing every scenario attached to a debt,
 // newest first.
 func ListScenariosByDebt(ctx context.Context, q Querier, debtID string) ([]Scenario, error) {
+	return listScenariosByColumn(ctx, q, "debt_id", debtID)
+}
+
+// ListScenariosByReceivable mirrors listing every scenario attached to a
+// receivable, newest first.
+func ListScenariosByReceivable(ctx context.Context, q Querier, receivableID string) ([]Scenario, error) {
+	return listScenariosByColumn(ctx, q, "receivable_id", receivableID)
+}
+
+func listScenariosByColumn(ctx context.Context, q Querier, column, value string) ([]Scenario, error) {
 	rows, err := q.QueryContext(ctx,
-		`SELECT id, kind, name, debt_id, created_at, updated_at FROM scenarios WHERE debt_id = ? ORDER BY created_at DESC`, debtID)
+		`SELECT id, kind, name, debt_id, receivable_id, created_at, updated_at FROM scenarios WHERE `+column+` = ? ORDER BY created_at DESC`, value)
 	if err != nil {
 		return nil, err
 	}
@@ -103,15 +117,18 @@ func ListScenariosByDebt(ctx context.Context, q Querier, debtID string) ([]Scena
 		var (
 			s                          Scenario
 			kind                       string
-			debtID                     sql.NullString
+			debtID, receivableID       sql.NullString
 			createdAtRaw, updatedAtRaw string
 		)
-		if err := rows.Scan(&s.ID, &kind, &s.Name, &debtID, &createdAtRaw, &updatedAtRaw); err != nil {
+		if err := rows.Scan(&s.ID, &kind, &s.Name, &debtID, &receivableID, &createdAtRaw, &updatedAtRaw); err != nil {
 			return nil, err
 		}
 		s.Kind = Kind(kind)
 		if debtID.Valid {
 			s.DebtID = &debtID.String
+		}
+		if receivableID.Valid {
+			s.ReceivableID = &receivableID.String
 		}
 		if s.CreatedAt, err = db.ParseTime(createdAtRaw); err != nil {
 			return nil, err

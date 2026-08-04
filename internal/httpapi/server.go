@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"io/fs"
@@ -9,15 +10,23 @@ import (
 	"strings"
 
 	"contadinho-go/internal/debts"
+	"contadinho-go/internal/receivables"
 	"contadinho-go/internal/settings"
+	"contadinho-go/internal/transactions"
 )
 
-// onIgnoredHook wires debts.UnlinkIfPresent into every inclusion-changing
-// path this package exposes (manual PUT, automation's apply-to-new and
-// apply-retroactively): whenever a transaction transitions to "ignored",
-// any debt link it holds is dropped, matching the reference calling
-// unlink_if_present from those same places.
-var onIgnoredHook = debts.UnlinkIfPresent
+// onIgnoredHook wires debts.UnlinkIfPresent and receivables.UnlinkIfPresent
+// into every inclusion-changing path this package exposes (manual PUT,
+// automation's apply-to-new and apply-retroactively): whenever a
+// transaction transitions to "ignored", any debt or receivable link it
+// holds is dropped, matching the reference calling unlink_if_present from
+// those same places.
+func onIgnoredHook(ctx context.Context, q transactions.Querier, transactionID string) error {
+	if err := debts.UnlinkIfPresent(ctx, q, transactionID); err != nil {
+		return err
+	}
+	return receivables.UnlinkIfPresent(ctx, q, transactionID)
+}
 
 // NewServer wires every route this phase implements (health, setup/unlock,
 // categories, transactions) plus the embedded frontend with SPA fallback,
@@ -64,8 +73,20 @@ func NewServer(db *sql.DB, frontend fs.FS, session *settings.Session) http.Handl
 	mux.HandleFunc("POST /api/debts/{id}/links", handleCreateDebtLink(db))
 	mux.HandleFunc("DELETE /api/debts/{id}/links/{linkId}", handleDeleteDebtLink(db))
 
+	mux.HandleFunc("GET /api/receivables", handleListReceivables(db))
+	mux.HandleFunc("POST /api/receivables", handleCreateReceivable(db))
+	mux.HandleFunc("GET /api/receivables/total-to-receive", handleReceivableTotalToReceive(db))
+	mux.HandleFunc("GET /api/receivables/eligible-transactions", handleListEligibleReceivableTransactions(db))
+	mux.HandleFunc("GET /api/receivables/{id}", handleGetReceivable(db))
+	mux.HandleFunc("PUT /api/receivables/{id}", handleUpdateReceivable(db))
+	mux.HandleFunc("DELETE /api/receivables/{id}", handleDeleteReceivable(db))
+	mux.HandleFunc("POST /api/receivables/{id}/links", handleCreateReceivableLink(db))
+	mux.HandleFunc("DELETE /api/receivables/{id}/links/{linkId}", handleDeleteReceivableLink(db))
+
 	mux.HandleFunc("GET /api/debts/{id}/scenarios", handleListDebtScenarios(db))
 	mux.HandleFunc("POST /api/debts/{id}/scenarios", handleCreateDebtScenario(db))
+	mux.HandleFunc("GET /api/receivables/{id}/scenarios", handleListReceivableScenarios(db))
+	mux.HandleFunc("POST /api/receivables/{id}/scenarios", handleCreateReceivableScenario(db))
 	mux.HandleFunc("GET /api/scenarios/{id}", handleGetScenario(db))
 	mux.HandleFunc("DELETE /api/scenarios/{id}", handleDeleteScenario(db))
 	mux.HandleFunc("POST /api/scenarios/{id}/generate-installments", handleGenerateInstallments(db))

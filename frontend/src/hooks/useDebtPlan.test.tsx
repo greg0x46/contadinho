@@ -17,6 +17,7 @@ const scenarioSummary: Scenario = {
   kind: "debt_plan",
   name: "Plano de pagamento",
   debt_id: debtId,
+  receivable_id: null,
   created_at: "2026-07-30T12:00:00Z",
   updated_at: "2026-07-30T12:00:00Z",
 };

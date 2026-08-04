@@ -73,7 +73,7 @@ func TestGenerateInstallmentsRejectsInvalidInput(t *testing.T) {
 func TestCreateGeneratedInstallmentsPersistsAll(t *testing.T) {
 	conn := newTestDB(t)
 	d := newDebt(t, conn)
-	s, _ := scenarios.CreateScenario(t.Context(), conn, scenarios.KindDebtPlan, "Plano", &d.ID)
+	s, _ := scenarios.CreateScenario(t.Context(), conn, scenarios.KindDebtPlan, "Plano", &d.ID, nil)
 
 	drafts, err := scenarios.GenerateInstallments(dec(t, "1200.00"), 4, date(t, "2026-09-01"), scenarios.CadenceMonthly)
 	if err != nil {

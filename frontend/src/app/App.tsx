@@ -1,6 +1,7 @@
 import {
   ApiOutlined,
   CreditCardOutlined,
+  DollarOutlined,
   HomeOutlined,
   TagsOutlined,
   ThunderboltOutlined,
@@ -29,6 +30,7 @@ export function App() {
             { path: "/transacoes", name: "Transações", icon: <TransactionOutlined /> },
             { path: "/automacoes", name: "Automações", icon: <ThunderboltOutlined /> },
             { path: "/dividas", name: "Dívidas", icon: <CreditCardOutlined /> },
+            { path: "/contas-a-receber", name: "Contas a receber", icon: <DollarOutlined /> },
             { path: "/categorias", name: "Categorias", icon: <TagsOutlined /> },
           ],
         }}

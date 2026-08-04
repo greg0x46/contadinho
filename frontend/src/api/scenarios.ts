@@ -84,6 +84,34 @@ export function createDebtScenario(debtId: string, write: ScenarioCreate): Promi
   );
 }
 
+export function listReceivableScenarios(
+  receivableId: string,
+  signal?: AbortSignal,
+): Promise<Scenario[]> {
+  return send(
+    `/api/receivables/${encodeURIComponent(receivableId)}/scenarios`,
+    { method: "GET", headers: { Accept: "application/json" }, signal },
+    200,
+    parseScenarioList,
+  );
+}
+
+export function createReceivableScenario(
+  receivableId: string,
+  write: ScenarioCreate,
+): Promise<ScenarioDetail> {
+  return send(
+    `/api/receivables/${encodeURIComponent(receivableId)}/scenarios`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(write),
+    },
+    201,
+    parseScenarioDetail,
+  );
+}
+
 export function getScenario(scenarioId: string, signal?: AbortSignal): Promise<ScenarioDetail> {
   return send(
     `/api/scenarios/${encodeURIComponent(scenarioId)}`,
