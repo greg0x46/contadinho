@@ -22,10 +22,13 @@ binário:
   o frontend já embutido. Sem Docker, sem proxy reverso, sem precisar do
   runtime do Node em produção (o Node só é necessário uma vez, para
   compilar o frontend).
-- **Um único arquivo como banco de dados.** Com SQLite, todo o estado da
-  aplicação é o arquivo `contadinho.db` — copie, faça backup, mova para
-  outro computador, apague, como qualquer outro arquivo. Sem servidor de
-  banco de dados para instalar ou manter rodando.
+- **Um único arquivo como banco de dados (por padrão).** Com SQLite —
+  o padrão —, todo o estado da aplicação é o arquivo `contadinho.db` —
+  copie, faça backup, mova para outro computador, apague, como qualquer
+  outro arquivo. Sem servidor de banco de dados para instalar ou manter
+  rodando. Para rodar várias instâncias do Contadinho compartilhando um
+  banco na nuvem, Postgres é uma opção — veja
+  [Rodando com Postgres](#rodando-com-postgres).
 - **Zero configuração para começar.** As flags `-addr` e `-db` existem para
   permitir sobrescrever os padrões, mas nada exige isso — `./contadinho`
   sozinho já sobe um servidor funcional em `localhost:4200`, gravando em
@@ -60,8 +63,10 @@ binário:
 ## Stack técnica
 
 - **Backend**: Go, `net/http` (roteamento da stdlib, sem framework), SQLite
-  via [`modernc.org/sqlite`](https://gitlab.com/cznic/sqlite) (sem cgo),
-  migrações via [`goose`](https://github.com/pressly/goose).
+  via [`modernc.org/sqlite`](https://gitlab.com/cznic/sqlite) (sem cgo) como
+  padrão, com Postgres opcional via [`pgx`](https://github.com/jackc/pgx) —
+  veja [Rodando com Postgres](#rodando-com-postgres) — e migrações via
+  [`goose`](https://github.com/pressly/goose) para os dois dialetos.
 - **Frontend**: React 19, TypeScript, [Ant Design](https://ant.design/) /
   Pro Components, [TanStack Query](https://tanstack.com/query), Vite.
 - **Testes**: pacote `testing` padrão do Go, [Vitest](https://vitest.dev/) +
@@ -93,6 +98,31 @@ sobrescrever) e guarda o banco de dados em `./contadinho.db` (`-db` para
 sobrescrever). Na primeira requisição, abra o app no navegador e complete a
 tela de configuração — ela pede uma senha de desbloqueio e suas credenciais
 da Pluggy, que em seguida são criptografadas e armazenadas.
+
+### Rodando com Postgres
+
+SQLite continua sendo o padrão para uso local. Para rodar contra um Postgres
+compartilhado — por exemplo, múltiplas instâncias do Contadinho apontando
+para o mesmo banco na nuvem —, passe uma DSN `postgres://` (ou
+`postgresql://`) na flag `-db` em vez de um caminho de arquivo:
+
+```sh
+./contadinho -db "postgres://usuario:senha@host:5432/contadinho?sslmode=require"
+```
+
+O driver é detectado automaticamente pelo prefixo da DSN. As migrações do
+schema Postgres são aplicadas automaticamente, do mesmo jeito que as do
+SQLite — nenhuma etapa manual de setup do banco é necessária além de ele
+existir e estar acessível. Cada instância ainda precisa do próprio
+`POST /api/unlock` (ou tela de configuração) na primeira vez que atende uma
+requisição — a chave de criptografia é derivada da senha de forma
+determinística, então qualquer instância com a senha correta decifra o que
+outra instância gravou, mas o estado "desbloqueado" em si vive na memória de
+cada processo, não é compartilhado entre eles.
+
+O worker de sincronização em segundo plano assume que só uma instância o
+executa por vez — hoje ele não coordena a reivindicação de execuções de
+sincronização entre múltiplos processos/instâncias.
 
 ### Rodar para desenvolvimento local
 
@@ -152,7 +182,7 @@ durante a configuração.
 ```
 cmd/contadinho/     ponto de entrada: conecta DB, servidor HTTP e worker em segundo plano
 internal/
-  db/                conexão SQLite e migrações
+  db/                conexão SQLite/Postgres e migrações
   pluggy/             cliente da API da Pluggy e mapeamento de dados
   syncsvc/             orquestração das execuções de sincronização
   worker/              loop de polling de sincronização em segundo plano
