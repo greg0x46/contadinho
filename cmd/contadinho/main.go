@@ -1,7 +1,8 @@
 // Command contadinho is the single-binary server: it opens (and migrates)
-// the SQLite database, wires the HTTP API, runs the background sync worker,
-// and serves the embedded frontend build, with no external runtime or
-// deployment step required.
+// the database — SQLite by default, or Postgres via -db's DSN — wires the
+// HTTP API, runs the background sync worker, and serves the embedded
+// frontend build, with no external runtime or deployment step required for
+// the SQLite (default) setup.
 package main
 
 import (
@@ -21,7 +22,7 @@ import (
 )
 
 func main() {
-	dbPath := flag.String("db", "contadinho.db", "path to the SQLite database file")
+	dbPath := flag.String("db", "contadinho.db", "path to the SQLite database file, or a postgres://... / postgresql://... DSN to use Postgres instead")
 	addr := flag.String("addr", "localhost:4200", "address to listen on")
 	flag.Parse()
 
