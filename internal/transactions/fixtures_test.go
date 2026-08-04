@@ -84,6 +84,7 @@ type txn struct {
 	ProviderStatus          *string
 	MovementType            *string
 	SourceCategory          *string
+	CreditCardMetadata      *string
 }
 
 func (f *fixture) addTransaction(tx txn) string {
@@ -97,12 +98,12 @@ func (f *fixture) addTransaction(tx txn) string {
 	f.exec(`INSERT INTO financial_transactions (
 			id, source_id, account_id, external_id, description, amount,
 			amount_in_account_currency, currency_code, occurred_at, provider_status,
-			movement_type, source_category, current_raw_import_id, normalized_hash,
-			created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'hash', ?, ?)`,
+			movement_type, source_category, credit_card_metadata, current_raw_import_id,
+			normalized_hash, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'hash', ?, ?)`,
 		id, f.sourceID, tx.AccountID, id, tx.Description, tx.Amount, tx.AmountInAccountCurrency,
 		tx.CurrencyCode, occurredAt, tx.ProviderStatus, tx.MovementType, tx.SourceCategory,
-		f.rawImportID, now, now)
+		tx.CreditCardMetadata, f.rawImportID, now, now)
 	return id
 }
 

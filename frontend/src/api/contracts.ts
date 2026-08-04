@@ -128,6 +128,11 @@ export interface TransactionItem {
     currency_code: string;
     source: "account_currency" | "transaction_currency";
   } | null;
+  card: {
+    number: string;
+    installment_number: number | null;
+    total_installments: number | null;
+  } | null;
   inclusion: {
     state: TransactionInclusionState;
     changed_at: string | null;
@@ -359,6 +364,27 @@ function parseInternalCategory(value: unknown): InternalCategory {
   };
 }
 
+function parseCardInfo(value: unknown): NonNullable<TransactionItem["card"]> {
+  const card = requiredRecord(
+    value,
+    ["number", "installment_number", "total_installments"],
+    "Cartão inválido.",
+  );
+  if (
+    typeof card.number !== "string" ||
+    card.number === "" ||
+    !(card.installment_number === null || isCount(card.installment_number)) ||
+    !(card.total_installments === null || isCount(card.total_installments))
+  ) {
+    throw new TypeError("Cartão inválido.");
+  }
+  return {
+    number: card.number,
+    installment_number: card.installment_number as number | null,
+    total_installments: card.total_installments as number | null,
+  };
+}
+
 function parseTransactionItem(value: unknown): TransactionItem {
   const item = requiredRecord(value, [
     "id",
@@ -375,6 +401,7 @@ function parseTransactionItem(value: unknown): TransactionItem {
     "currency_code",
     "amount_in_account_currency",
     "effective_money",
+    "card",
     "inclusion",
     "totals_eligibility",
     "group_key",
@@ -457,6 +484,7 @@ function parseTransactionItem(value: unknown): TransactionItem {
     currency_code: nullableText(item.currency_code),
     amount_in_account_currency: nullableDecimal(item.amount_in_account_currency),
     effective_money: effectiveMoney,
+    card: item.card === null ? null : parseCardInfo(item.card),
     inclusion: {
       state: inclusion.state as TransactionInclusionState,
       changed_at: inclusion.changed_at as string | null,

@@ -155,6 +155,64 @@ func TestQueryFilterUncategorized(t *testing.T) {
 	}
 }
 
+func TestQueryExposesCardInfo(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(account{CurrencyCode: strp("BRL")})
+	occurred := time.Now().UTC()
+
+	plain := f.addTransaction(txn{
+		AccountID: acc, Amount: strp("-10.00"), AmountInAccountCurrency: strp("-10.00"),
+		CurrencyCode: strp("BRL"), OccurredAt: &occurred, ProviderStatus: strp("POSTED"),
+		MovementType: strp("DEBIT"), CreditCardMetadata: strp(`{"cardNumber":"**** 4321"}`),
+	})
+	installment := f.addTransaction(txn{
+		AccountID: acc, Amount: strp("-20.00"), AmountInAccountCurrency: strp("-20.00"),
+		CurrencyCode: strp("BRL"), OccurredAt: &occurred, ProviderStatus: strp("POSTED"),
+		MovementType: strp("DEBIT"),
+		CreditCardMetadata: strp(`{"cardNumber":"**** 1234","installmentNumber":3,"totalInstallments":12}`),
+	})
+	noCard := f.addTransaction(txn{
+		AccountID: acc, Amount: strp("-30.00"), AmountInAccountCurrency: strp("-30.00"),
+		CurrencyCode: strp("BRL"), OccurredAt: &occurred, ProviderStatus: strp("POSTED"),
+		MovementType: strp("DEBIT"),
+	})
+
+	result, err := transactions.Query(context.Background(), f.conn, transactions.QueryRequest{
+		Timezone: "UTC", GroupBy: money.GroupNone, Page: 1, PageSize: 50,
+	})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+
+	byID := make(map[string]transactions.Item, len(result.Items))
+	for _, item := range result.Items {
+		byID[item.ID] = item
+	}
+
+	plainItem := byID[plain]
+	if plainItem.Card == nil || plainItem.Card.Number != "**** 4321" {
+		t.Errorf("plain item Card = %+v, want Number **** 4321", plainItem.Card)
+	}
+	if plainItem.Card != nil && (plainItem.Card.InstallmentNumber != nil || plainItem.Card.TotalInstallments != nil) {
+		t.Errorf("plain item Card = %+v, want no installment info", plainItem.Card)
+	}
+
+	installmentItem := byID[installment]
+	if installmentItem.Card == nil || installmentItem.Card.Number != "**** 1234" {
+		t.Fatalf("installment item Card = %+v, want Number **** 1234", installmentItem.Card)
+	}
+	if installmentItem.Card.InstallmentNumber == nil || *installmentItem.Card.InstallmentNumber != 3 {
+		t.Errorf("installment item Card.InstallmentNumber = %v, want 3", installmentItem.Card.InstallmentNumber)
+	}
+	if installmentItem.Card.TotalInstallments == nil || *installmentItem.Card.TotalInstallments != 12 {
+		t.Errorf("installment item Card.TotalInstallments = %v, want 12", installmentItem.Card.TotalInstallments)
+	}
+
+	if byID[noCard].Card != nil {
+		t.Errorf("no-card item Card = %+v, want nil", byID[noCard].Card)
+	}
+}
+
 func TestQueryAmountRangeFilter(t *testing.T) {
 	f := newFixture(t)
 	acc := f.addAccount(account{CurrencyCode: strp("BRL")})

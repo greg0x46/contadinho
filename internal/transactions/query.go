@@ -3,6 +3,7 @@ package transactions
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -30,6 +31,7 @@ type row struct {
 	providerStatus          *string
 	movementType            *string
 	sourceCategory          *string
+	creditCardMetadata      *string
 
 	accountName         *string
 	accountInstitution  *string
@@ -70,7 +72,7 @@ func fetchAllViews(ctx context.Context, q Querier, query QueryRequest) ([]view, 
 		SELECT
 			ft.id, ft.account_id, ft.external_id, ft.description, ft.amount,
 			ft.amount_in_account_currency, ft.currency_code, ft.occurred_at,
-			ft.provider_status, ft.movement_type, ft.source_category,
+			ft.provider_status, ft.movement_type, ft.source_category, ft.credit_card_metadata,
 			fa.name, fa.institution, fa.currency_code,
 			tid.state, tid.changed_at, tid.origin, tid.rule_name,
 			tcd.category_id, tcd.changed_at, tcd.origin,
@@ -113,6 +115,7 @@ func scanRow(rows *sql.Rows) (row, error) {
 		providerStatus             sql.NullString
 		movementType               sql.NullString
 		sourceCategory             sql.NullString
+		creditCardMetadata         sql.NullString
 		description                sql.NullString
 		accountName                sql.NullString
 		accountInstitution         sql.NullString
@@ -132,7 +135,7 @@ func scanRow(rows *sql.Rows) (row, error) {
 	err := rows.Scan(
 		&r.id, &r.accountID, &r.externalID, &description, &amount,
 		&amountAcct, &currencyCode, &occurredAt,
-		&providerStatus, &movementType, &sourceCategory,
+		&providerStatus, &movementType, &sourceCategory, &creditCardMetadata,
 		&accountName, &accountInstitution, &accountCurrencyCode,
 		&inclusionState, &inclusionChangedAt, &inclusionOrigin, &inclusionRuleName,
 		&categoryDecisionCategoryID, &categoryDecisionChangedAt, &categoryDecisionOrigin,
@@ -147,6 +150,7 @@ func scanRow(rows *sql.Rows) (row, error) {
 	r.providerStatus = nullString(providerStatus)
 	r.movementType = nullString(movementType)
 	r.sourceCategory = nullString(sourceCategory)
+	r.creditCardMetadata = nullString(creditCardMetadata)
 	r.accountName = nullString(accountName)
 	r.accountInstitution = nullString(accountInstitution)
 	r.accountCurrencyCode = nullString(accountCurrencyCode)
@@ -396,6 +400,37 @@ func Query(ctx context.Context, q Querier, query QueryRequest) (Result, error) {
 	}, nil
 }
 
+// cardMetadata is the subset of Pluggy's opaque credit_card_metadata JSON
+// this package reads for display. The key is "cardNumber" (camelCase)
+// because package pluggy stores that JSON blob verbatim from Pluggy's wire
+// format — see pluggy.TransactionSnapshot's doc comment. Package categories
+// parses the same blob independently for its own purpose (installment
+// grouping), since each consumer treats it as opaque and types only the
+// subset it needs.
+type cardMetadata struct {
+	CardNumber        *string `json:"cardNumber"`
+	InstallmentNumber *int    `json:"installmentNumber"`
+	TotalInstallments *int    `json:"totalInstallments"`
+}
+
+func parseCardInfo(raw *string) *CardInfo {
+	if raw == nil {
+		return nil
+	}
+	var meta cardMetadata
+	if err := json.Unmarshal([]byte(*raw), &meta); err != nil {
+		return nil
+	}
+	if meta.CardNumber == nil || *meta.CardNumber == "" {
+		return nil
+	}
+	return &CardInfo{
+		Number:            *meta.CardNumber,
+		InstallmentNumber: meta.InstallmentNumber,
+		TotalInstallments: meta.TotalInstallments,
+	}
+}
+
 func toItem(v view) Item {
 	r := v.row
 	item := Item{
@@ -420,6 +455,7 @@ func toItem(v view) Item {
 			Origin:    stringOr(r.inclusionOrigin, "manual"),
 			RuleName:  r.inclusionRuleName,
 		},
+		Card:              parseCardInfo(r.creditCardMetadata),
 		TotalsEligibility: TotalsEligibility{Included: v.included, Reason: v.reason},
 		GroupKey:          v.period.Key,
 	}
