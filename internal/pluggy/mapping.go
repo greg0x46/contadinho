@@ -317,6 +317,189 @@ func mapTransaction(payload map[string]any, expectedAccountID string) (Transacti
 	return t, nil
 }
 
+func mapInvestment(payload map[string]any) (InvestmentSnapshot, error) {
+	externalID, err := requiredID(payload["id"], "Investment")
+	if err != nil {
+		return InvestmentSnapshot{}, err
+	}
+
+	i := InvestmentSnapshot{ExternalID: externalID}
+
+	if i.InvestmentType, err = optionalString(payload["type"], "type"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.Subtype, err = optionalString(payload["subtype"], "subtype"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.Name, err = optionalString(payload["name"], "name"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.Balance, err = optionalDecimal(payload["balance"], "balance"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.CurrencyCode, err = optionalString(payload["currencyCode"], "currencyCode"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.Number, err = optionalString(payload["number"], "number"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.Owner, err = optionalString(payload["owner"], "owner"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.TaxNumber, err = optionalString(payload["taxNumber"], "taxNumber"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.DueDate, err = optionalDateTime(payload["dueDate"], "dueDate"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.Issuer, err = optionalString(payload["issuer"], "issuer"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.IssuerCode, err = optionalString(payload["issuerCode"], "issuerCode"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.Rate, err = optionalDecimal(payload["rate"], "rate"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.RateType, err = optionalString(payload["rateType"], "rateType"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.FixedAnnualRate, err = optionalDecimal(payload["fixedAnnualRate"], "fixedAnnualRate"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.AnnualRate, err = optionalDecimal(payload["annualRate"], "annualRate"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.LastTwelveMonthsRate, err = optionalDecimal(payload["lastTwelveMonthsRate"], "lastTwelveMonthsRate"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.Quantity, err = optionalDecimal(payload["quantity"], "quantity"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.Value, err = optionalDecimal(payload["value"], "value"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.Amount, err = optionalDecimal(payload["amount"], "amount"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.AmountProfit, err = optionalDecimal(payload["amountProfit"], "amountProfit"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.AmountWithdrawal, err = optionalDecimal(payload["amountWithdrawal"], "amountWithdrawal"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.AsOfDate, err = optionalDateTime(payload["date"], "date"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.ProviderUpdatedAt, err = optionalDateTime(payload["lastUpdatedAt"], "lastUpdatedAt"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.ISIN, err = optionalString(payload["isin"], "isin"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.Code, err = optionalString(payload["code"], "code"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.ProviderStatus, err = optionalString(payload["status"], "status"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	return i, nil
+}
+
+func mapInvestmentTransaction(payload map[string]any, expectedInvestmentID string) (InvestmentTransactionSnapshot, error) {
+	externalID, err := requiredID(payload["id"], "Investment transaction")
+	if err != nil {
+		return InvestmentTransactionSnapshot{}, err
+	}
+	// Pluggy's investment-transactions endpoint is already scoped to one
+	// investment and its records carry no "investmentId" field at all (only
+	// id/amount/value/quantity/type/date/tradeDate/...), so expectedInvestmentID
+	// — the investment the request was made for — is the association. When a
+	// payload does include investmentId (seen on some provider responses),
+	// it's still cross-checked as a safety net against page-scope mixups.
+	investmentID := expectedInvestmentID
+	if raw, ok := payload["investmentId"]; ok && raw != nil {
+		reported, err := requiredID(raw, "Investment transaction investment")
+		if err != nil {
+			return InvestmentTransactionSnapshot{}, err
+		}
+		if reported != expectedInvestmentID {
+			return InvestmentTransactionSnapshot{}, &MappingError{
+				Code: "unsafe_investment_association", SafeMessage: "Investment transaction does not belong to the requested investment",
+				ExternalID: &externalID,
+			}
+		}
+	}
+
+	t := InvestmentTransactionSnapshot{ExternalID: externalID, ExternalInvestmentID: investmentID}
+
+	if t.MovementType, err = optionalString(payload["type"], "type"); err != nil {
+		return InvestmentTransactionSnapshot{}, err
+	}
+	if t.Quantity, err = optionalDecimal(payload["quantity"], "quantity"); err != nil {
+		return InvestmentTransactionSnapshot{}, err
+	}
+	if t.Value, err = optionalDecimal(payload["value"], "value"); err != nil {
+		return InvestmentTransactionSnapshot{}, err
+	}
+	if t.Amount, err = optionalDecimal(payload["amount"], "amount"); err != nil {
+		return InvestmentTransactionSnapshot{}, err
+	}
+	if t.OccurredAt, err = optionalDateTime(payload["date"], "date"); err != nil {
+		return InvestmentTransactionSnapshot{}, err
+	}
+	if t.TradeDate, err = optionalDateTime(payload["tradeDate"], "tradeDate"); err != nil {
+		return InvestmentTransactionSnapshot{}, err
+	}
+	return t, nil
+}
+
+func mapInvestmentsPage(payload map[string]any) ([]InvestmentSnapshot, []RejectedRecord, error) {
+	results, ok := payload["results"].([]any)
+	if !ok {
+		return nil, nil, &MappingError{Code: "invalid_provider_payload", SafeMessage: "Provider results must be a list"}
+	}
+	var investments []InvestmentSnapshot
+	var rejections []RejectedRecord
+	for _, raw := range results {
+		record, ok := raw.(map[string]any)
+		if !ok {
+			rejections = append(rejections, RejectedRecord{EntityType: "investment", Code: "invalid_provider_payload", SafeMessage: "Provider record must be an object"})
+			continue
+		}
+		investment, err := mapInvestment(record)
+		if err != nil {
+			rejections = append(rejections, toRejection("investment", record, err))
+			continue
+		}
+		investments = append(investments, investment)
+	}
+	return investments, rejections, nil
+}
+
+func mapInvestmentTransactionsPage(payload map[string]any, expectedInvestmentID string) ([]InvestmentTransactionSnapshot, []RejectedRecord, error) {
+	results, ok := payload["results"].([]any)
+	if !ok {
+		return nil, nil, &MappingError{Code: "invalid_provider_payload", SafeMessage: "Provider results must be a list"}
+	}
+	var transactions []InvestmentTransactionSnapshot
+	var rejections []RejectedRecord
+	for _, raw := range results {
+		record, ok := raw.(map[string]any)
+		if !ok {
+			rejections = append(rejections, RejectedRecord{EntityType: "investment_transaction", Code: "invalid_provider_payload", SafeMessage: "Provider record must be an object"})
+			continue
+		}
+		transaction, err := mapInvestmentTransaction(record, expectedInvestmentID)
+		if err != nil {
+			rejections = append(rejections, toRejection("investment_transaction", record, err))
+			continue
+		}
+		transactions = append(transactions, transaction)
+	}
+	return transactions, rejections, nil
+}
+
 func mapAccountsPage(payload map[string]any, institution *string) ([]AccountSnapshot, []RejectedRecord, error) {
 	results, ok := payload["results"].([]any)
 	if !ok {

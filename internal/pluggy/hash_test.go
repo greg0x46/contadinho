@@ -41,6 +41,31 @@ func TestTransactionHashDistinguishesEveryField(t *testing.T) {
 	}
 }
 
+func TestInvestmentHashStableAcrossDecimalFormatting(t *testing.T) {
+	i1 := InvestmentSnapshot{ExternalID: "inv-1", Balance: decp("10.00")}
+	i2 := InvestmentSnapshot{ExternalID: "inv-1", Balance: decp("10")}
+	if InvestmentHash(i1) != InvestmentHash(i2) {
+		t.Error("hash should be stable across trailing-zero-only formatting differences")
+	}
+}
+
+func TestInvestmentHashChangesWithRealChange(t *testing.T) {
+	i1 := InvestmentSnapshot{ExternalID: "inv-1", Balance: decp("10.00")}
+	i2 := InvestmentSnapshot{ExternalID: "inv-1", Balance: decp("20.00")}
+	if InvestmentHash(i1) == InvestmentHash(i2) {
+		t.Error("hash should change when balance actually changes")
+	}
+}
+
+func TestInvestmentTransactionHashDistinguishesEveryField(t *testing.T) {
+	base := InvestmentTransactionSnapshot{ExternalID: "invtx-1", ExternalInvestmentID: "inv-1", Amount: decp("-10.00")}
+	variant := base
+	variant.MovementType = strp("SELL")
+	if InvestmentTransactionHash(base) == InvestmentTransactionHash(variant) {
+		t.Error("hash should change when movement type changes")
+	}
+}
+
 func TestMapTransactionCanonicalizesMetadataKeyOrder(t *testing.T) {
 	// TransactionHash treats PaymentData/CreditCardMetadata/Merchant as
 	// opaque bytes, so the JSON key order must already be canonical by the

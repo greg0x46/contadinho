@@ -135,6 +135,120 @@ func TestMapTransactionsPageCollectsRejectionsWithoutFailingWholePage(t *testing
 	}
 }
 
+func TestMapInvestmentMapsCoreFields(t *testing.T) {
+	payload, _ := decodeJSON([]byte(`{
+		"id": "inv-1", "type": "MUTUAL_FUND", "subtype": "MULTIMARKET", "name": "Fundo XYZ",
+		"balance": 1000.50, "currencyCode": "BRL", "quantity": 10.5, "value": 95.28,
+		"amount": 1000.50, "date": "2026-03-15T10:00:00Z", "lastUpdatedAt": "2026-03-16T10:00:00Z"
+	}`))
+	investment, err := mapInvestment(payload)
+	if err != nil {
+		t.Fatalf("mapInvestment: %v", err)
+	}
+	if investment.InvestmentType == nil || *investment.InvestmentType != "MUTUAL_FUND" {
+		t.Errorf("InvestmentType = %v", investment.InvestmentType)
+	}
+	if investment.Balance == nil || investment.Balance.StringFixed(2) != "1000.50" {
+		t.Errorf("Balance = %v", investment.Balance)
+	}
+	if investment.AsOfDate == nil {
+		t.Error("AsOfDate should be captured")
+	}
+}
+
+func TestMapInvestmentRejectsMissingID(t *testing.T) {
+	payload, _ := decodeJSON([]byte(`{"name": "no id"}`))
+	if _, err := mapInvestment(payload); err == nil {
+		t.Fatal("expected an error for a missing investment id")
+	}
+}
+
+func TestMapInvestmentTransactionRejectsInvestmentMismatch(t *testing.T) {
+	payload, _ := decodeJSON([]byte(`{"id": "invtx-1", "investmentId": "inv-2", "amount": -10.00}`))
+	_, err := mapInvestmentTransaction(payload, "inv-1")
+	if err == nil {
+		t.Fatal("expected an error for investment mismatch")
+	}
+	mapErr, ok := err.(*MappingError)
+	if !ok || mapErr.Code != "unsafe_investment_association" {
+		t.Errorf("err = %v, want unsafe_investment_association", err)
+	}
+}
+
+func TestMapInvestmentTransactionMapsCoreFields(t *testing.T) {
+	payload, _ := decodeJSON([]byte(`{
+		"id": "invtx-1", "investmentId": "inv-1", "type": "BUY", "quantity": 5.0, "value": 100.00,
+		"amount": 500.00, "date": "2026-03-15T10:00:00Z", "tradeDate": "2026-03-14T10:00:00Z"
+	}`))
+	tx, err := mapInvestmentTransaction(payload, "inv-1")
+	if err != nil {
+		t.Fatalf("mapInvestmentTransaction: %v", err)
+	}
+	if tx.MovementType == nil || *tx.MovementType != "BUY" {
+		t.Errorf("MovementType = %v", tx.MovementType)
+	}
+	if tx.Amount == nil || tx.Amount.StringFixed(2) != "500.00" {
+		t.Errorf("Amount = %v", tx.Amount)
+	}
+}
+
+// Pluggy's real investment-transactions responses carry no "investmentId"
+// field at all (the endpoint is already scoped to one investment), so the
+// association must come from expectedInvestmentID rather than fail as a
+// missing required field.
+func TestMapInvestmentTransactionAcceptsMissingInvestmentID(t *testing.T) {
+	payload, _ := decodeJSON([]byte(`{
+		"id": "invtx-1", "type": "BUY", "quantity": 5.0, "value": 100.00,
+		"amount": 500.00, "date": "2026-03-15T10:00:00Z", "tradeDate": "2026-03-14T10:00:00Z"
+	}`))
+	tx, err := mapInvestmentTransaction(payload, "inv-1")
+	if err != nil {
+		t.Fatalf("mapInvestmentTransaction: %v", err)
+	}
+	if tx.ExternalInvestmentID != "inv-1" {
+		t.Errorf("ExternalInvestmentID = %v, want inv-1", tx.ExternalInvestmentID)
+	}
+}
+
+func TestMapInvestmentsPageCollectsRejectionsWithoutFailingWholePage(t *testing.T) {
+	payload, _ := decodeJSON([]byte(`{
+		"results": [
+			{"id": "inv-1", "balance": 100.00},
+			{"notAnObject": true}
+		]
+	}`))
+	investments, rejections, err := mapInvestmentsPage(payload)
+	if err != nil {
+		t.Fatalf("mapInvestmentsPage: %v", err)
+	}
+	if len(investments) != 1 {
+		t.Errorf("len(investments) = %d, want 1", len(investments))
+	}
+	if len(rejections) != 1 {
+		t.Errorf("len(rejections) = %d, want 1", len(rejections))
+	}
+}
+
+func TestMapInvestmentTransactionsPageCollectsRejectionsWithoutFailingWholePage(t *testing.T) {
+	payload, _ := decodeJSON([]byte(`{
+		"results": [
+			{"id": "invtx-1", "investmentId": "inv-1", "amount": -1.00},
+			{"id": "invtx-2", "investmentId": "wrong-investment", "amount": -2.00},
+			{"notAnObject": true}
+		]
+	}`))
+	transactions, rejections, err := mapInvestmentTransactionsPage(payload, "inv-1")
+	if err != nil {
+		t.Fatalf("mapInvestmentTransactionsPage: %v", err)
+	}
+	if len(transactions) != 1 {
+		t.Errorf("len(transactions) = %d, want 1", len(transactions))
+	}
+	if len(rejections) != 2 {
+		t.Errorf("len(rejections) = %d, want 2", len(rejections))
+	}
+}
+
 func TestExtractCursorValidatesAccountScope(t *testing.T) {
 	cursor, err := extractCursor("https://api.pluggy.ai/v2/transactions?accountId=acc-1&after=abc", "acc-1")
 	if err != nil {

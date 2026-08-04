@@ -17,23 +17,28 @@ import (
 type Scope string
 
 const (
-	ScopeItem         Scope = "item"
-	ScopeAccounts     Scope = "accounts"
-	ScopeTransactions Scope = "transactions"
+	ScopeItem                   Scope = "item"
+	ScopeAccounts               Scope = "accounts"
+	ScopeTransactions           Scope = "transactions"
+	ScopeInvestments            Scope = "investments"
+	ScopeInvestmentTransactions Scope = "investment_transactions"
 )
 
 // FailureStage mirrors the sync_failures.stage CHECK constraint.
 type FailureStage string
 
 const (
-	StageAuth              FailureStage = "auth"
-	StageItem              FailureStage = "item"
-	StageAccounts          FailureStage = "accounts"
-	StageAccount           FailureStage = "account"
-	StageTransactions      FailureStage = "transactions"
-	StageNormalize         FailureStage = "normalize"
-	StageInterrupted       FailureStage = "interrupted"
-	StageWorkerUnavailable FailureStage = "worker_unavailable"
+	StageAuth                   FailureStage = "auth"
+	StageItem                   FailureStage = "item"
+	StageAccounts               FailureStage = "accounts"
+	StageAccount                FailureStage = "account"
+	StageTransactions           FailureStage = "transactions"
+	StageInvestments            FailureStage = "investments"
+	StageInvestment             FailureStage = "investment"
+	StageInvestmentTransactions FailureStage = "investment_transactions"
+	StageNormalize              FailureStage = "normalize"
+	StageInterrupted            FailureStage = "interrupted"
+	StageWorkerUnavailable      FailureStage = "worker_unavailable"
 )
 
 // SourceSnapshot mirrors SourceSnapshot: the Pluggy "Item" (a bank
@@ -101,6 +106,67 @@ type TransactionSnapshot struct {
 	ProviderUpdatedAt           *time.Time
 }
 
+// InvestmentSnapshot mirrors Pluggy's Investment resource: a holding (fund,
+// fixed income, equity, ...) reduced to what sync needs to detect changes.
+type InvestmentSnapshot struct {
+	ExternalID           string
+	InvestmentType       *string // "type": MUTUAL_FUND, FIXED_INCOME, EQUITY, SECURITY, COE, ETF
+	Subtype              *string
+	Name                 *string
+	Balance              *decimal.Decimal
+	CurrencyCode         *string
+	Number               *string
+	Owner                *string
+	TaxNumber            *string
+	DueDate              *time.Time
+	Issuer               *string
+	IssuerCode           *string
+	Rate                 *decimal.Decimal
+	RateType             *string
+	FixedAnnualRate      *decimal.Decimal
+	AnnualRate           *decimal.Decimal
+	LastTwelveMonthsRate *decimal.Decimal
+	Quantity             *decimal.Decimal
+	Value                *decimal.Decimal
+	Amount               *decimal.Decimal
+	AmountProfit         *decimal.Decimal
+	AmountWithdrawal     *decimal.Decimal
+	AsOfDate             *time.Time
+	ProviderUpdatedAt    *time.Time
+	ISIN                 *string
+	Code                 *string
+	ProviderStatus       *string
+}
+
+// InvestmentTransactionSnapshot mirrors one movement (buy/sell/dividend/...)
+// within an investment's history.
+type InvestmentTransactionSnapshot struct {
+	ExternalID           string
+	ExternalInvestmentID string
+	MovementType         *string // "type": BUY/SELL/...
+	Quantity             *decimal.Decimal
+	Value                *decimal.Decimal
+	Amount               *decimal.Decimal
+	OccurredAt           *time.Time
+	TradeDate            *time.Time
+}
+
+// InvestmentsPage is one page of mapped investments (Pluggy returns
+// investments unpaginated, so there is only ever one).
+type InvestmentsPage struct {
+	RawImportID string
+	Investments []InvestmentSnapshot
+	Rejections  []RejectedRecord
+}
+
+// InvestmentTransactionsPage is one page of mapped transaction history for a
+// single investment (also unpaginated per investment).
+type InvestmentTransactionsPage struct {
+	RawImportID  string
+	Transactions []InvestmentTransactionSnapshot
+	Rejections   []RejectedRecord
+}
+
 // RawResponseEnvelope mirrors RawResponseEnvelope: a raw HTTP response as it
 // must be persisted to raw_imports before any of it is trusted.
 type RawResponseEnvelope struct {
@@ -120,7 +186,7 @@ type RawResponseEnvelope struct {
 // failed to map, recorded as a sync_failure without aborting the rest of
 // the page.
 type RejectedRecord struct {
-	EntityType  string // "account" | "transaction"
+	EntityType  string // "account" | "transaction" | "investment" | "investment_transaction"
 	ExternalID  *string
 	Code        string
 	SafeMessage string

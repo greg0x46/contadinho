@@ -3,6 +3,7 @@ import {
   CreditCardOutlined,
   DollarOutlined,
   HomeOutlined,
+  RiseOutlined,
   TagsOutlined,
   ThunderboltOutlined,
   TransactionOutlined,
@@ -31,6 +32,7 @@ export function App() {
             { path: "/automacoes", name: "Automações", icon: <ThunderboltOutlined /> },
             { path: "/dividas", name: "Dívidas", icon: <CreditCardOutlined /> },
             { path: "/contas-a-receber", name: "Contas a receber", icon: <DollarOutlined /> },
+            { path: "/investimentos", name: "Investimentos", icon: <RiseOutlined /> },
             { path: "/categorias", name: "Categorias", icon: <TagsOutlined /> },
           ],
         }}

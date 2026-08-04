@@ -269,7 +269,7 @@ func interpretItemStatus(source SourceSnapshot, payload map[string]any, rawImpor
 		}
 	}
 	if execution != "PARTIAL_SUCCESS" {
-		source.SafeProducts = map[string]bool{"ACCOUNTS": true, "TRANSACTIONS": true}
+		source.SafeProducts = map[string]bool{"ACCOUNTS": true, "TRANSACTIONS": true, "INVESTMENTS": true}
 		return source, nil
 	}
 	safe := safeProducts(payload["statusDetail"])
@@ -339,6 +339,43 @@ func (a *Adapter) GetAccounts(ctx context.Context) (AccountsPage, error) {
 		return AccountsPage{}, &ProviderError{Code: mapErr.Code, Stage: StageAccounts, SafeMessage: mapErr.SafeMessage, RawImportID: &rawImportID}
 	}
 	return AccountsPage{RawImportID: rawImportID, Accounts: accounts, Rejections: rejections}, nil
+}
+
+// GetInvestments mirrors GetAccounts for the Investments product.
+func (a *Adapter) GetInvestments(ctx context.Context) (InvestmentsPage, error) {
+	payload, rawImportID, err := a.read(ctx, ScopeInvestments, "/investments?itemId="+a.config.ItemID, StageInvestments, 1, nil)
+	if err != nil {
+		return InvestmentsPage{}, err
+	}
+	investments, rejections, err := mapInvestmentsPage(payload)
+	if err != nil {
+		var mapErr *MappingError
+		errors.As(err, &mapErr)
+		return InvestmentsPage{}, &ProviderError{Code: mapErr.Code, Stage: StageInvestments, SafeMessage: mapErr.SafeMessage, RawImportID: &rawImportID}
+	}
+	return InvestmentsPage{RawImportID: rawImportID, Investments: investments, Rejections: rejections}, nil
+}
+
+// GetInvestmentTransactions fetches one investment's transaction history.
+// Pluggy documents this endpoint as unpaginated (a single "results" list, no
+// "next" link), unlike /v2/transactions — so unlike IterTransactionPages
+// this is a single read, not a cursor loop.
+func (a *Adapter) GetInvestmentTransactions(ctx context.Context, externalInvestmentID string) (InvestmentTransactionsPage, error) {
+	path := "/investments/" + externalInvestmentID + "/transactions"
+	payload, rawImportID, err := a.read(ctx, ScopeInvestmentTransactions, path, StageInvestmentTransactions, 1, &externalInvestmentID)
+	if err != nil {
+		return InvestmentTransactionsPage{}, err
+	}
+	transactions, rejections, err := mapInvestmentTransactionsPage(payload, externalInvestmentID)
+	if err != nil {
+		var mapErr *MappingError
+		errors.As(err, &mapErr)
+		return InvestmentTransactionsPage{}, &ProviderError{
+			Code: mapErr.Code, Stage: StageInvestmentTransactions, SafeMessage: mapErr.SafeMessage,
+			RawImportID: &rawImportID, ExternalAccountID: &externalInvestmentID,
+		}
+	}
+	return InvestmentTransactionsPage{RawImportID: rawImportID, Transactions: transactions, Rejections: rejections}, nil
 }
 
 // IterTransactionPages mirrors PluggyAdapter.iter_transaction_pages: handle

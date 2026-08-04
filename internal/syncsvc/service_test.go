@@ -3,6 +3,7 @@ package syncsvc_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -26,6 +27,11 @@ type fakeProvider struct {
 	accountsErr       error
 	transactionPages  map[string][]pluggy.TransactionsPage
 	iterErr           error
+
+	investmentsPage        pluggy.InvestmentsPage
+	investmentsErr         error
+	investmentTransactions map[string]pluggy.InvestmentTransactionsPage
+	investmentTxErr        error
 }
 
 func (f *fakeProvider) GetSource(context.Context) (pluggy.SourceSnapshot, string, error) {
@@ -43,6 +49,14 @@ func (f *fakeProvider) IterTransactionPages(_ context.Context, externalAccountID
 		}
 	}
 	return f.iterErr
+}
+
+func (f *fakeProvider) GetInvestments(context.Context) (pluggy.InvestmentsPage, error) {
+	return f.investmentsPage, f.investmentsErr
+}
+
+func (f *fakeProvider) GetInvestmentTransactions(_ context.Context, externalInvestmentID string) (pluggy.InvestmentTransactionsPage, error) {
+	return f.investmentTransactions[externalInvestmentID], f.investmentTxErr
 }
 
 func defaultSource() pluggy.SourceSnapshot {
@@ -444,6 +458,148 @@ func TestExecuteRecordsRejectionsAsCompletedWithFailures(t *testing.T) {
 	status, _, inserted, _ := syncRunStatus(t, conn, syncRunID)
 	if status != "completed_with_failures" || inserted != 1 {
 		t.Errorf("status=%s inserted=%d, want completed_with_failures/1", status, inserted)
+	}
+
+	var failureCount int
+	conn.QueryRow(`SELECT COUNT(*) FROM sync_failures WHERE sync_run_id = ? AND stage = 'normalize'`, syncRunID).Scan(&failureCount)
+	if failureCount != 1 {
+		t.Errorf("failureCount = %d, want 1", failureCount)
+	}
+}
+
+func investmentSafeSource() pluggy.SourceSnapshot {
+	return pluggy.SourceSnapshot{
+		ExternalItemID: "item-1",
+		SafeProducts:   map[string]bool{"ACCOUNTS": true, "TRANSACTIONS": true, "INVESTMENTS": true},
+	}
+}
+
+func TestExecuteInsertsInvestmentAndItsTransactions(t *testing.T) {
+	conn := newTestConn(t)
+	sourceID, syncRunID := newSyncRun(t, conn)
+	insertRawImport(t, conn, "raw-accounts", syncRunID, sourceID)
+	insertRawImport(t, conn, "raw-investments", syncRunID, sourceID)
+	insertRawImport(t, conn, "raw-invtx-1", syncRunID, sourceID)
+
+	provider := &fakeProvider{
+		source: investmentSafeSource(),
+		investmentsPage: pluggy.InvestmentsPage{
+			RawImportID: "raw-investments",
+			Investments: []pluggy.InvestmentSnapshot{{ExternalID: "inv-1", Name: strp("Fundo XYZ"), Balance: amountP("1000.50")}},
+		},
+		investmentTransactions: map[string]pluggy.InvestmentTransactionsPage{
+			"inv-1": {
+				RawImportID: "raw-invtx-1",
+				Transactions: []pluggy.InvestmentTransactionSnapshot{{
+					ExternalID: "invtx-1", ExternalInvestmentID: "inv-1", MovementType: strp("BUY"), Amount: amountP("500.00"),
+				}},
+			},
+		},
+	}
+	if err := (&syncsvc.Service{DB: conn, Provider: provider, SyncRunID: syncRunID, SourceID: sourceID}).Execute(context.Background()); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	var investmentsProcessed, txInserted int
+	if err := conn.QueryRow(`SELECT investments_processed, investment_transactions_inserted FROM sync_runs WHERE id = ?`, syncRunID).
+		Scan(&investmentsProcessed, &txInserted); err != nil {
+		t.Fatalf("query sync_run: %v", err)
+	}
+	if investmentsProcessed != 1 || txInserted != 1 {
+		t.Errorf("investmentsProcessed=%d txInserted=%d, want 1/1", investmentsProcessed, txInserted)
+	}
+
+	var investmentCount, txCount int
+	conn.QueryRow(`SELECT COUNT(*) FROM financial_investments`).Scan(&investmentCount)
+	conn.QueryRow(`SELECT COUNT(*) FROM financial_investment_transactions`).Scan(&txCount)
+	if investmentCount != 1 || txCount != 1 {
+		t.Errorf("investmentCount=%d txCount=%d, want 1/1", investmentCount, txCount)
+	}
+}
+
+func TestExecuteSkipsInvestmentsWhenNotSafe(t *testing.T) {
+	conn := newTestConn(t)
+	sourceID, syncRunID := newSyncRun(t, conn)
+	insertRawImport(t, conn, "raw-accounts", syncRunID, sourceID)
+
+	provider := &fakeProvider{
+		source:         defaultSource(), // no INVESTMENTS key
+		investmentsErr: errors.New("GetInvestments should not be called"),
+		accountsPage:   pluggy.AccountsPage{RawImportID: "raw-accounts"},
+	}
+	if err := (&syncsvc.Service{DB: conn, Provider: provider, SyncRunID: syncRunID, SourceID: sourceID}).Execute(context.Background()); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	var investmentCount int
+	conn.QueryRow(`SELECT COUNT(*) FROM financial_investments`).Scan(&investmentCount)
+	if investmentCount != 0 {
+		t.Errorf("investmentCount = %d, want 0", investmentCount)
+	}
+}
+
+func TestExecuteSecondRunDetectsUnchangedInvestment(t *testing.T) {
+	conn := newTestConn(t)
+	sourceID, syncRunID1 := newSyncRun(t, conn)
+	insertRawImport(t, conn, "raw-accounts", syncRunID1, sourceID)
+	insertRawImport(t, conn, "raw-investments", syncRunID1, sourceID)
+
+	provider := &fakeProvider{
+		source:       investmentSafeSource(),
+		accountsPage: pluggy.AccountsPage{RawImportID: "raw-accounts"},
+		investmentsPage: pluggy.InvestmentsPage{
+			RawImportID: "raw-investments",
+			Investments: []pluggy.InvestmentSnapshot{{ExternalID: "inv-1", Balance: amountP("1000.50")}},
+		},
+	}
+	if err := (&syncsvc.Service{DB: conn, Provider: provider, SyncRunID: syncRunID1, SourceID: sourceID}).Execute(context.Background()); err != nil {
+		t.Fatalf("first Execute: %v", err)
+	}
+
+	now := db.FormatTime(time.Now())
+	syncRunID2 := uuid.NewString()
+	if _, err := conn.Exec(`INSERT INTO sync_runs (id, source_id, status, started_at) VALUES (?, ?, 'in_progress', ?)`, syncRunID2, sourceID, now); err != nil {
+		t.Fatalf("insert second sync_run: %v", err)
+	}
+	if err := (&syncsvc.Service{DB: conn, Provider: provider, SyncRunID: syncRunID2, SourceID: sourceID}).Execute(context.Background()); err != nil {
+		t.Fatalf("second Execute: %v", err)
+	}
+
+	var investmentsProcessed int
+	conn.QueryRow(`SELECT investments_processed FROM sync_runs WHERE id = ?`, syncRunID2).Scan(&investmentsProcessed)
+	if investmentsProcessed != 1 {
+		t.Errorf("investmentsProcessed = %d, want 1", investmentsProcessed)
+	}
+
+	var investmentCount int
+	conn.QueryRow(`SELECT COUNT(*) FROM financial_investments`).Scan(&investmentCount)
+	if investmentCount != 1 {
+		t.Errorf("investmentCount = %d, want 1 (no duplicate insert)", investmentCount)
+	}
+}
+
+func TestExecuteRecordsRejectedInvestmentAsSyncFailure(t *testing.T) {
+	conn := newTestConn(t)
+	sourceID, syncRunID := newSyncRun(t, conn)
+	insertRawImport(t, conn, "raw-accounts", syncRunID, sourceID)
+	insertRawImport(t, conn, "raw-investments", syncRunID, sourceID)
+
+	provider := &fakeProvider{
+		source:       investmentSafeSource(),
+		accountsPage: pluggy.AccountsPage{RawImportID: "raw-accounts"},
+		investmentsPage: pluggy.InvestmentsPage{
+			RawImportID: "raw-investments",
+			Investments: []pluggy.InvestmentSnapshot{{ExternalID: "inv-1", Balance: amountP("1000.50")}},
+			Rejections:  []pluggy.RejectedRecord{{EntityType: "investment", ExternalID: strp("inv-bad"), Code: "invalid_provider_payload", SafeMessage: "bad"}},
+		},
+	}
+	if err := (&syncsvc.Service{DB: conn, Provider: provider, SyncRunID: syncRunID, SourceID: sourceID}).Execute(context.Background()); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	status, _, _, _ := syncRunStatus(t, conn, syncRunID)
+	if status != "completed_with_failures" {
+		t.Errorf("status = %s, want completed_with_failures", status)
 	}
 
 	var failureCount int

@@ -20,19 +20,21 @@ import (
 // safeMessages mirrors SAFE_MESSAGES: user-facing text never leaks raw
 // provider errors, only one of these fixed, safe strings.
 var safeMessages = map[string]string{
-	"invalid_provider_credentials": "Financial provider credentials are invalid",
-	"provider_unavailable":         "Financial provider is temporarily unavailable",
-	"item_invalid_credentials":     "The financial connection requires updated credentials",
-	"item_unavailable":             "The financial connection has no safely updated products",
-	"provider_partial_result":      "The provider returned only part of the requested data",
-	"provider_rate_limited":        "Financial provider rate limit was exceeded",
-	"provider_request_failed":      "Financial provider rejected a read request",
-	"invalid_provider_payload":     "The provider returned data that could not be processed safely",
-	"unsafe_account_association":   "A transaction could not be linked safely to its account",
-	"account_transactions_failed":  "Transactions for this account could not be processed",
-	"internal_error":               "Synchronization stopped because of an internal error",
-	"interrupted":                  "Synchronization was interrupted before completion",
-	"worker_unavailable":           "No worker claimed synchronization before the deadline",
+	"invalid_provider_credentials":   "Financial provider credentials are invalid",
+	"provider_unavailable":           "Financial provider is temporarily unavailable",
+	"item_invalid_credentials":       "The financial connection requires updated credentials",
+	"item_unavailable":               "The financial connection has no safely updated products",
+	"provider_partial_result":        "The provider returned only part of the requested data",
+	"provider_rate_limited":          "Financial provider rate limit was exceeded",
+	"provider_request_failed":        "Financial provider rejected a read request",
+	"invalid_provider_payload":       "The provider returned data that could not be processed safely",
+	"unsafe_account_association":     "A transaction could not be linked safely to its account",
+	"unsafe_investment_association":  "An investment transaction could not be linked safely to its investment",
+	"account_transactions_failed":    "Transactions for this account could not be processed",
+	"investment_transactions_failed": "Transactions for this investment could not be processed",
+	"internal_error":                 "Synchronization stopped because of an internal error",
+	"interrupted":                    "Synchronization was interrupted before completion",
+	"worker_unavailable":             "No worker claimed synchronization before the deadline",
 }
 
 // SafeMessage mirrors safe_message.
@@ -60,6 +62,8 @@ type Provider interface {
 	GetSource(ctx context.Context) (pluggy.SourceSnapshot, string, error)
 	GetAccounts(ctx context.Context) (pluggy.AccountsPage, error)
 	IterTransactionPages(ctx context.Context, externalAccountID string, handle func(pluggy.TransactionsPage) error) error
+	GetInvestments(ctx context.Context) (pluggy.InvestmentsPage, error)
+	GetInvestmentTransactions(ctx context.Context, externalInvestmentID string) (pluggy.InvestmentTransactionsPage, error)
 }
 
 // TransactionUpsertedHook is called with a transaction's id whenever a sync
@@ -161,7 +165,91 @@ func (s *Service) Execute(ctx context.Context) error {
 			}
 		}
 	}
+
+	if source.SafeProducts["INVESTMENTS"] {
+		if err := s.processInvestments(ctx); err != nil {
+			return err
+		}
+	}
+
 	return s.finalize(ctx)
+}
+
+func (s *Service) processInvestments(ctx context.Context) error {
+	investmentsPage, err := s.Provider.GetInvestments(ctx)
+	if err != nil {
+		var provErr *pluggy.ProviderError
+		if errors.As(err, &provErr) {
+			if ferr := s.recordInvestmentFailure(ctx, pluggy.StageInvestments, provErr.Code, provErr.RawImportID, nil, nil); ferr != nil {
+				return ferr
+			}
+			return nil
+		}
+		log.Printf("sync_run_internal_error run_id=%s: %v", s.SyncRunID, err)
+		if ferr := s.recordInvestmentFailure(ctx, pluggy.StageInvestments, "internal_error", nil, nil, nil); ferr != nil {
+			return ferr
+		}
+		return nil
+	}
+
+	for _, rejection := range investmentsPage.Rejections {
+		if err := s.recordInvestmentRejection(ctx, rejection, investmentsPage.RawImportID, nil, nil); err != nil {
+			return err
+		}
+	}
+
+	for _, record := range investmentsPage.Investments {
+		investmentID, err := s.upsertInvestment(ctx, record, investmentsPage.RawImportID)
+		if err != nil {
+			log.Printf("investment_persistence_failed run_id=%s investment=%s: %v", s.SyncRunID, record.ExternalID, err)
+			extID := record.ExternalID
+			if ferr := s.recordInvestmentFailure(ctx, pluggy.StageInvestment, "internal_error", nil, nil, &extID); ferr != nil {
+				return ferr
+			}
+			continue
+		}
+		if err := s.incrementInvestmentsProcessed(ctx); err != nil {
+			return err
+		}
+
+		extID := record.ExternalID
+		txPage, err := s.Provider.GetInvestmentTransactions(ctx, record.ExternalID)
+		if err != nil {
+			var provErr *pluggy.ProviderError
+			if errors.As(err, &provErr) {
+				code := "investment_transactions_failed"
+				if provErr.Code == "provider_rate_limited" || provErr.Code == "invalid_provider_payload" {
+					code = provErr.Code
+				}
+				if ferr := s.recordInvestmentFailure(ctx, pluggy.StageInvestmentTransactions, code, provErr.RawImportID, &investmentID, &extID); ferr != nil {
+					return ferr
+				}
+			} else {
+				log.Printf("investment_processing_failed run_id=%s investment=%s: %v", s.SyncRunID, record.ExternalID, err)
+				if ferr := s.recordInvestmentFailure(ctx, pluggy.StageInvestmentTransactions, "investment_transactions_failed", nil, &investmentID, &extID); ferr != nil {
+					return ferr
+				}
+			}
+			continue
+		}
+
+		for _, rejection := range txPage.Rejections {
+			if err := s.recordInvestmentRejection(ctx, rejection, txPage.RawImportID, &investmentID, &extID); err != nil {
+				return err
+			}
+		}
+		for _, txRecord := range txPage.Transactions {
+			if err := s.upsertInvestmentTransaction(ctx, investmentID, txRecord, txPage.RawImportID); err != nil {
+				txExtID := txRecord.ExternalID
+				if rerr := s.recordInvestmentRejection(ctx, pluggy.RejectedRecord{
+					EntityType: "investment_transaction", ExternalID: &txExtID, Code: "internal_error", SafeMessage: SafeMessage("internal_error"),
+				}, txPage.RawImportID, &investmentID, &extID); rerr != nil {
+					return rerr
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Service) updateSourceName(ctx context.Context, displayName *string) error {
@@ -403,6 +491,211 @@ func nullBytes(b []byte) any {
 		return nil
 	}
 	return string(b)
+}
+
+func (s *Service) incrementInvestmentsProcessed(ctx context.Context) error {
+	_, err := s.DB.ExecContext(ctx,
+		`UPDATE sync_runs SET investments_processed = investments_processed + 1 WHERE id = ? AND status = 'in_progress'`,
+		s.SyncRunID)
+	return err
+}
+
+func (s *Service) upsertInvestment(ctx context.Context, snapshot pluggy.InvestmentSnapshot, rawImportID string) (string, error) {
+	digest := pluggy.InvestmentHash(snapshot)
+	now := db.FormatTime(time.Now())
+
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	newID := uuid.NewString()
+	var insertedID string
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO financial_investments (
+			id, source_id, external_id, investment_type, subtype, name, balance, currency_code,
+			number, owner, tax_number, due_date, issuer, issuer_code, rate, rate_type,
+			fixed_annual_rate, annual_rate, last_twelve_months_rate, quantity, value, amount,
+			amount_profit, amount_withdrawal, as_of_date, provider_updated_at, isin, code,
+			provider_status, current_raw_import_id, normalized_hash, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (source_id, external_id) DO NOTHING
+		RETURNING id`,
+		newID, s.SourceID, snapshot.ExternalID, snapshot.InvestmentType, snapshot.Subtype, snapshot.Name,
+		decimalToStorage(snapshot.Balance), snapshot.CurrencyCode, snapshot.Number, snapshot.Owner, snapshot.TaxNumber,
+		db.FormatTimePtr(snapshot.DueDate), snapshot.Issuer, snapshot.IssuerCode, decimalToStorage(snapshot.Rate),
+		snapshot.RateType, decimalToStorage(snapshot.FixedAnnualRate), decimalToStorage(snapshot.AnnualRate),
+		decimalToStorage(snapshot.LastTwelveMonthsRate), decimalToStorage(snapshot.Quantity), decimalToStorage(snapshot.Value),
+		decimalToStorage(snapshot.Amount), decimalToStorage(snapshot.AmountProfit), decimalToStorage(snapshot.AmountWithdrawal),
+		db.FormatTimePtr(snapshot.AsOfDate), db.FormatTimePtr(snapshot.ProviderUpdatedAt), snapshot.ISIN, snapshot.Code,
+		snapshot.ProviderStatus, rawImportID, digest, now, now,
+	).Scan(&insertedID)
+	inserted := err == nil
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+
+	var investmentID, existingHash string
+	if err := tx.QueryRowContext(ctx, `SELECT id, normalized_hash FROM financial_investments WHERE source_id = ? AND external_id = ?`,
+		s.SourceID, snapshot.ExternalID).Scan(&investmentID, &existingHash); err != nil {
+		return "", err
+	}
+
+	outcome := "unchanged"
+	switch {
+	case inserted:
+		outcome = "inserted"
+	case existingHash != digest:
+		outcome = "updated"
+		_, err = tx.ExecContext(ctx, `
+			UPDATE financial_investments SET investment_type = ?, subtype = ?, name = ?, balance = ?,
+				currency_code = ?, number = ?, owner = ?, tax_number = ?, due_date = ?, issuer = ?,
+				issuer_code = ?, rate = ?, rate_type = ?, fixed_annual_rate = ?, annual_rate = ?,
+				last_twelve_months_rate = ?, quantity = ?, value = ?, amount = ?, amount_profit = ?,
+				amount_withdrawal = ?, as_of_date = ?, provider_updated_at = ?, isin = ?, code = ?,
+				provider_status = ?, current_raw_import_id = ?, normalized_hash = ?, updated_at = ?
+			WHERE id = ?`,
+			snapshot.InvestmentType, snapshot.Subtype, snapshot.Name, decimalToStorage(snapshot.Balance),
+			snapshot.CurrencyCode, snapshot.Number, snapshot.Owner, snapshot.TaxNumber, db.FormatTimePtr(snapshot.DueDate),
+			snapshot.Issuer, snapshot.IssuerCode, decimalToStorage(snapshot.Rate), snapshot.RateType,
+			decimalToStorage(snapshot.FixedAnnualRate), decimalToStorage(snapshot.AnnualRate),
+			decimalToStorage(snapshot.LastTwelveMonthsRate), decimalToStorage(snapshot.Quantity), decimalToStorage(snapshot.Value),
+			decimalToStorage(snapshot.Amount), decimalToStorage(snapshot.AmountProfit), decimalToStorage(snapshot.AmountWithdrawal),
+			db.FormatTimePtr(snapshot.AsOfDate), db.FormatTimePtr(snapshot.ProviderUpdatedAt), snapshot.ISIN, snapshot.Code,
+			snapshot.ProviderStatus, rawImportID, digest, now, investmentID,
+		)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO normalization_events (id, sync_run_id, raw_import_id, entity_type, investment_id, external_id, outcome, normalized_hash, created_at)
+		VALUES (?, ?, ?, 'investment', ?, ?, ?, ?, ?)`,
+		uuid.NewString(), s.SyncRunID, rawImportID, investmentID, snapshot.ExternalID, outcome, digest, now,
+	); err != nil {
+		return "", err
+	}
+	return investmentID, tx.Commit()
+}
+
+// upsertInvestmentTransaction mirrors upsertTransaction, minus the
+// categories.ApplyAutomatic/OnTransactionUpserted hooks: those are
+// spending-transaction-specific domain logic, and an investment movement
+// (buy/sell/dividend) isn't a spending event.
+func (s *Service) upsertInvestmentTransaction(ctx context.Context, investmentID string, snapshot pluggy.InvestmentTransactionSnapshot, rawImportID string) error {
+	digest := pluggy.InvestmentTransactionHash(snapshot)
+	now := db.FormatTime(time.Now())
+
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	newID := uuid.NewString()
+	var insertedID string
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO financial_investment_transactions (
+			id, source_id, investment_id, external_id, movement_type, quantity, value, amount,
+			occurred_at, trade_date, current_raw_import_id, normalized_hash, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (source_id, external_id) DO NOTHING
+		RETURNING id`,
+		newID, s.SourceID, investmentID, snapshot.ExternalID, snapshot.MovementType, decimalToStorage(snapshot.Quantity),
+		decimalToStorage(snapshot.Value), decimalToStorage(snapshot.Amount), db.FormatTimePtr(snapshot.OccurredAt),
+		db.FormatTimePtr(snapshot.TradeDate), rawImportID, digest, now, now,
+	).Scan(&insertedID)
+	inserted := err == nil
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+
+	var transactionID, existingHash string
+	if err := tx.QueryRowContext(ctx, `SELECT id, normalized_hash FROM financial_investment_transactions WHERE source_id = ? AND external_id = ?`,
+		s.SourceID, snapshot.ExternalID).Scan(&transactionID, &existingHash); err != nil {
+		return err
+	}
+
+	outcome := "unchanged"
+	switch {
+	case inserted:
+		outcome = "inserted"
+	case existingHash != digest:
+		outcome = "updated"
+		_, err = tx.ExecContext(ctx, `
+			UPDATE financial_investment_transactions SET movement_type = ?, quantity = ?, value = ?, amount = ?,
+				occurred_at = ?, trade_date = ?, current_raw_import_id = ?, normalized_hash = ?, updated_at = ?
+			WHERE id = ?`,
+			snapshot.MovementType, decimalToStorage(snapshot.Quantity), decimalToStorage(snapshot.Value),
+			decimalToStorage(snapshot.Amount), db.FormatTimePtr(snapshot.OccurredAt), db.FormatTimePtr(snapshot.TradeDate),
+			rawImportID, digest, now, transactionID,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO normalization_events (id, sync_run_id, raw_import_id, entity_type, investment_transaction_id, external_id, outcome, normalized_hash, created_at)
+		VALUES (?, ?, ?, 'investment_transaction', ?, ?, ?, ?, ?)`,
+		uuid.NewString(), s.SyncRunID, rawImportID, transactionID, snapshot.ExternalID, outcome, digest, now,
+	); err != nil {
+		return err
+	}
+
+	if outcome == "inserted" || outcome == "updated" {
+		column := "investment_transactions_updated"
+		if outcome == "inserted" {
+			column = "investment_transactions_inserted"
+		}
+		if _, err := tx.ExecContext(ctx,
+			fmt.Sprintf(`UPDATE sync_runs SET %s = %s + 1 WHERE id = ? AND status = 'in_progress'`, column, column),
+			s.SyncRunID,
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Service) recordInvestmentRejection(ctx context.Context, rejection pluggy.RejectedRecord, rawImportID string, investmentID, externalInvestmentID *string) error {
+	now := db.FormatTime(time.Now())
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO normalization_events (id, sync_run_id, raw_import_id, entity_type, external_id, outcome, created_at)
+		VALUES (?, ?, ?, ?, ?, 'rejected', ?)`,
+		uuid.NewString(), s.SyncRunID, rawImportID, rejection.EntityType, rejection.ExternalID, now,
+	); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO sync_failures (
+			id, sync_run_id, raw_import_id, investment_id, external_investment_id,
+			stage, error_code, safe_message, created_at
+		) VALUES (?, ?, ?, ?, ?, 'normalize', ?, ?, ?)`,
+		uuid.NewString(), s.SyncRunID, rawImportID, investmentID, externalInvestmentID,
+		rejection.Code, SafeMessage(rejection.Code), now,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Service) recordInvestmentFailure(ctx context.Context, stage pluggy.FailureStage, code string, rawImportID *string, investmentID, externalInvestmentID *string) error {
+	now := db.FormatTime(time.Now())
+	_, err := s.DB.ExecContext(ctx, `
+		INSERT INTO sync_failures (id, sync_run_id, raw_import_id, investment_id, external_investment_id, stage, error_code, safe_message, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		uuid.NewString(), s.SyncRunID, rawImportID, investmentID, externalInvestmentID, string(stage), code, SafeMessage(code), now,
+	)
+	return err
 }
 
 func (s *Service) recordRejection(ctx context.Context, rejection pluggy.RejectedRecord, rawImportID string, accountID, externalAccountID *string) error {
