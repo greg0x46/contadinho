@@ -234,6 +234,35 @@ func TestListInvestmentsOmitsYieldWithoutProfitOrHistory(t *testing.T) {
 	}
 }
 
+// Regression test: an investment whose only captured history is a
+// SELL/REDEMPTION (the original BUY was never synced — closed position from
+// before the sync window, or the provider's history is otherwise partial)
+// must not report the entire redemption as yield. Reported in production as
+// a CDB with balance=0 and a single SELL of 11370.20 showing "Rendimento:
+// R$ 11.370,20" instead of "Não disponível".
+func TestListInvestmentsOmitsCalculatedYieldWhenHistoryHasNoInflow(t *testing.T) {
+	srv, conn := newTestServer(t)
+	investmentID := insertInvestment(t, conn)
+	if _, err := conn.Exec(`UPDATE financial_investments SET balance = '0' WHERE id = ?`, investmentID); err != nil {
+		t.Fatalf("set balance: %v", err)
+	}
+	insertInvestmentTransaction(t, conn, investmentID, "SELL", "11370.20")
+
+	resp, err := http.Get(srv.URL + "/api/investments")
+	if err != nil {
+		t.Fatalf("GET /api/investments: %v", err)
+	}
+	var investments []map[string]any
+	decodeJSON(t, resp, &investments)
+	if resp.StatusCode != http.StatusOK || len(investments) != 1 {
+		t.Fatalf("status = %d, investments = %+v", resp.StatusCode, investments)
+	}
+	got := investments[0]
+	if got["yield_value"] != nil || got["yield_source"] != nil {
+		t.Errorf("yield_value = %v, yield_source = %v, want both nil", got["yield_value"], got["yield_source"])
+	}
+}
+
 func TestListInvestmentTransactionsReturns404WhenInvestmentMissing(t *testing.T) {
 	srv, _ := newTestServer(t)
 

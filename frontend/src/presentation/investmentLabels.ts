@@ -54,7 +54,14 @@ export function investmentYield(investment: Investment): YieldEstimate {
   return { value: investment.yield_value, source: investment.yield_source };
 }
 
-export function netContributed(transactions: InvestmentTransaction[]): string {
+// Returns null when the history has no inflow (BUY/APPLICATION/...) at all:
+// an all-outflow history means the original purchase was never captured, so
+// there's no principal to net against the redemptions.
+export function netContributed(transactions: InvestmentTransaction[]): string | null {
+  const hasInflow = transactions.some(
+    (t) => t.movement_type !== "SELL" && t.movement_type !== "REDEMPTION",
+  );
+  if (!hasInflow) return null;
   const total = transactions.reduce((sum, t) => {
     if (t.amount === null) return sum;
     const amount = Number(t.amount);
