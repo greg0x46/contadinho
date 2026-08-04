@@ -36,6 +36,16 @@ const DebtDetailPage = lazy(() =>
     default: module.DebtDetailPage,
   })),
 );
+const ReceivablesPage = lazy(() =>
+  import("../pages/ReceivablesPage").then((module) => ({
+    default: module.ReceivablesPage,
+  })),
+);
+const ReceivableDetailPage = lazy(() =>
+  import("../pages/ReceivableDetailPage").then((module) => ({
+    default: module.ReceivableDetailPage,
+  })),
+);
 const CategoriesPage = lazy(() =>
   import("../pages/CategoriesPage").then((module) => ({
     default: module.CategoriesPage,
@@ -61,6 +71,8 @@ export function AppRouter() {
             <Route path="automacoes" element={<AutomationRulesPage />} />
             <Route path="dividas" element={<DebtsPage />} />
             <Route path="dividas/:id" element={<DebtDetailPage />} />
+            <Route path="contas-a-receber" element={<ReceivablesPage />} />
+            <Route path="contas-a-receber/:id" element={<ReceivableDetailPage />} />
             <Route path="categorias" element={<CategoriesPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>

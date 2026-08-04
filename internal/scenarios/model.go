@@ -14,21 +14,27 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// Kind is the scenario's flavor. Only KindDebtPlan is implemented in this
-// v1; "what_if" (a free-standing scenario with no debt_id) is left as a
-// possible future kind, per the spec's non-goals.
+// Kind is the scenario's flavor: a payment plan attached to a debts.Debt,
+// or the mirror-image collection plan attached to a receivables.Receivable.
+// "what_if" (a free-standing scenario with no debt_id/receivable_id) is
+// left as a possible future kind, per the spec's non-goals.
 type Kind string
 
-const KindDebtPlan Kind = "debt_plan"
+const (
+	KindDebtPlan       Kind = "debt_plan"
+	KindReceivablePlan Kind = "receivable_plan"
+)
 
-// Scenario mirrors the scenarios table.
+// Scenario mirrors the scenarios table. Exactly one of DebtID/ReceivableID
+// is set, matching the Kind — enforced by the schema's CHECK constraints.
 type Scenario struct {
-	ID        string
-	Kind      Kind
-	Name      string
-	DebtID    *string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID           string
+	Kind         Kind
+	Name         string
+	DebtID       *string
+	ReceivableID *string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // ScenarioTransaction mirrors the scenario_transactions table: a single
@@ -46,12 +52,15 @@ type ScenarioTransaction struct {
 }
 
 // ScenarioTransactionRealization mirrors the scenario_transaction_realizations
-// table: (part of) a real debt_transaction_links row allocated to a planned
-// installment.
+// table: (part of) a real debt_transaction_links or
+// receivable_transaction_links row allocated to a planned installment.
+// Exactly one of DebtLinkID/ReceivableLinkID is set, matching the parent
+// scenario's Kind — enforced by the schema's CHECK constraint.
 type ScenarioTransactionRealization struct {
 	ID                    string
 	ScenarioTransactionID string
-	DebtLinkID            string
+	DebtLinkID            *string
+	ReceivableLinkID      *string
 	AllocatedAmount       decimal.Decimal
 	CreatedAt             time.Time
 }

@@ -57,7 +57,7 @@ func TestCreateGetListDeleteScenario(t *testing.T) {
 	ctx := context.Background()
 	d := newDebt(t, conn)
 
-	s, err := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano de pagamento", &d.ID)
+	s, err := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano de pagamento", &d.ID, nil)
 	if err != nil {
 		t.Fatalf("CreateScenario: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestGetUnknownScenario(t *testing.T) {
 
 func TestDebtPlanScenarioRequiresDebtID(t *testing.T) {
 	conn := newTestDB(t)
-	if _, err := scenarios.CreateScenario(context.Background(), conn, scenarios.KindDebtPlan, "Sem dívida", nil); err == nil {
+	if _, err := scenarios.CreateScenario(context.Background(), conn, scenarios.KindDebtPlan, "Sem dívida", nil, nil); err == nil {
 		t.Error("CreateScenario() with kind=debt_plan and no debt_id should fail the CHECK constraint")
 	}
 }
@@ -107,7 +107,7 @@ func TestCreateGetUpdateDeleteScenarioTransaction(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()
 	d := newDebt(t, conn)
-	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
+	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID, nil)
 
 	category := "Dívidas"
 	st, err := scenarios.CreateScenarioTransaction(ctx, conn, s.ID, "Parcela 1", dec(t, "400.00"), date(t, "2026-09-01"), &category)
@@ -157,7 +157,7 @@ func TestListScenarioTransactionsOrderedByProjectedAt(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()
 	d := newDebt(t, conn)
-	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
+	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID, nil)
 
 	third, _ := scenarios.CreateScenarioTransaction(ctx, conn, s.ID, "Parcela 3", dec(t, "400.00"), date(t, "2026-11-01"), nil)
 	first, _ := scenarios.CreateScenarioTransaction(ctx, conn, s.ID, "Parcela 1", dec(t, "400.00"), date(t, "2026-09-01"), nil)
@@ -176,7 +176,7 @@ func TestDeleteScenarioCascadesTransactions(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()
 	d := newDebt(t, conn)
-	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
+	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID, nil)
 	st, _ := scenarios.CreateScenarioTransaction(ctx, conn, s.ID, "Parcela 1", dec(t, "400.00"), date(t, "2026-09-01"), nil)
 
 	if err := scenarios.DeleteScenario(ctx, conn, s.ID); err != nil {
@@ -191,7 +191,7 @@ func TestDeleteDebtCascadesScenario(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()
 	d := newDebt(t, conn)
-	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
+	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID, nil)
 
 	if err := debts.Delete(ctx, conn, d.ID); err != nil {
 		t.Fatalf("debts.Delete: %v", err)

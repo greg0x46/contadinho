@@ -11,6 +11,7 @@ import (
 
 	"contadinho-go/internal/debts"
 	"contadinho-go/internal/money"
+	"contadinho-go/internal/receivables"
 	"contadinho-go/internal/scenarios"
 )
 
@@ -37,17 +38,18 @@ func invalidScenarioTransactionProblem(w http.ResponseWriter, detail string) {
 const dateOnlyLayout = "2006-01-02"
 
 type scenarioDTO struct {
-	ID        string    `json:"id"`
-	Kind      string    `json:"kind"`
-	Name      string    `json:"name"`
-	DebtID    *string   `json:"debt_id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID           string    `json:"id"`
+	Kind         string    `json:"kind"`
+	Name         string    `json:"name"`
+	DebtID       *string   `json:"debt_id"`
+	ReceivableID *string   `json:"receivable_id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 func scenarioToDTO(s scenarios.Scenario) scenarioDTO {
 	return scenarioDTO{
-		ID: s.ID, Kind: string(s.Kind), Name: s.Name, DebtID: s.DebtID,
+		ID: s.ID, Kind: string(s.Kind), Name: s.Name, DebtID: s.DebtID, ReceivableID: s.ReceivableID,
 		CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
 	}
 }
@@ -64,18 +66,20 @@ type scenarioTransactionDTO struct {
 }
 
 type realizationDTO struct {
-	ID              string    `json:"id"`
-	DebtLinkID      string    `json:"debt_link_id"`
-	AllocatedAmount string    `json:"allocated_amount"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID               string    `json:"id"`
+	DebtLinkID       *string   `json:"debt_link_id"`
+	ReceivableLinkID *string   `json:"receivable_link_id"`
+	AllocatedAmount  string    `json:"allocated_amount"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 func realizationToDTO(r scenarios.ScenarioTransactionRealization) realizationDTO {
 	return realizationDTO{
-		ID:              r.ID,
-		DebtLinkID:      r.DebtLinkID,
-		AllocatedAmount: money.CanonicalDecimal(r.AllocatedAmount),
-		CreatedAt:       r.CreatedAt,
+		ID:               r.ID,
+		DebtLinkID:       r.DebtLinkID,
+		ReceivableLinkID: r.ReceivableLinkID,
+		AllocatedAmount:  money.CanonicalDecimal(r.AllocatedAmount),
+		CreatedAt:        r.CreatedAt,
 	}
 }
 
@@ -204,7 +208,7 @@ func handleCreateDebtScenario(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		s, err := scenarios.CreateScenario(r.Context(), conn, scenarios.KindDebtPlan, req.Name, &debtID)
+		s, err := scenarios.CreateScenario(r.Context(), conn, scenarios.KindDebtPlan, req.Name, &debtID, nil)
 		if err != nil {
 			scenariosUnavailableProblem(w)
 			return
@@ -219,6 +223,53 @@ func handleListDebtScenarios(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		debtID := r.PathValue("id")
 		list, err := scenarios.ListScenariosByDebt(r.Context(), conn, debtID)
+		if err != nil {
+			scenariosUnavailableProblem(w)
+			return
+		}
+		dtos := make([]scenarioDTO, len(list))
+		for i, s := range list {
+			dtos[i] = scenarioToDTO(s)
+		}
+		writeJSON(w, http.StatusOK, dtos)
+	}
+}
+
+// handleCreateReceivableScenario mirrors handleCreateDebtScenario, creating
+// a kind="receivable_plan" Scenario for the receivable named by the {id}
+// path value instead of a debt.
+func handleCreateReceivableScenario(conn *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		receivableID := r.PathValue("id")
+		if _, err := receivables.Get(r.Context(), conn, receivableID); errors.Is(err, receivables.ErrNotFound) {
+			receivableNotFoundProblem(w)
+			return
+		} else if err != nil {
+			receivableUnavailableProblem(w)
+			return
+		}
+
+		var req scenarioCreateRequest
+		if err := decodeStrict(r, &req); err != nil || req.Name == "" {
+			invalidScenarioProblem(w, "Informe um nome para o plano.")
+			return
+		}
+
+		s, err := scenarios.CreateScenario(r.Context(), conn, scenarios.KindReceivablePlan, req.Name, nil, &receivableID)
+		if err != nil {
+			scenariosUnavailableProblem(w)
+			return
+		}
+		writeJSON(w, http.StatusCreated, scenarioDetailDTO{
+			scenarioDTO: scenarioToDTO(s), Transactions: []scenarioTransactionDTO{}, AccumulatedDeviation: "0.00",
+		})
+	}
+}
+
+func handleListReceivableScenarios(conn *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		receivableID := r.PathValue("id")
+		list, err := scenarios.ListScenariosByReceivable(r.Context(), conn, receivableID)
 		if err != nil {
 			scenariosUnavailableProblem(w)
 			return
@@ -365,8 +416,8 @@ func handleGenerateInstallments(conn *sql.DB) http.HandlerFunc {
 			scenariosUnavailableProblem(w)
 			return
 		}
-		if s.DebtID == nil {
-			invalidScenarioProblem(w, "Este cenário não está associado a uma dívida.")
+		if s.DebtID == nil && s.ReceivableID == nil {
+			invalidScenarioProblem(w, "Este cenário não está associado a uma dívida ou conta a receber.")
 			return
 		}
 
@@ -407,18 +458,8 @@ func handleGenerateInstallments(conn *sql.DB) http.HandlerFunc {
 			startDate = parsed
 		}
 
-		debt, err := debts.Get(r.Context(), conn, *s.DebtID)
-		if errors.Is(err, debts.ErrNotFound) {
-			debtNotFoundProblem(w)
-			return
-		}
-		if err != nil {
-			debtUnavailableProblem(w)
-			return
-		}
-		remaining, err := debtRemainingAmount(r.Context(), conn, debt)
-		if err != nil {
-			debtUnavailableProblem(w)
+		remaining, ok := scenarioRemainingAmount(w, r, conn, s)
+		if !ok {
 			return
 		}
 
@@ -429,7 +470,7 @@ func handleGenerateInstallments(conn *sql.DB) http.HandlerFunc {
 			drafts, err = scenarios.GenerateInstallmentsForAmount(remaining, *req.InstallmentAmount, startDate, cadence)
 		}
 		if err != nil {
-			invalidScenarioTransactionProblem(w, "A dívida não possui valor restante para gerar parcelas.")
+			invalidScenarioTransactionProblem(w, "A dívida/conta a receber não possui valor restante para gerar parcelas.")
 			return
 		}
 		created, err := scenarios.CreateGeneratedInstallments(r.Context(), conn, scenarioID, drafts)
@@ -467,6 +508,69 @@ func debtRemainingAmount(ctx context.Context, conn *sql.DB, d debts.Debt) (decim
 	return debts.RemainingAmount(d.TotalAmount, paid), nil
 }
 
+// receivableRemainingAmount mirrors debtRemainingAmount for a receivable.
+func receivableRemainingAmount(ctx context.Context, conn *sql.DB, rec receivables.Receivable) (decimal.Decimal, error) {
+	links, err := receivables.Links(ctx, conn, rec.ID)
+	if err != nil {
+		return decimal.Decimal{}, err
+	}
+	amounts := make([]decimal.Decimal, len(links))
+	for i, l := range links {
+		amt, err := receivables.LinkEffectiveAmount(ctx, conn, l.TransactionID)
+		if err != nil {
+			return decimal.Decimal{}, err
+		}
+		amounts[i] = amt
+	}
+	received := receivables.ReceivedAmount(rec.StartingReceivedAmount, amounts)
+	return receivables.RemainingAmount(rec.TotalAmount, received), nil
+}
+
+// scenarioRemainingAmount resolves s's remaining amount from whichever of
+// debt_id/receivable_id it's attached to, writing the appropriate problem
+// response and returning ok=false on any failure — shared by
+// handleGenerateInstallments and handleReadjustInstallments, the two
+// handlers that need "how much is left" regardless of which kind of
+// scenario they're operating on.
+func scenarioRemainingAmount(w http.ResponseWriter, r *http.Request, conn *sql.DB, s scenarios.Scenario) (decimal.Decimal, bool) {
+	if s.DebtID != nil {
+		debt, err := debts.Get(r.Context(), conn, *s.DebtID)
+		if errors.Is(err, debts.ErrNotFound) {
+			debtNotFoundProblem(w)
+			return decimal.Decimal{}, false
+		}
+		if err != nil {
+			debtUnavailableProblem(w)
+			return decimal.Decimal{}, false
+		}
+		remaining, err := debtRemainingAmount(r.Context(), conn, debt)
+		if err != nil {
+			debtUnavailableProblem(w)
+			return decimal.Decimal{}, false
+		}
+		return remaining, true
+	}
+	if s.ReceivableID != nil {
+		rec, err := receivables.Get(r.Context(), conn, *s.ReceivableID)
+		if errors.Is(err, receivables.ErrNotFound) {
+			receivableNotFoundProblem(w)
+			return decimal.Decimal{}, false
+		}
+		if err != nil {
+			receivableUnavailableProblem(w)
+			return decimal.Decimal{}, false
+		}
+		remaining, err := receivableRemainingAmount(r.Context(), conn, rec)
+		if err != nil {
+			receivableUnavailableProblem(w)
+			return decimal.Decimal{}, false
+		}
+		return remaining, true
+	}
+	invalidScenarioProblem(w, "Este cenário não está associado a uma dívida ou conta a receber.")
+	return decimal.Decimal{}, false
+}
+
 type readjustRequest struct {
 	Strategy string `json:"strategy"`
 }
@@ -488,8 +592,8 @@ func handleReadjustInstallments(conn *sql.DB) http.HandlerFunc {
 			scenariosUnavailableProblem(w)
 			return
 		}
-		if s.DebtID == nil {
-			invalidScenarioProblem(w, "Este cenário não está associado a uma dívida.")
+		if s.DebtID == nil && s.ReceivableID == nil {
+			invalidScenarioProblem(w, "Este cenário não está associado a uma dívida ou conta a receber.")
 			return
 		}
 
@@ -504,18 +608,8 @@ func handleReadjustInstallments(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		debt, err := debts.Get(r.Context(), conn, *s.DebtID)
-		if errors.Is(err, debts.ErrNotFound) {
-			debtNotFoundProblem(w)
-			return
-		}
-		if err != nil {
-			debtUnavailableProblem(w)
-			return
-		}
-		remaining, err := debtRemainingAmount(r.Context(), conn, debt)
-		if err != nil {
-			debtUnavailableProblem(w)
+		remaining, ok := scenarioRemainingAmount(w, r, conn, s)
+		if !ok {
 			return
 		}
 
@@ -562,20 +656,22 @@ func realizationNotFoundProblem(w http.ResponseWriter) {
 }
 
 type realizationCreateRequest struct {
-	DebtLinkID      string          `json:"debt_link_id"`
-	AllocatedAmount decimal.Decimal `json:"allocated_amount"`
+	DebtLinkID       string          `json:"debt_link_id"`
+	ReceivableLinkID string          `json:"receivable_link_id"`
+	AllocatedAmount  decimal.Decimal `json:"allocated_amount"`
 }
 
 // handleCreateRealization mirrors task 5's "isso quita qual parcela
 // planejada?" flow: allocating (part of) an existing debt_transaction_links
-// row — created earlier through the ordinary "vincular transação" flow — to
-// a planned installment. It scopes the debt_link to the scenario's own
-// debt so a link from an unrelated debt can never be allocated here, but
-// otherwise places no cap on allocated_amount: over- and under-allocating
-// are both valid outcomes Status already models (paga_a_mais/
-// paga_parcialmente), and splitting one link across several installments or
-// funding one installment from several links is exactly what this table is
-// for.
+// or receivable_transaction_links row — created earlier through the
+// ordinary "vincular transação" flow — to a planned installment. Exactly
+// one of debt_link_id/receivable_link_id must be sent, matching the
+// scenario's own kind, so a link from an unrelated debt/receivable — or
+// from the wrong kind entirely — can never be allocated here. It otherwise
+// places no cap on allocated_amount: over- and under-allocating are both
+// valid outcomes Status already models (paga_a_mais/paga_parcialmente), and
+// splitting one link across several installments or funding one
+// installment from several links is exactly what this table is for.
 func handleCreateRealization(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		scenarioID, transactionID := r.PathValue("id"), r.PathValue("transactionId")
@@ -600,26 +696,59 @@ func handleCreateRealization(conn *sql.DB) http.HandlerFunc {
 		}
 
 		var req realizationCreateRequest
-		if err := decodeStrict(r, &req); err != nil || req.DebtLinkID == "" || !req.AllocatedAmount.IsPositive() {
-			invalidScenarioTransactionProblem(w, "Informe um vínculo e um valor alocado válido (> 0).")
+		hasDebtLink := false
+		hasReceivableLink := false
+		if err := decodeStrict(r, &req); err == nil {
+			hasDebtLink = req.DebtLinkID != ""
+			hasReceivableLink = req.ReceivableLinkID != ""
+		}
+		if err != nil || hasDebtLink == hasReceivableLink || !req.AllocatedAmount.IsPositive() {
+			invalidScenarioTransactionProblem(w, "Informe um vínculo (de dívida OU de conta a receber, não os dois) e um valor alocado válido (> 0).")
 			return
 		}
 
-		link, err := debts.GetLink(r.Context(), conn, req.DebtLinkID)
-		if errors.Is(err, debts.ErrLinkNotFound) {
-			writeProblem(w, 404, "debt-link-not-found", "Vínculo não encontrado", "")
-			return
-		}
-		if err != nil {
-			debtUnavailableProblem(w)
-			return
-		}
-		if s.DebtID == nil || link.DebtID != *s.DebtID {
-			invalidScenarioTransactionProblem(w, "O vínculo informado pertence a outra dívida.")
-			return
+		var debtLinkID, receivableLinkID *string
+		if hasDebtLink {
+			if s.DebtID == nil {
+				invalidScenarioTransactionProblem(w, "Este cenário não está associado a uma dívida.")
+				return
+			}
+			link, err := debts.GetLink(r.Context(), conn, req.DebtLinkID)
+			if errors.Is(err, debts.ErrLinkNotFound) {
+				writeProblem(w, 404, "debt-link-not-found", "Vínculo não encontrado", "")
+				return
+			}
+			if err != nil {
+				debtUnavailableProblem(w)
+				return
+			}
+			if link.DebtID != *s.DebtID {
+				invalidScenarioTransactionProblem(w, "O vínculo informado pertence a outra dívida.")
+				return
+			}
+			debtLinkID = &req.DebtLinkID
+		} else {
+			if s.ReceivableID == nil {
+				invalidScenarioTransactionProblem(w, "Este cenário não está associado a uma conta a receber.")
+				return
+			}
+			link, err := receivables.GetLink(r.Context(), conn, req.ReceivableLinkID)
+			if errors.Is(err, receivables.ErrLinkNotFound) {
+				writeProblem(w, 404, "receivable-link-not-found", "Vínculo não encontrado", "")
+				return
+			}
+			if err != nil {
+				receivableUnavailableProblem(w)
+				return
+			}
+			if link.ReceivableID != *s.ReceivableID {
+				invalidScenarioTransactionProblem(w, "O vínculo informado pertence a outra conta a receber.")
+				return
+			}
+			receivableLinkID = &req.ReceivableLinkID
 		}
 
-		if _, err := scenarios.CreateRealization(r.Context(), conn, transactionID, req.DebtLinkID, req.AllocatedAmount); err != nil {
+		if _, err := scenarios.CreateRealization(r.Context(), conn, transactionID, debtLinkID, receivableLinkID, req.AllocatedAmount); err != nil {
 			scenariosUnavailableProblem(w)
 			return
 		}

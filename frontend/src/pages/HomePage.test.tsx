@@ -3,18 +3,26 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as debtsApi from "../api/debts";
+import * as receivablesApi from "../api/receivables";
 import * as transactionsApi from "../api/transactions";
-import type { DebtTotalOwed, SpendingByCategory } from "../api/contracts";
+import type { DebtTotalOwed, ReceivableTotalToReceive, SpendingByCategory } from "../api/contracts";
 import { QueryTestProvider } from "../test/QueryTestProvider";
 import { HomePage } from "./HomePage";
 
 vi.mock("../api/debts");
+vi.mock("../api/receivables");
 vi.mock("../api/transactions");
 
 const totalOwed: DebtTotalOwed = {
   remaining_debts_total: "800.00",
   future_installments_total: "361.49",
   total_owed: "1161.49",
+  currency_code: "BRL",
+};
+
+const totalToReceive: ReceivableTotalToReceive = {
+  remaining_receivables_total: "500.00",
+  total_to_receive: "500.00",
   currency_code: "BRL",
 };
 
@@ -40,6 +48,24 @@ function renderPage() {
 
 beforeEach(() => {
   vi.mocked(transactionsApi.getSpendingByCategory).mockResolvedValue(spendingByCategory);
+  vi.mocked(receivablesApi.getReceivableTotalToReceive).mockResolvedValue(totalToReceive);
+});
+
+describe("TotalReceivableCard", () => {
+  beforeEach(() => {
+    vi.mocked(debtsApi.getDebtTotalOwed).mockResolvedValue(totalOwed);
+  });
+
+  it("renders the total receivable card once loaded", async () => {
+    renderPage();
+    expect(await screen.findByText(/500,00/)).toBeVisible();
+  });
+
+  it("shows a retry option when the total fails to load", async () => {
+    vi.mocked(receivablesApi.getReceivableTotalToReceive).mockRejectedValue(new Error("boom"));
+    renderPage();
+    expect(await screen.findByText("Não foi possível carregar o total a receber.")).toBeVisible();
+  });
 });
 
 describe("HomePage", () => {

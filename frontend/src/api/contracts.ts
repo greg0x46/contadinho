@@ -1117,6 +1117,205 @@ export function parseEligibleTransactionList(value: unknown): EligibleTransactio
   return value.map(parseEligibleTransaction);
 }
 
+export const receivableStatuses = ["open", "settled"] as const;
+export type ReceivableStatus = (typeof receivableStatuses)[number];
+
+export interface Receivable {
+  id: string;
+  name: string;
+  total_amount: string;
+  starting_received_amount: string;
+  received_amount: string;
+  remaining_amount: string;
+  status: ReceivableStatus;
+  link_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReceivableLinkedTransaction {
+  id: string;
+  transaction_id: string;
+  occurred_at: string | null;
+  description: string | null;
+  linked_amount: string;
+  current_amount: string;
+  linked_at: string;
+}
+
+export interface ReceivableDetail extends Receivable {
+  links: ReceivableLinkedTransaction[];
+}
+
+export interface ReceivableCreate {
+  name: string;
+  total_amount: number;
+  initial_remaining_amount?: number | null;
+}
+
+export interface ReceivableUpdate {
+  name: string;
+  total_amount: number;
+}
+
+export interface ReceivableLinkCreate {
+  transaction_id: string;
+}
+
+export interface ReceivableLink {
+  id: string;
+  transaction_id: string;
+  linked_amount: string;
+  linked_at: string;
+}
+
+const receivableKeys = [
+  "id",
+  "name",
+  "total_amount",
+  "starting_received_amount",
+  "received_amount",
+  "remaining_amount",
+  "status",
+  "link_count",
+  "created_at",
+  "updated_at",
+] as const;
+
+function receivableFieldsFrom(receivable: Record<string, unknown>): Receivable {
+  if (
+    typeof receivable.id !== "string" ||
+    !isUuid(receivable.id) ||
+    typeof receivable.name !== "string" ||
+    receivable.name === "" ||
+    !receivableStatuses.includes(receivable.status as ReceivableStatus) ||
+    !isCount(receivable.link_count) ||
+    !isValidDate(receivable.created_at) ||
+    !isValidDate(receivable.updated_at)
+  ) {
+    throw new TypeError("Conta a receber inválida.");
+  }
+  return {
+    id: receivable.id,
+    name: receivable.name,
+    total_amount: decimal(receivable.total_amount),
+    starting_received_amount: decimal(receivable.starting_received_amount),
+    received_amount: decimal(receivable.received_amount),
+    remaining_amount: decimal(receivable.remaining_amount),
+    status: receivable.status as ReceivableStatus,
+    link_count: receivable.link_count,
+    created_at: receivable.created_at,
+    updated_at: receivable.updated_at,
+  };
+}
+
+export function parseReceivable(value: unknown): Receivable {
+  return receivableFieldsFrom(requiredRecord(value, receivableKeys, "Conta a receber inválida."));
+}
+
+export function parseReceivableList(value: unknown): Receivable[] {
+  if (!Array.isArray(value)) {
+    throw new TypeError("Lista de contas a receber inválida.");
+  }
+  return value.map(parseReceivable);
+}
+
+export interface ReceivableTotalToReceive {
+  remaining_receivables_total: string;
+  total_to_receive: string;
+  currency_code: string;
+}
+
+export function parseReceivableTotalToReceive(value: unknown): ReceivableTotalToReceive {
+  const item = requiredRecord(
+    value,
+    ["remaining_receivables_total", "total_to_receive", "currency_code"],
+    "Total a receber inválido.",
+  );
+  if (typeof item.currency_code !== "string" || item.currency_code === "") {
+    throw new TypeError("Total a receber inválido.");
+  }
+  return {
+    remaining_receivables_total: decimal(item.remaining_receivables_total),
+    total_to_receive: decimal(item.total_to_receive),
+    currency_code: item.currency_code,
+  };
+}
+
+function parseReceivableLinkedTransaction(value: unknown): ReceivableLinkedTransaction {
+  const link = requiredRecord(
+    value,
+    [
+      "id",
+      "transaction_id",
+      "occurred_at",
+      "description",
+      "linked_amount",
+      "current_amount",
+      "linked_at",
+    ],
+    "Vínculo de conta a receber inválido.",
+  );
+  if (
+    typeof link.id !== "string" ||
+    !isUuid(link.id) ||
+    typeof link.transaction_id !== "string" ||
+    !isUuid(link.transaction_id) ||
+    !(link.occurred_at === null || isValidDate(link.occurred_at)) ||
+    !isNullableString(link.description) ||
+    !isValidDate(link.linked_at)
+  ) {
+    throw new TypeError("Vínculo de conta a receber inválido.");
+  }
+  return {
+    id: link.id,
+    transaction_id: link.transaction_id,
+    occurred_at: link.occurred_at as string | null,
+    description: nullableText(link.description),
+    linked_amount: decimal(link.linked_amount),
+    current_amount: decimal(link.current_amount),
+    linked_at: link.linked_at,
+  };
+}
+
+export function parseReceivableDetail(value: unknown): ReceivableDetail {
+  const detail = requiredRecord(
+    value,
+    [...receivableKeys, "links"],
+    "Detalhe de conta a receber inválido.",
+  );
+  if (!Array.isArray(detail.links)) {
+    throw new TypeError("Detalhe de conta a receber inválido.");
+  }
+  return {
+    ...receivableFieldsFrom(detail),
+    links: detail.links.map(parseReceivableLinkedTransaction),
+  };
+}
+
+export function parseReceivableLink(value: unknown): ReceivableLink {
+  const link = requiredRecord(
+    value,
+    ["id", "transaction_id", "linked_amount", "linked_at"],
+    "Vínculo inválido.",
+  );
+  if (
+    typeof link.id !== "string" ||
+    !isUuid(link.id) ||
+    typeof link.transaction_id !== "string" ||
+    !isUuid(link.transaction_id) ||
+    !isValidDate(link.linked_at)
+  ) {
+    throw new TypeError("Vínculo inválido.");
+  }
+  return {
+    id: link.id,
+    transaction_id: link.transaction_id,
+    linked_amount: decimal(link.linked_amount),
+    linked_at: link.linked_at,
+  };
+}
+
 export function parseDebtLink(value: unknown): DebtLink {
   const link = requiredRecord(
     value,
@@ -1140,7 +1339,7 @@ export function parseDebtLink(value: unknown): DebtLink {
   };
 }
 
-export const scenarioKinds = ["debt_plan"] as const;
+export const scenarioKinds = ["debt_plan", "receivable_plan"] as const;
 export type ScenarioKind = (typeof scenarioKinds)[number];
 
 export interface Scenario {
@@ -1148,6 +1347,7 @@ export interface Scenario {
   kind: ScenarioKind;
   name: string;
   debt_id: string | null;
+  receivable_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -1163,7 +1363,8 @@ export type ScenarioTransactionStatus = (typeof scenarioTransactionStatuses)[num
 
 export interface Realization {
   id: string;
-  debt_link_id: string;
+  debt_link_id: string | null;
+  receivable_link_id: string | null;
   allocated_amount: string;
   created_at: string;
 }
@@ -1195,10 +1396,11 @@ export interface ScenarioTransactionWrite {
   category?: string | null;
 }
 
-export interface RealizationWrite {
-  debt_link_id: string;
-  allocated_amount: number;
-}
+// RealizationWrite carries exactly one of debt_link_id/receivable_link_id,
+// matching the scenario's own kind — never both, never neither.
+export type RealizationWrite =
+  | { debt_link_id: string; receivable_link_id?: undefined; allocated_amount: number }
+  | { debt_link_id?: undefined; receivable_link_id: string; allocated_amount: number };
 
 export const cadences = ["mensal", "semanal", "quinzenal"] as const;
 export type Cadence = (typeof cadences)[number];
@@ -1217,7 +1419,19 @@ export interface ReadjustWrite {
   strategy: ReadjustStrategy;
 }
 
-const scenarioKeys = ["id", "kind", "name", "debt_id", "created_at", "updated_at"] as const;
+const scenarioKeys = [
+  "id",
+  "kind",
+  "name",
+  "debt_id",
+  "receivable_id",
+  "created_at",
+  "updated_at",
+] as const;
+
+function isNullableUuid(value: unknown): value is string | null {
+  return value === null || (typeof value === "string" && isUuid(value));
+}
 
 function scenarioFieldsFrom(scenario: Record<string, unknown>): Scenario {
   if (
@@ -1226,7 +1440,8 @@ function scenarioFieldsFrom(scenario: Record<string, unknown>): Scenario {
     !scenarioKinds.includes(scenario.kind as ScenarioKind) ||
     typeof scenario.name !== "string" ||
     scenario.name === "" ||
-    !(scenario.debt_id === null || (typeof scenario.debt_id === "string" && isUuid(scenario.debt_id))) ||
+    !isNullableUuid(scenario.debt_id) ||
+    !isNullableUuid(scenario.receivable_id) ||
     !isValidDate(scenario.created_at) ||
     !isValidDate(scenario.updated_at)
   ) {
@@ -1237,6 +1452,7 @@ function scenarioFieldsFrom(scenario: Record<string, unknown>): Scenario {
     kind: scenario.kind as ScenarioKind,
     name: scenario.name,
     debt_id: scenario.debt_id as string | null,
+    receivable_id: scenario.receivable_id as string | null,
     created_at: scenario.created_at,
     updated_at: scenario.updated_at,
   };
@@ -1253,22 +1469,29 @@ export function parseScenarioList(value: unknown): Scenario[] {
   return value.map(parseScenario);
 }
 
-const realizationKeys = ["id", "debt_link_id", "allocated_amount", "created_at"] as const;
+const realizationKeys = [
+  "id",
+  "debt_link_id",
+  "receivable_link_id",
+  "allocated_amount",
+  "created_at",
+] as const;
 
 function parseRealization(value: unknown): Realization {
   const item = requiredRecord(value, realizationKeys, "Alocação inválida.");
   if (
     typeof item.id !== "string" ||
     !isUuid(item.id) ||
-    typeof item.debt_link_id !== "string" ||
-    !isUuid(item.debt_link_id) ||
+    !isNullableUuid(item.debt_link_id) ||
+    !isNullableUuid(item.receivable_link_id) ||
     !isValidDate(item.created_at)
   ) {
     throw new TypeError("Alocação inválida.");
   }
   return {
     id: item.id,
-    debt_link_id: item.debt_link_id,
+    debt_link_id: item.debt_link_id as string | null,
+    receivable_link_id: item.receivable_link_id as string | null,
     allocated_amount: decimal(item.allocated_amount),
     created_at: item.created_at,
   };
