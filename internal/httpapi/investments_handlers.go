@@ -71,6 +71,17 @@ func scanInvestment(row interface{ Scan(...any) error }) (investmentDTO, error) 
 	return d, nil
 }
 
+// contributionInfo tracks netContributed's running total per investment plus
+// whether any inflow (non-SELL/REDEMPTION) movement was seen. A history made
+// up entirely of outflows means the original purchase was never captured
+// (out of the provider's sync window, or the position was already being
+// liquidated when sync started) — net would reflect the whole redemption
+// (principal + gains), not just the gains, so it can't be used for yield.
+type contributionInfo struct {
+	net       decimal.Decimal
+	hasInflow bool
+}
+
 // netContributed sums financial_investment_transactions per investment_id as
 // (aplicações - resgates), the amount actually put in net of what came back
 // out. It's the only reliable stand-in for "valor aplicado" investments.amount
@@ -78,9 +89,9 @@ func scanInvestment(row interface{ Scan(...any) error }) (investmentDTO, error) 
 // quantity × value (the current gross mark value), which produced false
 // negative yields on healthy CDBs when the previous fallback naively did
 // balance - amount instead of using the actual buy/sell history.
-func netContributed(conn *sql.DB, investmentIDs []string) (map[string]decimal.Decimal, error) {
+func netContributed(conn *sql.DB, investmentIDs []string) (map[string]contributionInfo, error) {
 	if len(investmentIDs) == 0 {
-		return map[string]decimal.Decimal{}, nil
+		return map[string]contributionInfo{}, nil
 	}
 	placeholders := strings.Repeat("?,", len(investmentIDs))
 	placeholders = placeholders[:len(placeholders)-1]
@@ -97,7 +108,7 @@ func netContributed(conn *sql.DB, investmentIDs []string) (map[string]decimal.De
 	}
 	defer rows.Close()
 
-	result := map[string]decimal.Decimal{}
+	result := map[string]contributionInfo{}
 	for rows.Next() {
 		var investmentID, amountRaw string
 		var movementType sql.NullString
@@ -108,33 +119,37 @@ func netContributed(conn *sql.DB, investmentIDs []string) (map[string]decimal.De
 		if err != nil {
 			continue
 		}
+		info := result[investmentID]
 		if movementType.String == "SELL" || movementType.String == "REDEMPTION" {
 			amount = amount.Neg()
+		} else {
+			info.hasInflow = true
 		}
-		result[investmentID] = result[investmentID].Add(amount)
+		info.net = info.net.Add(amount)
+		result[investmentID] = info
 	}
 	return result, rows.Err()
 }
 
 // applyYield fills YieldValue/YieldSource: Pluggy's own amount_profit when
 // the provider sends it ("informado"), otherwise balance minus net
-// contributed from the transaction history when that history exists
-// ("calculado"), otherwise left nil rather than guessing.
-func applyYield(d *investmentDTO, contributed map[string]decimal.Decimal) {
+// contributed from the transaction history when that history includes at
+// least one inflow ("calculado"), otherwise left nil rather than guessing.
+func applyYield(d *investmentDTO, contributed map[string]contributionInfo) {
 	if d.AmountProfit != nil {
 		informado := "informado"
 		d.YieldValue, d.YieldSource = d.AmountProfit, &informado
 		return
 	}
-	net, hasHistory := contributed[d.ID]
-	if !hasHistory || d.Balance == nil {
+	info, hasHistory := contributed[d.ID]
+	if !hasHistory || !info.hasInflow || d.Balance == nil {
 		return
 	}
 	balance, err := decimal.NewFromString(*d.Balance)
 	if err != nil {
 		return
 	}
-	value := money.CanonicalDecimal(balance.Sub(net))
+	value := money.CanonicalDecimal(balance.Sub(info.net))
 	calculado := "calculado"
 	d.YieldValue, d.YieldSource = &value, &calculado
 }
