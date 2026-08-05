@@ -52,6 +52,8 @@ type row struct {
 	categoryName     *string
 	categoryKind     *string
 	categoryIsActive *bool
+	categoryIcon     *string
+	categoryColor    *string
 }
 
 // view is a row with every rule from package money already applied. Query
@@ -92,7 +94,7 @@ func fetchAllViews(ctx context.Context, q Querier, query QueryRequest) ([]view, 
 			fa.name, fa.institution, fa.currency_code, fa.account_type,
 			tid.state, tid.changed_at, tid.origin, tid.rule_name,
 			tcd.category_id, tcd.changed_at, tcd.origin,
-			cat.id, cat.name, cat.kind, cat.is_active
+			cat.id, cat.name, cat.kind, cat.is_active, cat.icon, cat.color
 		FROM financial_transactions ft
 		JOIN financial_accounts fa ON fa.id = ft.account_id
 		LEFT JOIN transaction_inclusion_decisions tid ON tid.transaction_id = ft.id
@@ -178,6 +180,8 @@ func scanRow(rows *sql.Rows) (row, error) {
 		categoryName               sql.NullString
 		categoryKind               sql.NullString
 		categoryIsActive           sql.NullBool
+		categoryIcon               sql.NullString
+		categoryColor              sql.NullString
 	)
 	err := rows.Scan(
 		&r.id, &r.accountID, &r.externalID, &description, &amount,
@@ -186,7 +190,7 @@ func scanRow(rows *sql.Rows) (row, error) {
 		&accountName, &accountInstitution, &accountCurrencyCode, &accountType,
 		&inclusionState, &inclusionChangedAt, &inclusionOrigin, &inclusionRuleName,
 		&categoryDecisionCategoryID, &categoryDecisionChangedAt, &categoryDecisionOrigin,
-		&categoryID, &categoryName, &categoryKind, &categoryIsActive,
+		&categoryID, &categoryName, &categoryKind, &categoryIsActive, &categoryIcon, &categoryColor,
 	)
 	if err != nil {
 		return row{}, err
@@ -213,6 +217,8 @@ func scanRow(rows *sql.Rows) (row, error) {
 	if categoryIsActive.Valid {
 		r.categoryIsActive = &categoryIsActive.Bool
 	}
+	r.categoryIcon = nullString(categoryIcon)
+	r.categoryColor = nullString(categoryColor)
 
 	if r.amount, err = nullDecimal(amount); err != nil {
 		return row{}, err
@@ -577,6 +583,8 @@ func toItem(v view) Item {
 			Name:      stringOr(r.categoryName, ""),
 			Kind:      money.CategoryKind(stringOr(r.categoryKind, "")),
 			IsActive:  r.categoryIsActive != nil && *r.categoryIsActive,
+			Icon:      stringOr(r.categoryIcon, ""),
+			Color:     stringOr(r.categoryColor, ""),
 			Origin:    stringOr(r.categoryDecisionOrigin, "automatic"),
 			ChangedAt: timeOr(r.categoryDecisionChangedAt),
 		}
@@ -718,9 +726,11 @@ func buildOverallTotals(filtered []view) []CurrencyTotals {
 // CategorySpending is one internal category's total outflow spend over a
 // filtered period.
 type CategorySpending struct {
-	CategoryID   *string
-	CategoryName string
-	Amount       string
+	CategoryID    *string
+	CategoryName  string
+	CategoryIcon  string
+	CategoryColor string
+	Amount        string
 }
 
 // SpendingByCategory sums each included, BRL-denominated outflow
@@ -742,6 +752,8 @@ func SpendingByCategory(ctx context.Context, q Querier, filters Filters, timezon
 
 	type accum struct {
 		name   string
+		icon   string
+		color  string
 		amount decimal.Decimal
 	}
 	const uncategorizedKey = ""
@@ -754,13 +766,14 @@ func SpendingByCategory(ctx context.Context, q Querier, filters Filters, timezon
 		if v.classification != money.Outflow || v.effective == nil || v.effective.CurrencyCode != "BRL" {
 			continue
 		}
-		key, name := uncategorizedKey, "Sem categoria"
+		key, name, icon, color := uncategorizedKey, "Sem categoria", "", ""
 		if v.row.categoryDecisionCategoryID != nil {
 			key, name = *v.row.categoryDecisionCategoryID, stringOr(v.row.categoryName, "")
+			icon, color = stringOr(v.row.categoryIcon, ""), stringOr(v.row.categoryColor, "")
 		}
 		a, ok := byCategory[key]
 		if !ok {
-			a = &accum{name: name, amount: decimal.Zero}
+			a = &accum{name: name, icon: icon, color: color, amount: decimal.Zero}
 			byCategory[key] = a
 			order = append(order, key)
 		}
@@ -774,7 +787,7 @@ func SpendingByCategory(ctx context.Context, q Querier, filters Filters, timezon
 	result := make([]CategorySpending, len(order))
 	for i, key := range order {
 		a := byCategory[key]
-		item := CategorySpending{CategoryName: a.name, Amount: money.CanonicalDecimal(a.amount)}
+		item := CategorySpending{CategoryName: a.name, CategoryIcon: a.icon, CategoryColor: a.color, Amount: money.CanonicalDecimal(a.amount)}
 		if key != uncategorizedKey {
 			id := key
 			item.CategoryID = &id
@@ -831,7 +844,7 @@ func buildAvailableFilters(ctx context.Context, q Querier, allViews []view) (Ava
 	}
 	categoryOptions := make([]CategoryOption, len(cats))
 	for i, c := range cats {
-		categoryOptions[i] = CategoryOption{ID: c.ID, Name: c.Name, Kind: c.Kind, IsActive: c.IsActive}
+		categoryOptions[i] = CategoryOption{ID: c.ID, Name: c.Name, Kind: c.Kind, IsActive: c.IsActive, Icon: c.Icon, Color: c.Color}
 	}
 
 	return AvailableFilters{

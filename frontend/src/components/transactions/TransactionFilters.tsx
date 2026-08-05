@@ -9,7 +9,7 @@ import {
   type DateRangePreset,
   type FilterConfig,
 } from "../filters/ConfigurableFilters";
-import { categoryFilterOptions } from "../../presentation/categoryLabels";
+import { categoryFilterOptions, renderCategoryIcon } from "../../presentation/categoryLabels";
 import { classificationLabel } from "../../presentation/transactionStatus";
 
 function dateText(date: Date): string {
@@ -109,6 +109,14 @@ export function TransactionFilters({
         placement: "main",
         placeholder: facets?.categories.length ? "Todas as categorias" : "Nenhuma categoria",
         options: categoryFilterOptions(facets?.categories),
+        optionRender: (option) => (
+          <span>
+            <span style={{ color: option.color }} aria-hidden="true">
+              {renderCategoryIcon(option.icon)}
+            </span>{" "}
+            {option.label}
+          </span>
+        ),
         formatActive: (_value, _values, option) => option?.label ?? "Categoria selecionada",
       },
       {

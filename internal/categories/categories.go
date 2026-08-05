@@ -25,6 +25,8 @@ type Category struct {
 	Name      string
 	Kind      money.CategoryKind
 	IsActive  bool
+	Icon      string
+	Color     string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -46,7 +48,7 @@ func scanCategory(row *sql.Row) (Category, error) {
 		createdAtRaw string
 		updatedAtRaw string
 	)
-	if err := row.Scan(&c.ID, &c.Name, &c.Kind, &isActive, &createdAtRaw, &updatedAtRaw); err != nil {
+	if err := row.Scan(&c.ID, &c.Name, &c.Kind, &isActive, &c.Icon, &c.Color, &createdAtRaw, &updatedAtRaw); err != nil {
 		return Category{}, err
 	}
 	c.IsActive = isActive != 0
@@ -64,13 +66,13 @@ func scanCategory(row *sql.Row) (Category, error) {
 }
 
 // Create adds a new, active category to the catalog.
-func Create(ctx context.Context, q Querier, name string, kind money.CategoryKind) (Category, error) {
+func Create(ctx context.Context, q Querier, name string, kind money.CategoryKind, icon string, color string) (Category, error) {
 	now := time.Now().UTC()
-	c := Category{ID: uuid.NewString(), Name: name, Kind: kind, IsActive: true, CreatedAt: now, UpdatedAt: now}
+	c := Category{ID: uuid.NewString(), Name: name, Kind: kind, IsActive: true, Icon: icon, Color: color, CreatedAt: now, UpdatedAt: now}
 	_, err := q.ExecContext(ctx,
-		`INSERT INTO categories (id, name, kind, is_active, created_at, updated_at)
-		 VALUES (?, ?, ?, 1, ?, ?)`,
-		c.ID, c.Name, string(c.Kind), db.FormatTime(now), db.FormatTime(now),
+		`INSERT INTO categories (id, name, kind, is_active, icon, color, created_at, updated_at)
+		 VALUES (?, ?, ?, 1, ?, ?, ?, ?)`,
+		c.ID, c.Name, string(c.Kind), c.Icon, c.Color, db.FormatTime(now), db.FormatTime(now),
 	)
 	if err != nil {
 		return Category{}, err
@@ -78,9 +80,9 @@ func Create(ctx context.Context, q Querier, name string, kind money.CategoryKind
 	return c, nil
 }
 
-// Update mirrors CategoryUpdateInput: name and isActive are applied only when
-// non-nil, so a caller can change just one of them.
-func Update(ctx context.Context, q Querier, id string, name *string, isActive *bool) (Category, error) {
+// Update mirrors CategoryUpdateInput: name, isActive, icon and color are
+// applied only when non-nil, so a caller can change just one of them.
+func Update(ctx context.Context, q Querier, id string, name *string, isActive *bool, icon *string, color *string) (Category, error) {
 	existing, err := Get(ctx, q, id)
 	if err != nil {
 		return Category{}, err
@@ -91,6 +93,12 @@ func Update(ctx context.Context, q Querier, id string, name *string, isActive *b
 	if isActive != nil {
 		existing.IsActive = *isActive
 	}
+	if icon != nil {
+		existing.Icon = *icon
+	}
+	if color != nil {
+		existing.Color = *color
+	}
 	existing.UpdatedAt = time.Now().UTC()
 
 	activeInt := 0
@@ -98,8 +106,8 @@ func Update(ctx context.Context, q Querier, id string, name *string, isActive *b
 		activeInt = 1
 	}
 	_, err = q.ExecContext(ctx,
-		`UPDATE categories SET name = ?, is_active = ?, updated_at = ? WHERE id = ?`,
-		existing.Name, activeInt, db.FormatTime(existing.UpdatedAt), id,
+		`UPDATE categories SET name = ?, is_active = ?, icon = ?, color = ?, updated_at = ? WHERE id = ?`,
+		existing.Name, activeInt, existing.Icon, existing.Color, db.FormatTime(existing.UpdatedAt), id,
 	)
 	if err != nil {
 		return Category{}, err
@@ -110,7 +118,7 @@ func Update(ctx context.Context, q Querier, id string, name *string, isActive *b
 // Get returns ErrNotFound when id has no matching row.
 func Get(ctx context.Context, q Querier, id string) (Category, error) {
 	row := q.QueryRowContext(ctx,
-		`SELECT id, name, kind, is_active, created_at, updated_at FROM categories WHERE id = ?`, id,
+		`SELECT id, name, kind, is_active, icon, color, created_at, updated_at FROM categories WHERE id = ?`, id,
 	)
 	c, err := scanCategory(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -126,7 +134,7 @@ func Get(ctx context.Context, q Querier, id string) (Category, error) {
 // match the reference API's grouping in filter dropdowns.
 func List(ctx context.Context, q Querier) ([]Category, error) {
 	rows, err := q.QueryContext(ctx,
-		`SELECT id, name, kind, is_active, created_at, updated_at FROM categories ORDER BY kind, name`,
+		`SELECT id, name, kind, is_active, icon, color, created_at, updated_at FROM categories ORDER BY kind, name`,
 	)
 	if err != nil {
 		return nil, err
@@ -141,7 +149,7 @@ func List(ctx context.Context, q Querier) ([]Category, error) {
 			createdAtRaw string
 			updatedAtRaw string
 		)
-		if err := rows.Scan(&c.ID, &c.Name, &c.Kind, &isActive, &createdAtRaw, &updatedAtRaw); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Kind, &isActive, &c.Icon, &c.Color, &createdAtRaw, &updatedAtRaw); err != nil {
 			return nil, err
 		}
 		c.IsActive = isActive != 0

@@ -17,6 +17,8 @@ const category: Category = {
   name: "Alimentação",
   kind: "expense",
   is_active: true,
+  icon: "coffee",
+  color: "#eb6834",
   created_at: "2026-07-31T00:00:00Z",
   updated_at: "2026-07-31T00:00:00Z",
 };
@@ -63,6 +65,9 @@ describe("CategoriesPage", () => {
       expect(categoriesApi.createCategory).toHaveBeenCalledWith({
         name: category.name,
         kind: "expense",
+        icon: "ellipsis",
+        color: "#2a78d6",
+        is_active: true,
       }),
     );
     expect(screen.queryByRole("button", { name: "Salvar" })).not.toBeInTheDocument();
@@ -72,7 +77,7 @@ describe("CategoriesPage", () => {
     const user = userEvent.setup();
     vi.mocked(categoriesApi.listCategories).mockResolvedValue([category]);
     renderPage();
-    await user.click(await screen.findByRole("button", { name: "Renomear" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Editar" }, { timeout: 5000 }));
     const kindField = await screen.findByRole("combobox", { name: "Tipo" });
     expect(kindField.closest(".ant-select")).toHaveClass("ant-select-disabled");
   });
@@ -85,7 +90,7 @@ describe("CategoriesPage", () => {
       name: "Renomeada",
     });
     renderPage();
-    await user.click(await screen.findByRole("button", { name: "Renomear" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Editar" }, { timeout: 5000 }));
     const nameField = await screen.findByLabelText("Nome");
     expect(nameField).toHaveValue(category.name);
     await user.clear(nameField);
@@ -95,6 +100,9 @@ describe("CategoriesPage", () => {
     await waitFor(() =>
       expect(categoriesApi.updateCategory).toHaveBeenCalledWith(categoryId, {
         name: "Renomeada",
+        icon: category.icon,
+        color: category.color,
+        is_active: category.is_active,
       }),
     );
   });
@@ -112,6 +120,47 @@ describe("CategoriesPage", () => {
 
     await waitFor(() =>
       expect(categoriesApi.updateCategory).toHaveBeenCalledWith(categoryId, {
+        is_active: false,
+      }),
+    );
+  });
+
+  it("opens the edit form by clicking anywhere on the row", async () => {
+    const user = userEvent.setup();
+    vi.mocked(categoriesApi.listCategories).mockResolvedValue([category]);
+    renderPage();
+    await user.click(await screen.findByText(category.name));
+    expect(await screen.findByText("Editar categoria")).toBeVisible();
+    expect(await screen.findByLabelText("Nome")).toHaveValue(category.name);
+  });
+
+  it("does not open the edit form when toggling the active switch in the list", async () => {
+    const user = userEvent.setup();
+    vi.mocked(categoriesApi.listCategories).mockResolvedValue([category]);
+    vi.mocked(categoriesApi.updateCategory).mockResolvedValue({ ...category, is_active: false });
+    renderPage();
+    const toggle = await screen.findByRole("switch");
+    await user.click(toggle);
+    await waitFor(() => expect(categoriesApi.updateCategory).toHaveBeenCalled());
+    expect(screen.queryByText("Editar categoria")).not.toBeInTheDocument();
+  });
+
+  it("toggles the active flag from the edit form", async () => {
+    const user = userEvent.setup();
+    vi.mocked(categoriesApi.listCategories).mockResolvedValue([category]);
+    vi.mocked(categoriesApi.updateCategory).mockResolvedValue({ ...category, is_active: false });
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "Editar" }, { timeout: 5000 }));
+    const activeSwitch = await screen.findByRole("switch", { name: "Categoria ativa" });
+    expect(activeSwitch).toBeChecked();
+    await user.click(activeSwitch);
+    await user.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() =>
+      expect(categoriesApi.updateCategory).toHaveBeenCalledWith(categoryId, {
+        name: category.name,
+        icon: category.icon,
+        color: category.color,
         is_active: false,
       }),
     );

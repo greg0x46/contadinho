@@ -534,7 +534,7 @@ func TestDebtTotalOwedOverHTTP(t *testing.T) {
 func TestSpendingByCategoryOverHTTP(t *testing.T) {
 	srv, conn := newTestServer(t)
 
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/categories", map[string]string{"name": "Mercado", "kind": "expense"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/categories", map[string]string{"name": "Mercado", "kind": "expense", "icon": "shopping-cart", "color": "#2a78d6"})
 	var category map[string]any
 	decodeJSON(t, resp, &category)
 	categoryID := category["id"].(string)
@@ -628,7 +628,7 @@ func TestSPAFallbackAndAssetsAndUnknownAPI(t *testing.T) {
 func TestCategoryLifecycleOverHTTP(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/categories", map[string]string{"name": "Assinaturas", "kind": "expense"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/categories", map[string]string{"name": "Assinaturas", "kind": "expense", "icon": "wifi", "color": "#099268"})
 	if resp.StatusCode != 201 {
 		t.Fatalf("create status = %d, want 201", resp.StatusCode)
 	}

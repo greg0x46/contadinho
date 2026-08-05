@@ -16,6 +16,8 @@ const category: Category = {
   name: "Alimentação",
   kind: "expense",
   is_active: true,
+  icon: "coffee",
+  color: "#eb6834",
   created_at: "2026-07-31T00:00:00Z",
   updated_at: "2026-07-31T00:00:00Z",
 };
@@ -46,11 +48,20 @@ describe("useCategories", () => {
     const { result } = renderHook(useCategories, { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    await act(() => result.current.createCategory({ name: category.name, kind: category.kind }));
+    await act(() =>
+      result.current.createCategory({
+        name: category.name,
+        kind: category.kind,
+        icon: category.icon,
+        color: category.color,
+      }),
+    );
 
     expect(categoriesApi.createCategory).toHaveBeenCalledWith({
       name: category.name,
       kind: category.kind,
+      icon: category.icon,
+      color: category.color,
     });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["categories"] });
   });

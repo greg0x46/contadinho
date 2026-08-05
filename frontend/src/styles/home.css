@@ -114,30 +114,6 @@
   text-transform: capitalize;
 }
 
-.spending-by-category-swatch-1 {
-  background: #2a78d6;
-}
-
-.spending-by-category-swatch-2 {
-  background: #eb6834;
-}
-
-.spending-by-category-swatch-3 {
-  background: #1baf7a;
-}
-
-.spending-by-category-swatch-4 {
-  background: #eda100;
-}
-
-.spending-by-category-swatch-5 {
-  background: #e87ba4;
-}
-
-.spending-by-category-swatch-other {
-  background: #c3c2b7;
-}
-
 .spending-by-category-legend-amount {
   display: flex;
   flex-direction: column;

@@ -31,8 +31,22 @@ const spendingByCategory: SpendingByCategory = {
   currency_code: "BRL",
   total: "150.00",
   items: [
-    { category_id: "cat-mercado", category_name: "Mercado", amount: "100.00", source: "real" },
-    { category_id: null, category_name: "Sem categoria", amount: "50.00", source: "real" },
+    {
+      category_id: "cat-mercado",
+      category_name: "Mercado",
+      category_icon: "shopping-cart",
+      category_color: "#2a78d6",
+      amount: "100.00",
+      source: "real",
+    },
+    {
+      category_id: null,
+      category_name: "Sem categoria",
+      category_icon: "",
+      category_color: "",
+      amount: "50.00",
+      source: "real",
+    },
   ],
 };
 
@@ -118,12 +132,12 @@ describe("SpendingByCategoryCard", () => {
       currency_code: "BRL",
       total: "600.00",
       items: [
-        { category_id: "1", category_name: "Um", amount: "100.00", source: "real" },
-        { category_id: "2", category_name: "Dois", amount: "100.00", source: "real" },
-        { category_id: "3", category_name: "Tres", amount: "100.00", source: "real" },
-        { category_id: "4", category_name: "Quatro", amount: "100.00", source: "real" },
-        { category_id: "5", category_name: "Cinco", amount: "100.00", source: "real" },
-        { category_id: "6", category_name: "Seis", amount: "100.00", source: "real" },
+        { category_id: "1", category_name: "Um", category_icon: "ellipsis", category_color: "#2a78d6", amount: "100.00", source: "real" },
+        { category_id: "2", category_name: "Dois", category_icon: "ellipsis", category_color: "#eb6834", amount: "100.00", source: "real" },
+        { category_id: "3", category_name: "Tres", category_icon: "ellipsis", category_color: "#17a2b8", amount: "100.00", source: "real" },
+        { category_id: "4", category_name: "Quatro", category_icon: "ellipsis", category_color: "#e64980", amount: "100.00", source: "real" },
+        { category_id: "5", category_name: "Cinco", category_icon: "ellipsis", category_color: "#d64545", amount: "100.00", source: "real" },
+        { category_id: "6", category_name: "Seis", category_icon: "ellipsis", category_color: "#b8860b", amount: "100.00", source: "real" },
       ],
     });
     renderPage();

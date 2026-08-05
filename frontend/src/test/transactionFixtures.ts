@@ -46,6 +46,8 @@ export const transactionResult: TransactionQueryResult = {
         name: "Alimentação",
         kind: "expense",
         is_active: true,
+        icon: "coffee",
+        color: "#eb6834",
         origin: "automatic",
         changed_at: "2026-07-15T12:05:00Z",
       },
@@ -86,7 +88,7 @@ export const transactionResult: TransactionQueryResult = {
     accounts: [{ id: accountId, name: "Conta corrente", institution: "Banco Teste" }],
     institutions: ["Banco Teste"],
     categories: [
-      { id: categoryId, name: "Alimentação", kind: "expense", is_active: true },
+      { id: categoryId, name: "Alimentação", kind: "expense", is_active: true, icon: "coffee", color: "#eb6834" },
     ],
   },
 };

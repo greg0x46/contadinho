@@ -34,16 +34,22 @@ export function CategoriesPage() {
 
   const closeForm = () => setFormOpen(false);
 
-  const submit = async (draft: { name: string; kind: CategoryKind }) => {
+  const submit = async (draft: {
+    name: string;
+    kind: CategoryKind;
+    icon: string;
+    color: string;
+    is_active: boolean;
+  }) => {
     setSaveError(null);
     try {
       if (editingCategory) {
         await categories.updateCategory({
           categoryId: editingCategory.id,
-          write: { name: draft.name },
+          write: { name: draft.name, icon: draft.icon, color: draft.color, is_active: draft.is_active },
         });
       } else {
-        await categories.createCategory({ name: draft.name, kind: draft.kind });
+        await categories.createCategory(draft);
       }
       setFormOpen(false);
     } catch (error) {
