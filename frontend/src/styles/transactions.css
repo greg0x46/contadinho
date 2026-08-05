@@ -313,7 +313,7 @@
   display: grid;
   min-width: 0;
   min-height: 68px;
-  grid-template-columns: 5.25rem minmax(12rem, 1fr) minmax(12rem, auto) minmax(8rem, auto);
+  grid-template-columns: 5.25rem minmax(10rem, 1fr) minmax(9rem, auto) minmax(8rem, auto);
   align-items: center;
   gap: 0.75rem;
   padding: 0.5rem 0.75rem;
@@ -378,27 +378,22 @@
   white-space: nowrap;
 }
 
-.transaction-badges {
+.transaction-category {
   display: flex;
   min-width: 0;
   justify-content: flex-end;
-  gap: 0.25rem;
 }
 
-.transaction-badges .ant-tag {
+.transaction-category-tag {
   max-width: 9rem;
   margin: 0;
   overflow: hidden;
   border-color: transparent;
-  color: #44546f;
-  background: #f1f3f6;
+  color: #fff;
+  background: #6b778c;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.transaction-badges .status-pending {
-  color: #7a4d00;
-  background: #fff4d6;
 }
 
 .transaction-amount {
@@ -535,7 +530,7 @@
     grid-template-columns: 4.75rem minmax(10rem, 1fr) minmax(9rem, auto);
   }
 
-  .transaction-badges {
+  .transaction-category {
     display: none;
   }
 }

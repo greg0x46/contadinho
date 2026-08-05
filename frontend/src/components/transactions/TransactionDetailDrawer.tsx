@@ -14,8 +14,6 @@ import {
   classificationLabel,
   exclusionReasonLabel,
   inclusionOriginLabel,
-  statusColor,
-  statusLabel,
 } from "../../presentation/transactionStatus";
 
 function detailValue(item: TransactionItem): string {
@@ -111,7 +109,6 @@ export function TransactionDetailDrawer({
               <Tag color={item.inclusion.state === "ignored" ? "default" : "success"}>
                 {item.inclusion.state === "ignored" ? "Ignorada" : "Considerada"}
               </Tag>
-              <Tag color={statusColor(item.provider_status)}>{statusLabel(item.provider_status)}</Tag>
             </div>
           </div>
 
