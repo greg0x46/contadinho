@@ -120,7 +120,9 @@ describe("TransactionFilters", () => {
         facets={{
           accounts: [],
           institutions: [],
-          categories: [{ id: "cat-expense", name: "Compras", kind: "expense", is_active: true }],
+          categories: [
+            { id: "cat-expense", name: "Compras", kind: "expense", is_active: true, icon: "shopping", color: "#e64980" },
+          ],
         }}
         onApply={onApply}
         onClear={vi.fn()}
@@ -137,16 +139,16 @@ describe("TransactionFilters", () => {
 
   it("groups category options by kind, sorting inactive categories last within their kind", () => {
     const options = categoryFilterOptions([
-      { id: "income", name: "Salário", kind: "income", is_active: true },
-      { id: "inactive", name: "Velha", kind: "expense", is_active: false },
-      { id: "expense", name: "Compras", kind: "expense", is_active: true },
-      { id: "transfer", name: "Entre Contas", kind: "transfer", is_active: true },
+      { id: "income", name: "Salário", kind: "income", is_active: true, icon: "money-collect", color: "#1baf7a" },
+      { id: "inactive", name: "Velha", kind: "expense", is_active: false, icon: "ellipsis", color: "#6c757d" },
+      { id: "expense", name: "Compras", kind: "expense", is_active: true, icon: "shopping", color: "#e64980" },
+      { id: "transfer", name: "Entre Contas", kind: "transfer", is_active: true, icon: "swap", color: "#7c5cbf" },
     ]);
     expect(options).toEqual([
-      { value: "expense", label: "Despesa: Compras" },
-      { value: "inactive", label: "Despesa: Velha (inativa)" },
-      { value: "income", label: "Receita: Salário" },
-      { value: "transfer", label: "Transferência: Entre Contas" },
+      { value: "expense", label: "Despesa: Compras", icon: "shopping", color: "#e64980" },
+      { value: "inactive", label: "Despesa: Velha (inativa)", icon: "ellipsis", color: "#6c757d" },
+      { value: "income", label: "Receita: Salário", icon: "money-collect", color: "#1baf7a" },
+      { value: "transfer", label: "Transferência: Entre Contas", icon: "swap", color: "#7c5cbf" },
     ]);
   });
 });

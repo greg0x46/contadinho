@@ -11,7 +11,7 @@ import {
   Select,
   Tag,
 } from "antd";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 export type FilterFieldType =
   | "text"
@@ -26,6 +26,9 @@ export interface FilterOption {
   value: string;
   label: string;
   disabled?: boolean;
+  /** Purely additive — only consumers that opt in via FilterConfig.optionRender read these. */
+  icon?: string;
+  color?: string;
 }
 
 export interface DateRangePreset {
@@ -46,6 +49,8 @@ export interface FilterConfig<Values extends object> {
   presets?: DateRangePreset[];
   hideChip?: boolean;
   formatActive?: (value: unknown, values: Values, option?: FilterOption) => string;
+  /** Optional richer rendering (e.g. icon + color) for each dropdown option. */
+  optionRender?: (option: FilterOption) => ReactNode;
 }
 
 type Props<Values extends object> = {
@@ -400,6 +405,7 @@ export function ConfigurableFilters<Values extends object>({
             placeholder={field.placeholder}
             value={value === null ? undefined : value as string | string[]}
             options={options}
+            optionRender={field.optionRender ? (option) => field.optionRender!(option.data as FilterOption) : undefined}
             notFoundContent="Nenhuma opção disponível"
             onChange={(next) => commit(next ?? null)}
           />

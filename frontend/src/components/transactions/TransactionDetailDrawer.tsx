@@ -5,6 +5,7 @@ import type { Category, TransactionInclusionState, TransactionItem } from "../..
 import {
   categoryKindLabel,
   internalCategoryOriginLabel,
+  renderCategoryIcon,
 } from "../../presentation/categoryLabels";
 import { formatMoney, formatSignedBRL, moneySourceLabel } from "../../presentation/money";
 import { movementTypeLabel } from "../../presentation/transactionLabels";
@@ -45,6 +46,8 @@ function categoryOptions(categories: Category[], item: TransactionItem | null) {
       name: item.internal_category.name,
       kind: item.internal_category.kind,
       is_active: item.internal_category.is_active,
+      icon: item.internal_category.icon,
+      color: item.internal_category.color,
       created_at: "",
       updated_at: "",
     });
@@ -58,6 +61,8 @@ function categoryOptions(categories: Category[], item: TransactionItem | null) {
     .map((category) => ({
       value: category.id,
       label: `${categoryKindLabel[category.kind]}: ${category.name}${category.is_active ? "" : " (inativa)"}`,
+      icon: category.icon,
+      color: category.color,
     }));
 }
 
@@ -144,10 +149,21 @@ export function TransactionDetailDrawer({
                 showSearch
                 optionFilterProp="label"
                 options={options}
+                optionRender={(option) => (
+                  <span>
+                    <span style={{ color: option.data.color }} aria-hidden="true">
+                      {renderCategoryIcon(option.data.icon)}
+                    </span>{" "}
+                    {option.label}
+                  </span>
+                )}
                 onChange={(value: string) => onCategory?.(item.id, value)}
               />
               {item.internal_category && (
                 <div className="transaction-category-origin">
+                  <span style={{ color: item.internal_category.color }} aria-hidden="true">
+                    {renderCategoryIcon(item.internal_category.icon)}
+                  </span>{" "}
                   {internalCategoryOriginLabel(item.internal_category)}
                 </div>
               )}

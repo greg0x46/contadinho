@@ -103,7 +103,7 @@ func TestCreateUpdateGetList(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()
 
-	c, err := categories.Create(ctx, conn, "Assinaturas", money.Expense)
+	c, err := categories.Create(ctx, conn, "Assinaturas", money.Expense, "wifi", "#099268")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestCreateUpdateGetList(t *testing.T) {
 
 	newName := "Assinaturas digitais"
 	inactive := false
-	updated, err := categories.Update(ctx, conn, c.ID, &newName, &inactive)
+	updated, err := categories.Update(ctx, conn, c.ID, &newName, &inactive, nil, nil)
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestAssignManualOverridesAnyPriorDecision(t *testing.T) {
 	ctx := context.Background()
 	txID := insertTransaction(t, conn, nil)
 
-	other, err := categories.Create(ctx, conn, "Outra", money.Expense)
+	other, err := categories.Create(ctx, conn, "Outra", money.Expense, "ellipsis", "#6c757d")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -183,8 +183,8 @@ func TestAssignManualRejectsUnknownTransactionOrCategory(t *testing.T) {
 	}
 
 	inactive := false
-	custom, _ := categories.Create(ctx, conn, "Inativa", money.Expense)
-	if _, err := categories.Update(ctx, conn, custom.ID, nil, &inactive); err != nil {
+	custom, _ := categories.Create(ctx, conn, "Inativa", money.Expense, "ellipsis", "#6c757d")
+	if _, err := categories.Update(ctx, conn, custom.ID, nil, &inactive, nil, nil); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	if _, err := categories.AssignManual(ctx, conn, txID, custom.ID); !errors.Is(err, categories.ErrCategoryInvalid) {
@@ -293,7 +293,7 @@ func TestApplyAutomaticOnlyWhenUnassigned(t *testing.T) {
 	}
 
 	// A manual override must not be clobbered by a later automatic pass.
-	other, _ := categories.Create(ctx, conn, "Manual override", money.Expense)
+	other, _ := categories.Create(ctx, conn, "Manual override", money.Expense, "ellipsis", "#6c757d")
 	if _, err := categories.AssignManual(ctx, conn, txID, other.ID); err != nil {
 		t.Fatalf("AssignManual: %v", err)
 	}

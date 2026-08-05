@@ -64,3 +64,43 @@ body {
     animation-iteration-count: 1 !important;
   }
 }
+
+.category-color-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.category-color-swatch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.category-color-swatch[aria-checked="true"] {
+  border-color: #172b4d;
+}
+
+@media (prefers-color-scheme: dark) {
+  .category-color-swatch[aria-checked="true"] {
+    border-color: #fff;
+  }
+}
+
+.category-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 1rem;
+}

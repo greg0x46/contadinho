@@ -1,9 +1,9 @@
 import type { ProColumns } from "@ant-design/pro-table";
 import ProTable from "@ant-design/pro-table";
-import { Button, Switch, Tag } from "antd";
+import { Button, Flex, Switch, Tag } from "antd";
 
 import type { Category } from "../../api/contracts";
-import { categoryKindColor, categoryKindLabel } from "../../presentation/categoryLabels";
+import { categoryKindColor, categoryKindLabel, renderCategoryIcon } from "../../presentation/categoryLabels";
 
 export function CategoryList({
   categories,
@@ -19,7 +19,18 @@ export function CategoryList({
   onToggle: (category: Category, isActive: boolean) => void;
 }) {
   const columns: ProColumns<Category>[] = [
-    { title: "Nome", dataIndex: "name" },
+    {
+      title: "Nome",
+      dataIndex: "name",
+      render: (_, category) => (
+        <Flex align="center" gap="small">
+          <span className="category-badge" style={{ backgroundColor: category.color }} aria-hidden="true">
+            {renderCategoryIcon(category.icon)}
+          </span>
+          <span>{category.name}</span>
+        </Flex>
+      ),
+    },
     {
       title: "Tipo",
       dataIndex: "kind",
@@ -36,21 +47,25 @@ export function CategoryList({
       title: "Ativa",
       dataIndex: "is_active",
       render: (_, category) => (
-        <Switch
-          aria-label={`${category.is_active ? "Desativar" : "Ativar"} categoria ${category.name}`}
-          checked={category.is_active}
-          loading={togglingCategoryId === category.id}
-          onChange={(checked) => onToggle(category, checked)}
-        />
+        <span onClick={(event) => event.stopPropagation()}>
+          <Switch
+            aria-label={`${category.is_active ? "Desativar" : "Ativar"} categoria ${category.name}`}
+            checked={category.is_active}
+            loading={togglingCategoryId === category.id}
+            onChange={(checked) => onToggle(category, checked)}
+          />
+        </span>
       ),
     },
     {
       title: "Ação",
       valueType: "option",
       render: (_, category) => (
-        <Button type="link" onClick={() => onRename(category)}>
-          Renomear
-        </Button>
+        <span onClick={(event) => event.stopPropagation()}>
+          <Button type="link" onClick={() => onRename(category)}>
+            Editar
+          </Button>
+        </span>
       ),
     },
   ];
@@ -68,6 +83,10 @@ export function CategoryList({
       cardBordered
       scroll={{ x: "max-content" }}
       locale={{ emptyText: "Nenhuma categoria encontrada." }}
+      onRow={(category) => ({
+        onClick: () => onRename(category),
+        style: { cursor: "pointer" },
+      })}
     />
   );
 }

@@ -422,6 +422,8 @@ describe("category contracts", () => {
     name: "Alimentação",
     kind: "expense" as const,
     is_active: true,
+    icon: "coffee",
+    color: "#eb6834",
     created_at: "2026-07-31T00:00:00Z",
     updated_at: "2026-07-31T00:00:00Z",
   };

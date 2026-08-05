@@ -5,7 +5,11 @@ import type {
   TransactionInclusionState,
   TransactionItem,
 } from "../../api/contracts";
-import { internalCategoryName, internalCategoryOriginLabel } from "../../presentation/categoryLabels";
+import {
+  internalCategoryName,
+  internalCategoryOriginLabel,
+  renderCategoryIcon,
+} from "../../presentation/categoryLabels";
 import { formatBRL, formatSignedBRL } from "../../presentation/money";
 import { inclusionOriginLabel, statusLabel } from "../../presentation/transactionStatus";
 
@@ -98,8 +102,11 @@ function TransactionRow({
         </small>
       </span>
       <span className="transaction-badges">
-        <Tag title={item.internal_category ? internalCategoryOriginLabel(item.internal_category) : undefined}>
-          {internalCategoryName(item)}
+        <Tag
+          color={item.internal_category?.color}
+          title={item.internal_category ? internalCategoryOriginLabel(item.internal_category) : undefined}
+        >
+          {item.internal_category && renderCategoryIcon(item.internal_category.icon)} {internalCategoryName(item)}
         </Tag>
         <Tag className={`status-${item.provider_status?.toLocaleLowerCase() ?? "unknown"}`}>
           {status}

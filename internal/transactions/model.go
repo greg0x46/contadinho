@@ -72,6 +72,8 @@ type InternalCategory struct {
 	Name      string
 	Kind      money.CategoryKind
 	IsActive  bool
+	Icon      string
+	Color     string
 	Origin    string
 	ChangedAt time.Time
 }
@@ -151,6 +153,8 @@ type CategoryOption struct {
 	Name     string
 	Kind     money.CategoryKind
 	IsActive bool
+	Icon     string
+	Color    string
 }
 
 type AvailableFilters struct {

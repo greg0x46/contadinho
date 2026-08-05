@@ -5,18 +5,16 @@ import { Link } from "react-router-dom";
 import type { CategorySpendingItem, SpendingByCategory } from "../../api/contracts";
 import { currentMonthFilters } from "../../hooks/useTransactions";
 import { useSpendingByCategory } from "../../hooks/useSpendingByCategory";
+import { renderCategoryIcon } from "../../presentation/categoryLabels";
 import { formatBRL } from "../../presentation/money";
 import { LoadingState, UnavailableState } from "../AsyncState";
 import { filtersToSearchParams } from "../filters/filterUrl";
 
 const MAX_VISIBLE_CATEGORIES = 5;
-const SWATCH_CLASSES = [
-  "spending-by-category-swatch-1",
-  "spending-by-category-swatch-2",
-  "spending-by-category-swatch-3",
-  "spending-by-category-swatch-4",
-  "spending-by-category-swatch-5",
-];
+// Neutral fallback for buckets with no single stable category color: the
+// "Outras categorias" aggregate (a blend of several categories) and any
+// genuinely uncategorized spend.
+const FALLBACK_COLOR = "#c3c2b7";
 
 const monthFormatter = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" });
 
@@ -29,15 +27,17 @@ interface Segment {
   key: string;
   name: string;
   amount: number;
-  swatchClass: string;
+  color: string;
+  icon: string | undefined;
 }
 
 function buildSegments(items: CategorySpendingItem[]): Segment[] {
-  const segments = items.slice(0, MAX_VISIBLE_CATEGORIES).map((item, index) => ({
+  const segments = items.slice(0, MAX_VISIBLE_CATEGORIES).map((item) => ({
     key: item.category_id ?? "uncategorized",
     name: item.category_name,
     amount: Number(item.amount),
-    swatchClass: SWATCH_CLASSES[index],
+    color: item.category_color || FALLBACK_COLOR,
+    icon: item.category_icon || undefined,
   }));
 
   const rest = items.slice(MAX_VISIBLE_CATEGORIES);
@@ -46,7 +46,8 @@ function buildSegments(items: CategorySpendingItem[]): Segment[] {
       key: "other",
       name: "Outras categorias",
       amount: rest.reduce((sum, item) => sum + Number(item.amount), 0),
-      swatchClass: "spending-by-category-swatch-other",
+      color: FALLBACK_COLOR,
+      icon: undefined,
     });
   }
   return segments;
@@ -74,16 +75,23 @@ function SpendingByCategoryBreakdown({ spending }: { spending: SpendingByCategor
         {segments.map((segment) => (
           <span
             key={segment.key}
-            className={`dashboard-meter-segment ${segment.swatchClass}`}
-            style={{ width: `${(segment.amount / total) * 100}%` }}
+            className="dashboard-meter-segment"
+            style={{ width: `${(segment.amount / total) * 100}%`, backgroundColor: segment.color }}
           />
         ))}
       </div>
       <ul className="dashboard-legend">
         {segments.map((segment) => (
           <li key={segment.key}>
-            <span className={`dashboard-swatch ${segment.swatchClass}`} aria-hidden="true" />
-            <span className="dashboard-legend-label">{segment.name}</span>
+            <span className="dashboard-swatch" style={{ backgroundColor: segment.color }} aria-hidden="true" />
+            <span className="dashboard-legend-label">
+              {segment.icon && (
+                <span style={{ color: segment.color }} aria-hidden="true">
+                  {renderCategoryIcon(segment.icon)}
+                </span>
+              )}{" "}
+              {segment.name}
+            </span>
             <span className="spending-by-category-legend-amount">
               <strong>{formatBRL(segment.amount.toFixed(2))}</strong>
               <span className="spending-by-category-legend-percent">

@@ -135,6 +135,8 @@ type internalCategoryDTO struct {
 	Name      string    `json:"name"`
 	Kind      string    `json:"kind"`
 	IsActive  bool      `json:"is_active"`
+	Icon      string    `json:"icon"`
+	Color     string    `json:"color"`
 	Origin    string    `json:"origin"`
 	ChangedAt time.Time `json:"changed_at"`
 }
@@ -223,6 +225,8 @@ func toItemDTO(item transactions.Item) transactionItemDTO {
 			Name:      item.InternalCategory.Name,
 			Kind:      string(item.InternalCategory.Kind),
 			IsActive:  item.InternalCategory.IsActive,
+			Icon:      item.InternalCategory.Icon,
+			Color:     item.InternalCategory.Color,
 			Origin:    item.InternalCategory.Origin,
 			ChangedAt: item.InternalCategory.ChangedAt,
 		}
@@ -297,6 +301,8 @@ type categoryOptionDTO struct {
 	Name     string `json:"name"`
 	Kind     string `json:"kind"`
 	IsActive bool   `json:"is_active"`
+	Icon     string `json:"icon"`
+	Color    string `json:"color"`
 }
 
 type availableFiltersDTO struct {
@@ -334,7 +340,7 @@ func toResultDTO(result transactions.Result) transactionQueryResultDTO {
 	}
 	categoryOptions := make([]categoryOptionDTO, len(result.AvailableFilters.Categories))
 	for i, c := range result.AvailableFilters.Categories {
-		categoryOptions[i] = categoryOptionDTO{ID: c.ID, Name: c.Name, Kind: string(c.Kind), IsActive: c.IsActive}
+		categoryOptions[i] = categoryOptionDTO{ID: c.ID, Name: c.Name, Kind: string(c.Kind), IsActive: c.IsActive, Icon: c.Icon, Color: c.Color}
 	}
 	return transactionQueryResultDTO{
 		ConfirmedAt: result.ConfirmedAt,
@@ -387,10 +393,12 @@ func handleQueryTransactions(db *sql.DB) http.HandlerFunc {
 }
 
 type categorySpendingItemDTO struct {
-	CategoryID   *string `json:"category_id"`
-	CategoryName string  `json:"category_name"`
-	Amount       string  `json:"amount"`
-	Source       string  `json:"source"`
+	CategoryID    *string `json:"category_id"`
+	CategoryName  string  `json:"category_name"`
+	CategoryIcon  string  `json:"category_icon"`
+	CategoryColor string  `json:"category_color"`
+	Amount        string  `json:"amount"`
+	Source        string  `json:"source"`
 }
 
 type spendingByCategoryDTO struct {
@@ -489,7 +497,7 @@ func handleSpendingByCategory(db *sql.DB) http.HandlerFunc {
 
 		dtoItems := make([]categorySpendingItemDTO, len(items))
 		for i, it := range items {
-			dtoItems[i] = categorySpendingItemDTO{CategoryID: it.CategoryID, CategoryName: it.CategoryName, Amount: it.Amount, Source: "real"}
+			dtoItems[i] = categorySpendingItemDTO{CategoryID: it.CategoryID, CategoryName: it.CategoryName, CategoryIcon: it.CategoryIcon, CategoryColor: it.CategoryColor, Amount: it.Amount, Source: "real"}
 		}
 
 		if scenarioID := r.URL.Query().Get("scenario_id"); scenarioID != "" {

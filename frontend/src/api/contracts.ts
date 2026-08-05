@@ -100,6 +100,8 @@ export interface InternalCategory {
   name: string;
   kind: CategoryKind;
   is_active: boolean;
+  icon: string;
+  color: string;
   origin: CategoryOrigin;
   changed_at: string;
 }
@@ -182,6 +184,8 @@ export interface CategoryOption {
   name: string;
   kind: CategoryKind;
   is_active: boolean;
+  icon: string;
+  color: string;
 }
 
 export interface TransactionQueryResult {
@@ -204,6 +208,8 @@ export type CategorySpendingSource = (typeof categorySpendingSources)[number];
 export interface CategorySpendingItem {
   category_id: string | null;
   category_name: string;
+  category_icon: string;
+  category_color: string;
   amount: string;
   source: CategorySpendingSource;
 }
@@ -293,7 +299,7 @@ const monthOnlyPattern = /^\d{4}-\d{2}$/;
 function parseCategorySpendingItem(value: unknown): CategorySpendingItem {
   const item = requiredRecord(
     value,
-    ["category_id", "category_name", "amount", "source"],
+    ["category_id", "category_name", "category_icon", "category_color", "amount", "source"],
     "Gasto por categoria inválido.",
   );
   if (item.category_id !== null && typeof item.category_id !== "string") {
@@ -302,12 +308,17 @@ function parseCategorySpendingItem(value: unknown): CategorySpendingItem {
   if (typeof item.category_name !== "string" || item.category_name === "") {
     throw new TypeError("Gasto por categoria inválido.");
   }
+  if (typeof item.category_icon !== "string" || typeof item.category_color !== "string") {
+    throw new TypeError("Gasto por categoria inválido.");
+  }
   if (!categorySpendingSources.includes(item.source as CategorySpendingSource)) {
     throw new TypeError("Gasto por categoria inválido.");
   }
   return {
     category_id: item.category_id,
     category_name: item.category_name,
+    category_icon: item.category_icon,
+    category_color: item.category_color,
     amount: decimal(item.amount),
     source: item.source as CategorySpendingSource,
   };
@@ -339,7 +350,7 @@ export function parseSpendingByCategory(value: unknown): SpendingByCategory {
 function parseInternalCategory(value: unknown): InternalCategory {
   const category = requiredRecord(
     value,
-    ["id", "name", "kind", "is_active", "origin", "changed_at"],
+    ["id", "name", "kind", "is_active", "icon", "color", "origin", "changed_at"],
     "Categoria interna inválida.",
   );
   if (
@@ -349,6 +360,8 @@ function parseInternalCategory(value: unknown): InternalCategory {
     category.name === "" ||
     !categoryKinds.includes(category.kind as CategoryKind) ||
     typeof category.is_active !== "boolean" ||
+    typeof category.icon !== "string" ||
+    typeof category.color !== "string" ||
     !categoryOrigins.includes(category.origin as CategoryOrigin) ||
     !isValidDate(category.changed_at)
   ) {
@@ -359,6 +372,8 @@ function parseInternalCategory(value: unknown): InternalCategory {
     name: category.name,
     kind: category.kind as CategoryKind,
     is_active: category.is_active,
+    icon: category.icon,
+    color: category.color,
     origin: category.origin as CategoryOrigin,
     changed_at: category.changed_at as string,
   };
@@ -693,6 +708,8 @@ export interface Category {
   name: string;
   kind: CategoryKind;
   is_active: boolean;
+  icon: string;
+  color: string;
   created_at: string;
   updated_at: string;
 }
@@ -700,17 +717,21 @@ export interface Category {
 export interface CategoryCreate {
   name: string;
   kind: CategoryKind;
+  icon: string;
+  color: string;
 }
 
 export interface CategoryUpdate {
   name?: string;
   is_active?: boolean;
+  icon?: string;
+  color?: string;
 }
 
 export function parseCategory(value: unknown): Category {
   const category = requiredRecord(
     value,
-    ["id", "name", "kind", "is_active", "created_at", "updated_at"],
+    ["id", "name", "kind", "is_active", "icon", "color", "created_at", "updated_at"],
     "Categoria inválida.",
   );
   if (
@@ -720,6 +741,10 @@ export function parseCategory(value: unknown): Category {
     category.name === "" ||
     !categoryKinds.includes(category.kind as CategoryKind) ||
     typeof category.is_active !== "boolean" ||
+    typeof category.icon !== "string" ||
+    category.icon === "" ||
+    typeof category.color !== "string" ||
+    category.color === "" ||
     !isValidDate(category.created_at) ||
     !isValidDate(category.updated_at)
   ) {
@@ -730,6 +755,8 @@ export function parseCategory(value: unknown): Category {
     name: category.name,
     kind: category.kind as CategoryKind,
     is_active: category.is_active,
+    icon: category.icon,
+    color: category.color,
     created_at: category.created_at as string,
     updated_at: category.updated_at as string,
   };
@@ -842,14 +869,16 @@ export function parseTransactionQueryResult(value: unknown): TransactionQueryRes
     throw new TypeError("Facetas inválidas.");
   }
   const categories = filters.categories.map((value) => {
-    const option = requiredRecord(value, ["id", "name", "kind", "is_active"]);
+    const option = requiredRecord(value, ["id", "name", "kind", "is_active", "icon", "color"]);
     if (
       typeof option.id !== "string" ||
       !isUuid(option.id) ||
       typeof option.name !== "string" ||
       option.name === "" ||
       !categoryKinds.includes(option.kind as CategoryKind) ||
-      typeof option.is_active !== "boolean"
+      typeof option.is_active !== "boolean" ||
+      typeof option.icon !== "string" ||
+      typeof option.color !== "string"
     ) {
       throw new TypeError("Opção de categoria inválida.");
     }
@@ -858,6 +887,8 @@ export function parseTransactionQueryResult(value: unknown): TransactionQueryRes
       name: option.name,
       kind: option.kind as CategoryKind,
       is_active: option.is_active,
+      icon: option.icon,
+      color: option.color,
     };
   });
   const number = positiveCount(page.number);
