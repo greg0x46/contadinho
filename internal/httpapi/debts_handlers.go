@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -11,7 +12,6 @@ import (
 
 	"contadinho-go/internal/debts"
 	"contadinho-go/internal/money"
-	"contadinho-go/internal/transactions"
 )
 
 type debtDTO struct {
@@ -95,11 +95,14 @@ type debtTotalOwedDTO struct {
 
 // handleDebtTotalOwed combines what's still owed on open Debts (their
 // remaining_amount, which has no schedule of its own — debts here are
-// financing/loans that don't come through open finance) with the future,
-// not-yet-billed credit-card installments open finance already reports as
-// separate PENDING transactions (each with its own future occurred_at). No
-// period concept is needed: PENDING vs POSTED already answers "already
-// happened or still owed" regardless of calendar month.
+// financing/loans that don't come through open finance) with each CREDIT
+// account's own financial_accounts.balance. Pluggy already computes that
+// balance authoritatively — it's kept in sync every run and reflects
+// payments applied, fees, everything — which is far more reliable than
+// reconstructing "what's still owed on the card" from individual
+// transactions' provider_status (which can stay PENDING long after a bill
+// has actually closed and been paid) or from bill closing dates (which lag
+// whenever Pluggy hasn't posted the next invoice yet).
 func handleDebtTotalOwed(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -126,26 +129,10 @@ func handleDebtTotalOwed(conn *sql.DB) http.HandlerFunc {
 			remainingTotal = remainingTotal.Add(remaining)
 		}
 
-		pendingStatus := "PENDING"
-		result, err := transactions.Query(ctx, conn, transactions.QueryRequest{
-			GroupBy: money.GroupNone,
-			Filters: transactions.Filters{ProviderStatus: &pendingStatus},
-		})
+		futureInstallmentsTotal, err := creditCardBalanceTotal(ctx, conn, "BRL")
 		if err != nil {
 			debtUnavailableProblem(w)
 			return
-		}
-		futureInstallmentsTotal := decimal.Zero
-		for _, t := range result.Totals {
-			if t.CurrencyCode != "BRL" {
-				continue
-			}
-			outflow, err := decimal.NewFromString(t.Outflow)
-			if err != nil {
-				debtUnavailableProblem(w)
-				return
-			}
-			futureInstallmentsTotal = outflow
 		}
 
 		writeJSON(w, http.StatusOK, debtTotalOwedDTO{
@@ -155,6 +142,32 @@ func handleDebtTotalOwed(conn *sql.DB) http.HandlerFunc {
 			CurrencyCode:            "BRL",
 		})
 	}
+}
+
+// creditCardBalanceTotal sums financial_accounts.balance across every
+// CREDIT account in the given currency.
+func creditCardBalanceTotal(ctx context.Context, conn *sql.DB, currencyCode string) (decimal.Decimal, error) {
+	rows, err := conn.QueryContext(ctx, `
+		SELECT balance FROM financial_accounts
+		WHERE account_type = 'CREDIT' AND currency_code = ? AND balance IS NOT NULL`, currencyCode)
+	if err != nil {
+		return decimal.Zero, fmt.Errorf("query credit card balances: %w", err)
+	}
+	defer rows.Close()
+
+	total := decimal.Zero
+	for rows.Next() {
+		var balance string
+		if err := rows.Scan(&balance); err != nil {
+			return decimal.Zero, err
+		}
+		amount, err := decimal.NewFromString(balance)
+		if err != nil {
+			return decimal.Zero, err
+		}
+		total = total.Add(amount)
+	}
+	return total, rows.Err()
 }
 
 type debtCreateRequest struct {
