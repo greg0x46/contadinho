@@ -22,6 +22,7 @@ const (
 	ScopeTransactions           Scope = "transactions"
 	ScopeInvestments            Scope = "investments"
 	ScopeInvestmentTransactions Scope = "investment_transactions"
+	ScopeBills                  Scope = "bills"
 )
 
 // FailureStage mirrors the sync_failures.stage CHECK constraint.
@@ -36,6 +37,7 @@ const (
 	StageInvestments            FailureStage = "investments"
 	StageInvestment             FailureStage = "investment"
 	StageInvestmentTransactions FailureStage = "investment_transactions"
+	StageBills                  FailureStage = "bills"
 	StageNormalize              FailureStage = "normalize"
 	StageInterrupted            FailureStage = "interrupted"
 	StageWorkerUnavailable      FailureStage = "worker_unavailable"
@@ -165,6 +167,27 @@ type InvestmentTransactionsPage struct {
 	RawImportID  string
 	Transactions []InvestmentTransactionSnapshot
 	Rejections   []RejectedRecord
+}
+
+// BillSnapshot mirrors one entry from Pluggy's Bill entity: a credit card
+// invoice/fatura. Pluggy only returns bills that have already closed or gone
+// overdue — the currently open bill is never listed, so this is always
+// historical/settled data.
+type BillSnapshot struct {
+	ExternalID           string
+	DueDate              *time.Time
+	ClosingDate          *time.Time
+	TotalAmount          *decimal.Decimal
+	CurrencyCode         *string
+	MinimumPaymentAmount *decimal.Decimal
+}
+
+// BillsPage is every mapped bill for a single credit card account — GetBills
+// already collapses Pluggy's page/totalPages pagination into one slice.
+type BillsPage struct {
+	RawImportID string
+	Bills       []BillSnapshot
+	Rejections  []RejectedRecord
 }
 
 // RawResponseEnvelope mirrors RawResponseEnvelope: a raw HTTP response as it

@@ -454,6 +454,70 @@ func mapInvestmentTransaction(payload map[string]any, expectedInvestmentID strin
 	return t, nil
 }
 
+func mapBill(payload map[string]any) (BillSnapshot, error) {
+	externalID, err := requiredID(payload["id"], "Bill")
+	if err != nil {
+		return BillSnapshot{}, err
+	}
+
+	b := BillSnapshot{ExternalID: externalID}
+
+	if b.DueDate, err = optionalDateTime(payload["dueDate"], "dueDate"); err != nil {
+		return BillSnapshot{}, err
+	}
+	if b.ClosingDate, err = optionalDateTime(payload["billClosingDate"], "billClosingDate"); err != nil {
+		return BillSnapshot{}, err
+	}
+	if b.TotalAmount, err = optionalDecimal(payload["totalAmount"], "totalAmount"); err != nil {
+		return BillSnapshot{}, err
+	}
+	if b.CurrencyCode, err = optionalString(payload["totalAmountCurrencyCode"], "totalAmountCurrencyCode"); err != nil {
+		return BillSnapshot{}, err
+	}
+	if b.MinimumPaymentAmount, err = optionalDecimal(payload["minimumPaymentAmount"], "minimumPaymentAmount"); err != nil {
+		return BillSnapshot{}, err
+	}
+	return b, nil
+}
+
+func mapBillsPage(payload map[string]any) ([]BillSnapshot, []RejectedRecord, int, int, error) {
+	results, ok := payload["results"].([]any)
+	if !ok {
+		return nil, nil, 0, 0, &MappingError{Code: "invalid_provider_payload", SafeMessage: "Provider results must be a list"}
+	}
+	page, err := optionalInteger(payload["page"], "page")
+	if err != nil {
+		return nil, nil, 0, 0, err
+	}
+	totalPages, err := optionalInteger(payload["totalPages"], "totalPages")
+	if err != nil {
+		return nil, nil, 0, 0, err
+	}
+	var bills []BillSnapshot
+	var rejections []RejectedRecord
+	for _, raw := range results {
+		record, ok := raw.(map[string]any)
+		if !ok {
+			rejections = append(rejections, RejectedRecord{EntityType: "bill", Code: "invalid_provider_payload", SafeMessage: "Provider record must be an object"})
+			continue
+		}
+		bill, err := mapBill(record)
+		if err != nil {
+			rejections = append(rejections, toRejection("bill", record, err))
+			continue
+		}
+		bills = append(bills, bill)
+	}
+	pageNum, totalPagesNum := 1, 1
+	if page != nil {
+		pageNum = *page
+	}
+	if totalPages != nil {
+		totalPagesNum = *totalPages
+	}
+	return bills, rejections, pageNum, totalPagesNum, nil
+}
+
 func mapInvestmentsPage(payload map[string]any) ([]InvestmentSnapshot, []RejectedRecord, error) {
 	results, ok := payload["results"].([]any)
 	if !ok {

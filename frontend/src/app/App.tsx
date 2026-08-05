@@ -4,6 +4,7 @@ import {
   DollarOutlined,
   HomeOutlined,
   RiseOutlined,
+  SettingOutlined,
   TagsOutlined,
   ThunderboltOutlined,
   TransactionOutlined,
@@ -34,6 +35,7 @@ export function App() {
             { path: "/contas-a-receber", name: "Contas a receber", icon: <DollarOutlined /> },
             { path: "/investimentos", name: "Investimentos", icon: <RiseOutlined /> },
             { path: "/categorias", name: "Categorias", icon: <TagsOutlined /> },
+            { path: "/configuracoes", name: "Configurações", icon: <SettingOutlined /> },
           ],
         }}
         menuItemRender={(item, defaultDom) =>

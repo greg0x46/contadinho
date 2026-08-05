@@ -32,6 +32,7 @@ var safeMessages = map[string]string{
 	"unsafe_investment_association":  "An investment transaction could not be linked safely to its investment",
 	"account_transactions_failed":    "Transactions for this account could not be processed",
 	"investment_transactions_failed": "Transactions for this investment could not be processed",
+	"account_bills_failed":           "Bills for this account could not be processed",
 	"internal_error":                 "Synchronization stopped because of an internal error",
 	"interrupted":                    "Synchronization was interrupted before completion",
 	"worker_unavailable":             "No worker claimed synchronization before the deadline",
@@ -64,6 +65,7 @@ type Provider interface {
 	IterTransactionPages(ctx context.Context, externalAccountID string, handle func(pluggy.TransactionsPage) error) error
 	GetInvestments(ctx context.Context) (pluggy.InvestmentsPage, error)
 	GetInvestmentTransactions(ctx context.Context, externalInvestmentID string) (pluggy.InvestmentTransactionsPage, error)
+	GetBills(ctx context.Context, externalAccountID string) (pluggy.BillsPage, error)
 }
 
 // TransactionUpsertedHook is called with a transaction's id whenever a sync
@@ -164,6 +166,12 @@ func (s *Service) Execute(ctx context.Context) error {
 				}
 			}
 		}
+
+		if record.AccountType != nil && *record.AccountType == "CREDIT" {
+			if err := s.processBills(ctx, accountID, record.ExternalID); err != nil {
+				return err
+			}
+		}
 	}
 
 	if source.SafeProducts["INVESTMENTS"] {
@@ -250,6 +258,156 @@ func (s *Service) processInvestments(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// processBills fetches and upserts every closed/overdue bill for a credit
+// card account. A failure here never aborts the run — bills only refine
+// which month a transaction is displayed under (see internal/transactions),
+// they never gate transaction data itself — so errors are recorded the same
+// non-fatal way processInvestments records a per-investment failure.
+func (s *Service) processBills(ctx context.Context, accountID, externalAccountID string) error {
+	billsPage, err := s.Provider.GetBills(ctx, externalAccountID)
+	if err != nil {
+		var provErr *pluggy.ProviderError
+		if errors.As(err, &provErr) {
+			code := "account_bills_failed"
+			if provErr.Code == "provider_rate_limited" || provErr.Code == "invalid_provider_payload" {
+				code = provErr.Code
+			}
+			return s.recordBillFailure(ctx, pluggy.StageBills, code, provErr.RawImportID, &accountID, &externalAccountID)
+		}
+		log.Printf("account_bills_failed run_id=%s account=%s: %v", s.SyncRunID, externalAccountID, err)
+		return s.recordBillFailure(ctx, pluggy.StageBills, "account_bills_failed", nil, &accountID, &externalAccountID)
+	}
+
+	for _, rejection := range billsPage.Rejections {
+		if err := s.recordBillRejection(ctx, rejection, billsPage.RawImportID, &accountID, &externalAccountID); err != nil {
+			return err
+		}
+	}
+	for _, record := range billsPage.Bills {
+		if _, err := s.upsertBill(ctx, accountID, record, billsPage.RawImportID); err != nil {
+			log.Printf("bill_persistence_failed run_id=%s account=%s bill=%s: %v", s.SyncRunID, externalAccountID, record.ExternalID, err)
+			extID := record.ExternalID
+			if ferr := s.recordBillRejection(ctx, pluggy.RejectedRecord{
+				EntityType: "bill", ExternalID: &extID, Code: "internal_error", SafeMessage: SafeMessage("internal_error"),
+			}, billsPage.RawImportID, &accountID, &externalAccountID); ferr != nil {
+				return ferr
+			}
+			continue
+		}
+		if err := s.incrementBillsProcessed(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) upsertBill(ctx context.Context, accountID string, snapshot pluggy.BillSnapshot, rawImportID string) (string, error) {
+	digest := pluggy.BillHash(snapshot)
+	now := db.FormatTime(time.Now())
+
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	newID := uuid.NewString()
+	var insertedID string
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO financial_bills (
+			id, source_id, account_id, external_id, due_date, closing_date, total_amount,
+			currency_code, minimum_payment_amount, current_raw_import_id, normalized_hash, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (source_id, external_id) DO NOTHING
+		RETURNING id`,
+		newID, s.SourceID, accountID, snapshot.ExternalID, db.FormatTimePtr(snapshot.DueDate), db.FormatTimePtr(snapshot.ClosingDate),
+		decimalToStorage(snapshot.TotalAmount), snapshot.CurrencyCode, decimalToStorage(snapshot.MinimumPaymentAmount),
+		rawImportID, digest, now, now,
+	).Scan(&insertedID)
+	inserted := err == nil
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+
+	var billID, existingHash string
+	if err := tx.QueryRowContext(ctx, `SELECT id, normalized_hash FROM financial_bills WHERE source_id = ? AND external_id = ?`,
+		s.SourceID, snapshot.ExternalID).Scan(&billID, &existingHash); err != nil {
+		return "", err
+	}
+
+	outcome := "unchanged"
+	switch {
+	case inserted:
+		outcome = "inserted"
+	case existingHash != digest:
+		outcome = "updated"
+		_, err = tx.ExecContext(ctx, `
+			UPDATE financial_bills SET due_date = ?, closing_date = ?, total_amount = ?, currency_code = ?,
+				minimum_payment_amount = ?, current_raw_import_id = ?, normalized_hash = ?, updated_at = ?
+			WHERE id = ?`,
+			db.FormatTimePtr(snapshot.DueDate), db.FormatTimePtr(snapshot.ClosingDate), decimalToStorage(snapshot.TotalAmount),
+			snapshot.CurrencyCode, decimalToStorage(snapshot.MinimumPaymentAmount), rawImportID, digest, now, billID,
+		)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO normalization_events (id, sync_run_id, raw_import_id, entity_type, bill_id, external_id, outcome, normalized_hash, created_at)
+		VALUES (?, ?, ?, 'bill', ?, ?, ?, ?, ?)`,
+		uuid.NewString(), s.SyncRunID, rawImportID, billID, snapshot.ExternalID, outcome, digest, now,
+	); err != nil {
+		return "", err
+	}
+	return billID, tx.Commit()
+}
+
+func (s *Service) incrementBillsProcessed(ctx context.Context) error {
+	_, err := s.DB.ExecContext(ctx,
+		`UPDATE sync_runs SET bills_processed = bills_processed + 1 WHERE id = ? AND status = 'in_progress'`,
+		s.SyncRunID)
+	return err
+}
+
+func (s *Service) recordBillRejection(ctx context.Context, rejection pluggy.RejectedRecord, rawImportID string, accountID, externalAccountID *string) error {
+	now := db.FormatTime(time.Now())
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO normalization_events (id, sync_run_id, raw_import_id, entity_type, external_id, outcome, created_at)
+		VALUES (?, ?, ?, ?, ?, 'rejected', ?)`,
+		uuid.NewString(), s.SyncRunID, rawImportID, rejection.EntityType, rejection.ExternalID, now,
+	); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO sync_failures (
+			id, sync_run_id, raw_import_id, account_id, external_account_id, external_bill_id,
+			stage, error_code, safe_message, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, 'normalize', ?, ?, ?)`,
+		uuid.NewString(), s.SyncRunID, rawImportID, accountID, externalAccountID, rejection.ExternalID,
+		rejection.Code, SafeMessage(rejection.Code), now,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Service) recordBillFailure(ctx context.Context, stage pluggy.FailureStage, code string, rawImportID *string, accountID, externalAccountID *string) error {
+	now := db.FormatTime(time.Now())
+	_, err := s.DB.ExecContext(ctx, `
+		INSERT INTO sync_failures (id, sync_run_id, raw_import_id, account_id, external_account_id, stage, error_code, safe_message, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		uuid.NewString(), s.SyncRunID, rawImportID, accountID, externalAccountID, string(stage), code, SafeMessage(code), now,
+	)
+	return err
 }
 
 func (s *Service) updateSourceName(ctx context.Context, displayName *string) error {

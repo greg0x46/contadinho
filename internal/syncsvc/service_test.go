@@ -32,6 +32,9 @@ type fakeProvider struct {
 	investmentsErr         error
 	investmentTransactions map[string]pluggy.InvestmentTransactionsPage
 	investmentTxErr        error
+
+	bills    map[string]pluggy.BillsPage
+	billsErr error
 }
 
 func (f *fakeProvider) GetSource(context.Context) (pluggy.SourceSnapshot, string, error) {
@@ -57,6 +60,10 @@ func (f *fakeProvider) GetInvestments(context.Context) (pluggy.InvestmentsPage, 
 
 func (f *fakeProvider) GetInvestmentTransactions(_ context.Context, externalInvestmentID string) (pluggy.InvestmentTransactionsPage, error) {
 	return f.investmentTransactions[externalInvestmentID], f.investmentTxErr
+}
+
+func (f *fakeProvider) GetBills(_ context.Context, externalAccountID string) (pluggy.BillsPage, error) {
+	return f.bills[externalAccountID], f.billsErr
 }
 
 func defaultSource() pluggy.SourceSnapshot {

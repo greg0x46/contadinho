@@ -61,6 +61,11 @@ const InvestmentDetailPage = lazy(() =>
     default: module.InvestmentDetailPage,
   })),
 );
+const SettingsPage = lazy(() =>
+  import("../pages/SettingsPage").then((module) => ({
+    default: module.SettingsPage,
+  })),
+);
 
 export function AppRouter() {
   return (
@@ -86,6 +91,7 @@ export function AppRouter() {
             <Route path="investimentos" element={<InvestmentsPage />} />
             <Route path="investimentos/:id" element={<InvestmentDetailPage />} />
             <Route path="categorias" element={<CategoriesPage />} />
+            <Route path="configuracoes" element={<SettingsPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>
