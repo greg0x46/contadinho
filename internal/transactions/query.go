@@ -14,6 +14,7 @@ import (
 	"contadinho-go/internal/categories"
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/money"
+	"contadinho-go/internal/settings"
 )
 
 // row is one joined financial_transactions/financial_accounts/
@@ -36,6 +37,7 @@ type row struct {
 	accountName         *string
 	accountInstitution  *string
 	accountCurrencyCode *string
+	accountType         *string
 
 	inclusionState     *string
 	inclusionChangedAt *time.Time
@@ -65,15 +67,29 @@ type view struct {
 	included       bool
 	reason         *money.EligibilityReason
 	period         money.Period
+	// effectiveAt is the date period/matches bucket and filter this view by:
+	// row.occurredAt (the purchase date) normally, or — when the user's
+	// transactions.period_basis preference is "paid_at" and this is a credit
+	// card transaction — the date it's actually paid (see effectiveDate).
+	effectiveAt *time.Time
 }
 
 func fetchAllViews(ctx context.Context, q Querier, query QueryRequest) ([]view, error) {
+	periodBasis, err := settings.GetTransactionsPeriodBasis(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("read transactions period basis preference: %w", err)
+	}
+	billDueDates, err := fetchBillDueDates(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+
 	rows, err := q.QueryContext(ctx, `
 		SELECT
 			ft.id, ft.account_id, ft.external_id, ft.description, ft.amount,
 			ft.amount_in_account_currency, ft.currency_code, ft.occurred_at,
 			ft.provider_status, ft.movement_type, ft.source_category, ft.credit_card_metadata,
-			fa.name, fa.institution, fa.currency_code,
+			fa.name, fa.institution, fa.currency_code, fa.account_type,
 			tid.state, tid.changed_at, tid.origin, tid.rule_name,
 			tcd.category_id, tcd.changed_at, tcd.origin,
 			cat.id, cat.name, cat.kind, cat.is_active
@@ -94,7 +110,7 @@ func fetchAllViews(ctx context.Context, q Querier, query QueryRequest) ([]view, 
 		if err != nil {
 			return nil, err
 		}
-		v, err := buildView(r, query)
+		v, err := buildView(r, query, periodBasis, billDueDates)
 		if err != nil {
 			return nil, err
 		}
@@ -104,6 +120,36 @@ func fetchAllViews(ctx context.Context, q Querier, query QueryRequest) ([]view, 
 		return nil, err
 	}
 	return views, nil
+}
+
+// fetchBillDueDates loads every synced bill's due date, keyed by
+// "<account_id>\x00<external_id>" so effectiveDate can look one up by the
+// billId parsed out of a transaction's credit_card_metadata without a SQL
+// join — consistent with this package doing all its grouping/filtering in Go
+// (see the view doc comment above).
+func fetchBillDueDates(ctx context.Context, q Querier) (map[string]time.Time, error) {
+	rows, err := q.QueryContext(ctx, `SELECT account_id, external_id, due_date FROM financial_bills WHERE due_date IS NOT NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("query financial_bills: %w", err)
+	}
+	defer rows.Close()
+
+	dueDates := make(map[string]time.Time)
+	for rows.Next() {
+		var accountID, externalID, dueDate string
+		if err := rows.Scan(&accountID, &externalID, &dueDate); err != nil {
+			return nil, err
+		}
+		parsed, err := db.ParseNullTime(sql.NullString{String: dueDate, Valid: true})
+		if err != nil {
+			return nil, err
+		}
+		dueDates[accountID+"\x00"+externalID] = *parsed
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return dueDates, nil
 }
 
 func scanRow(rows *sql.Rows) (row, error) {
@@ -120,6 +166,7 @@ func scanRow(rows *sql.Rows) (row, error) {
 		accountName                sql.NullString
 		accountInstitution         sql.NullString
 		accountCurrencyCode        sql.NullString
+		accountType                sql.NullString
 		inclusionState             sql.NullString
 		inclusionChangedAt         sql.NullString
 		inclusionOrigin            sql.NullString
@@ -136,7 +183,7 @@ func scanRow(rows *sql.Rows) (row, error) {
 		&r.id, &r.accountID, &r.externalID, &description, &amount,
 		&amountAcct, &currencyCode, &occurredAt,
 		&providerStatus, &movementType, &sourceCategory, &creditCardMetadata,
-		&accountName, &accountInstitution, &accountCurrencyCode,
+		&accountName, &accountInstitution, &accountCurrencyCode, &accountType,
 		&inclusionState, &inclusionChangedAt, &inclusionOrigin, &inclusionRuleName,
 		&categoryDecisionCategoryID, &categoryDecisionChangedAt, &categoryDecisionOrigin,
 		&categoryID, &categoryName, &categoryKind, &categoryIsActive,
@@ -154,6 +201,7 @@ func scanRow(rows *sql.Rows) (row, error) {
 	r.accountName = nullString(accountName)
 	r.accountInstitution = nullString(accountInstitution)
 	r.accountCurrencyCode = nullString(accountCurrencyCode)
+	r.accountType = nullString(accountType)
 	r.inclusionState = nullString(inclusionState)
 	r.inclusionOrigin = nullString(inclusionOrigin)
 	r.inclusionRuleName = nullString(inclusionRuleName)
@@ -202,7 +250,7 @@ func nullDecimal(ns sql.NullString) (*decimal.Decimal, error) {
 	return &d, nil
 }
 
-func buildView(r row, query QueryRequest) (view, error) {
+func buildView(r row, query QueryRequest, periodBasis string, billDueDates map[string]time.Time) (view, error) {
 	classification := money.Classify(r.movementType)
 	effective := money.SelectEffectiveMoney(r.amountInAccountCurrency, r.accountCurrencyCode, r.amount, r.currencyCode)
 
@@ -213,7 +261,8 @@ func buildView(r row, query QueryRequest) (view, error) {
 
 	included, reason := money.Eligibility(classification, r.providerStatus, effective, inclusionState)
 
-	period, err := money.PeriodFor(r.occurredAt, query.GroupBy, query.Timezone)
+	effectiveAt := effectiveDate(r, periodBasis, billDueDates)
+	period, err := money.PeriodFor(effectiveAt, query.GroupBy, query.Timezone)
 	if err != nil {
 		return view{}, err
 	}
@@ -225,17 +274,61 @@ func buildView(r row, query QueryRequest) (view, error) {
 		included:       included,
 		reason:         reason,
 		period:         period,
+		effectiveAt:    effectiveAt,
 	}, nil
+}
+
+// billIDMetadata is the subset of Pluggy's opaque credit_card_metadata JSON
+// effectiveDate reads — same "each consumer parses its own subset" pattern
+// as cardMetadata below.
+type billIDMetadata struct {
+	BillID *string `json:"billId"`
+}
+
+func parseBillID(raw *string) *string {
+	if raw == nil {
+		return nil
+	}
+	var meta billIDMetadata
+	if err := json.Unmarshal([]byte(*raw), &meta); err != nil {
+		return nil
+	}
+	return meta.BillID
+}
+
+// effectiveDate is which date period/matches bucket a transaction by. It's
+// row.occurredAt (the purchase date) unless the user opted into
+// settings.PeriodBasisPaidAt and this is a credit card transaction — in
+// which case it's the due date of the bill the purchase was actually posted
+// to (once Pluggy's sync has resolved one — see internal/pluggy's
+// credit-card-bills notes), or, until then, an estimate one calendar month
+// after the purchase (Pluggy typically posts a bill shortly before the
+// month it's due, so this is usually right; it self-corrects once the real
+// bill closes and a sync links it).
+func effectiveDate(r row, periodBasis string, billDueDates map[string]time.Time) *time.Time {
+	if periodBasis != settings.PeriodBasisPaidAt || r.accountType == nil || *r.accountType != "CREDIT" {
+		return r.occurredAt
+	}
+	if billID := parseBillID(r.creditCardMetadata); billID != nil {
+		if due, ok := billDueDates[r.accountID+"\x00"+*billID]; ok {
+			return &due
+		}
+	}
+	if r.occurredAt == nil {
+		return nil
+	}
+	estimated := r.occurredAt.AddDate(0, 1, 0)
+	return &estimated
 }
 
 // matches mirrors query_sql.filter_clauses, evaluated in Go against an
 // already-built view instead of as SQL predicates.
 func matches(v view, f Filters, bounds *dateBounds) bool {
 	if bounds != nil {
-		if v.row.occurredAt == nil {
+		if v.effectiveAt == nil {
 			return false
 		}
-		t := *v.row.occurredAt
+		t := *v.effectiveAt
 		if t.Before(bounds.start) || !t.Before(bounds.end) {
 			return false
 		}
@@ -308,10 +401,14 @@ func computeDateBounds(f Filters, timezone string) (*dateBounds, error) {
 }
 
 // Query mirrors query_transactions: it resolves every domain rule, filters,
-// sorts by occurred_at desc (SQLite already treats NULL as least-than-any-value,
-// so DESC naturally sorts undated transactions last, matching the reference's
-// explicit nulls_last), paginates, and computes per-bucket and overall
-// currency totals over eligible transactions only.
+// sorts by effectiveAt desc — occurred_at for most transactions, but see
+// effectiveDate for the credit-card/paid_at case; sorting by the same date
+// period buckets by is what keeps each period's items contiguous in
+// filtered, which buildGroups' HasItemsBefore/HasItemsAfter relies on
+// (SQLite already treats NULL as least-than-any-value, so DESC naturally
+// sorts undated transactions last, matching the reference's explicit
+// nulls_last) — paginates, and computes per-bucket and overall currency
+// totals over eligible transactions only.
 func Query(ctx context.Context, q Querier, query QueryRequest) (Result, error) {
 	if query.Page < 1 {
 		query.Page = 1
@@ -339,20 +436,20 @@ func Query(ctx context.Context, q Querier, query QueryRequest) (Result, error) {
 	}
 
 	sort.SliceStable(filtered, func(i, j int) bool {
-		a, b := filtered[i].row, filtered[j].row
-		if a.occurredAt == nil && b.occurredAt == nil {
-			return a.id > b.id
+		a, b := filtered[i], filtered[j]
+		if a.effectiveAt == nil && b.effectiveAt == nil {
+			return a.row.id > b.row.id
 		}
-		if a.occurredAt == nil {
+		if a.effectiveAt == nil {
 			return false // nil sorts last (equivalent to -infinity in DESC order)
 		}
-		if b.occurredAt == nil {
+		if b.effectiveAt == nil {
 			return true
 		}
-		if !a.occurredAt.Equal(*b.occurredAt) {
-			return a.occurredAt.After(*b.occurredAt)
+		if !a.effectiveAt.Equal(*b.effectiveAt) {
+			return a.effectiveAt.After(*b.effectiveAt)
 		}
-		return a.id > b.id
+		return a.row.id > b.row.id
 	})
 
 	totalItems := len(filtered)

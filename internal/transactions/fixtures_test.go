@@ -58,6 +58,7 @@ type account struct {
 	Name         *string
 	Institution  *string
 	CurrencyCode *string
+	AccountType  *string
 }
 
 func (f *fixture) addAccount(a account) string {
@@ -65,11 +66,39 @@ func (f *fixture) addAccount(a account) string {
 	id := uuid.NewString()
 	now := db.FormatTime(time.Now())
 	f.exec(`INSERT INTO financial_accounts (
-			id, source_id, external_id, name, institution, currency_code,
+			id, source_id, external_id, name, institution, currency_code, account_type,
 			current_raw_import_id, normalized_hash, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, 'hash', ?, ?)`,
-		id, f.sourceID, id, a.Name, a.Institution, a.CurrencyCode, f.rawImportID, now, now)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'hash', ?, ?)`,
+		id, f.sourceID, id, a.Name, a.Institution, a.CurrencyCode, a.AccountType, f.rawImportID, now, now)
 	return id
+}
+
+// bill is the input to addBill.
+type bill struct {
+	AccountID  string
+	ExternalID string
+	DueDate    time.Time
+}
+
+func (f *fixture) addBill(b bill) string {
+	f.t.Helper()
+	id := uuid.NewString()
+	now := db.FormatTime(time.Now())
+	f.exec(`INSERT INTO financial_bills (
+			id, source_id, account_id, external_id, due_date,
+			current_raw_import_id, normalized_hash, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, 'hash', ?, ?)`,
+		id, f.sourceID, b.AccountID, b.ExternalID, db.FormatTime(b.DueDate), f.rawImportID, now, now)
+	return id
+}
+
+// setPreference writes a plaintext settings row directly (mirroring
+// settings.Set with encrypted=false) so tests can exercise a non-default
+// transactions.period_basis without importing package settings.
+func (f *fixture) setPreference(key, value string) {
+	f.t.Helper()
+	now := db.FormatTime(time.Now())
+	f.exec(`INSERT INTO settings (key, value, is_encrypted, updated_at) VALUES (?, ?, 0, ?)`, key, value, now)
 }
 
 // txn is the input to addTransaction; nil pointers stay NULL, matching a

@@ -378,6 +378,42 @@ func (a *Adapter) GetInvestmentTransactions(ctx context.Context, externalInvestm
 	return InvestmentTransactionsPage{RawImportID: rawImportID, Transactions: transactions, Rejections: rejections}, nil
 }
 
+// GetBills fetches every closed/overdue bill for one credit card account.
+// Unlike /v2/transactions' cursor pagination, Pluggy's /bills endpoint pages
+// by number (page/totalPages in the response body), so this loops a plain
+// page counter instead of following a cursor.
+func (a *Adapter) GetBills(ctx context.Context, externalAccountID string) (BillsPage, error) {
+	var allBills []BillSnapshot
+	var allRejections []RejectedRecord
+	var firstRawImportID string
+
+	for pageNumber := 1; pageNumber <= a.config.MaxPagesPerAccount; pageNumber++ {
+		path := "/bills?accountId=" + externalAccountID + "&page=" + strconv.Itoa(pageNumber)
+		payload, rawImportID, err := a.read(ctx, ScopeBills, path, StageBills, pageNumber, &externalAccountID)
+		if err != nil {
+			return BillsPage{}, err
+		}
+		if pageNumber == 1 {
+			firstRawImportID = rawImportID
+		}
+		bills, rejections, page, totalPages, err := mapBillsPage(payload)
+		if err != nil {
+			var mapErr *MappingError
+			errors.As(err, &mapErr)
+			return BillsPage{}, &ProviderError{
+				Code: mapErr.Code, Stage: StageBills, SafeMessage: mapErr.SafeMessage,
+				RawImportID: &rawImportID, ExternalAccountID: &externalAccountID,
+			}
+		}
+		allBills = append(allBills, bills...)
+		allRejections = append(allRejections, rejections...)
+		if page >= totalPages {
+			break
+		}
+	}
+	return BillsPage{RawImportID: firstRawImportID, Bills: allBills, Rejections: allRejections}, nil
+}
+
 // IterTransactionPages mirrors PluggyAdapter.iter_transaction_pages: handle
 // is called once per page in order; returning an error from handle aborts
 // pagination and propagates that error.

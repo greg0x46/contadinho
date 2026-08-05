@@ -168,7 +168,7 @@ func TestQueryExposesCardInfo(t *testing.T) {
 	installment := f.addTransaction(txn{
 		AccountID: acc, Amount: strp("-20.00"), AmountInAccountCurrency: strp("-20.00"),
 		CurrencyCode: strp("BRL"), OccurredAt: &occurred, ProviderStatus: strp("POSTED"),
-		MovementType: strp("DEBIT"),
+		MovementType:       strp("DEBIT"),
 		CreditCardMetadata: strp(`{"cardNumber":"**** 1234","installmentNumber":3,"totalInstallments":12}`),
 	})
 	noCard := f.addTransaction(txn{

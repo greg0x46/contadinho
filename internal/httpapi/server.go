@@ -43,6 +43,9 @@ func NewServer(db *sql.DB, frontend fs.FS, session *settings.Session) http.Handl
 	mux.HandleFunc("POST /api/setup", handleSetup(db, session))
 	mux.HandleFunc("POST /api/unlock", handleUnlock(db, session))
 
+	mux.HandleFunc("GET /api/preferences", handleGetPreferences(db))
+	mux.HandleFunc("PUT /api/preferences", handleUpdatePreferences(db))
+
 	mux.HandleFunc("GET /api/categories", handleListCategories(db))
 	mux.HandleFunc("POST /api/categories", handleCreateCategory(db))
 	mux.HandleFunc("PATCH /api/categories/{id}", handleUpdateCategory(db))

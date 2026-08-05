@@ -131,6 +131,17 @@ func InvestmentTransactionHash(t InvestmentTransactionSnapshot) string {
 	)
 }
 
+func BillHash(b BillSnapshot) string {
+	return hashFields("BillSnapshot",
+		b.ExternalID,
+		timeField(b.DueDate),
+		timeField(b.ClosingDate),
+		decField(b.TotalAmount),
+		strField(b.CurrencyCode),
+		decField(b.MinimumPaymentAmount),
+	)
+}
+
 func TransactionHash(t TransactionSnapshot) string {
 	return hashFields("TransactionSnapshot",
 		t.ExternalID,

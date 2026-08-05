@@ -249,6 +249,59 @@ func TestMapInvestmentTransactionsPageCollectsRejectionsWithoutFailingWholePage(
 	}
 }
 
+func TestMapBillMapsCoreFields(t *testing.T) {
+	payload, _ := decodeJSON([]byte(`{
+		"id": "bill-1", "dueDate": "2026-04-10T00:00:00Z", "billClosingDate": "2026-03-28T00:00:00Z",
+		"totalAmount": 1234.56, "totalAmountCurrencyCode": "BRL", "minimumPaymentAmount": 123.45
+	}`))
+	bill, err := mapBill(payload)
+	if err != nil {
+		t.Fatalf("mapBill: %v", err)
+	}
+	if bill.DueDate == nil || bill.DueDate.Format("2006-01-02") != "2026-04-10" {
+		t.Errorf("DueDate = %v", bill.DueDate)
+	}
+	if bill.ClosingDate == nil || bill.ClosingDate.Format("2006-01-02") != "2026-03-28" {
+		t.Errorf("ClosingDate = %v", bill.ClosingDate)
+	}
+	if bill.TotalAmount == nil || bill.TotalAmount.StringFixed(2) != "1234.56" {
+		t.Errorf("TotalAmount = %v", bill.TotalAmount)
+	}
+	if bill.CurrencyCode == nil || *bill.CurrencyCode != "BRL" {
+		t.Errorf("CurrencyCode = %v", bill.CurrencyCode)
+	}
+}
+
+func TestMapBillRejectsMissingID(t *testing.T) {
+	payload, _ := decodeJSON([]byte(`{"dueDate": "2026-04-10T00:00:00Z"}`))
+	if _, err := mapBill(payload); err == nil {
+		t.Fatal("expected an error for a missing bill id")
+	}
+}
+
+func TestMapBillsPageCollectsRejectionsWithoutFailingWholePage(t *testing.T) {
+	payload, _ := decodeJSON([]byte(`{
+		"page": 1, "totalPages": 1,
+		"results": [
+			{"id": "bill-1", "dueDate": "2026-04-10T00:00:00Z"},
+			{"notAnObject": true}
+		]
+	}`))
+	bills, rejections, page, totalPages, err := mapBillsPage(payload)
+	if err != nil {
+		t.Fatalf("mapBillsPage: %v", err)
+	}
+	if len(bills) != 1 {
+		t.Errorf("len(bills) = %d, want 1", len(bills))
+	}
+	if len(rejections) != 1 {
+		t.Errorf("len(rejections) = %d, want 1", len(rejections))
+	}
+	if page != 1 || totalPages != 1 {
+		t.Errorf("page=%d totalPages=%d, want 1/1", page, totalPages)
+	}
+}
+
 func TestExtractCursorValidatesAccountScope(t *testing.T) {
 	cursor, err := extractCursor("https://api.pluggy.ai/v2/transactions?accountId=acc-1&after=abc", "acc-1")
 	if err != nil {

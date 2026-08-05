@@ -223,6 +223,42 @@ func TestAdapterGetInvestmentTransactionsHappyPath(t *testing.T) {
 	}
 }
 
+func TestAdapterGetBillsPaginatesByPageNumber(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/auth", authHandler)
+	mux.HandleFunc("/bills", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("accountId") != "acc-1" {
+			t.Errorf("accountId = %q, want acc-1", r.URL.Query().Get("accountId"))
+		}
+		switch r.URL.Query().Get("page") {
+		case "1":
+			json.NewEncoder(w).Encode(map[string]any{
+				"page": 1, "totalPages": 2,
+				"results": []map[string]any{{"id": "bill-1", "dueDate": "2026-03-10T00:00:00Z"}},
+			})
+		case "2":
+			json.NewEncoder(w).Encode(map[string]any{
+				"page": 2, "totalPages": 2,
+				"results": []map[string]any{{"id": "bill-2", "dueDate": "2026-04-10T00:00:00Z"}},
+			})
+		default:
+			t.Errorf("unexpected page %q", r.URL.Query().Get("page"))
+		}
+	})
+	adapter, writer := newTestAdapter(t, mux)
+
+	page, err := adapter.GetBills(context.Background(), "acc-1")
+	if err != nil {
+		t.Fatalf("GetBills: %v", err)
+	}
+	if len(page.Bills) != 2 || page.Bills[0].ExternalID != "bill-1" || page.Bills[1].ExternalID != "bill-2" {
+		t.Errorf("Bills = %+v", page.Bills)
+	}
+	if len(writer.envelopes) != 2 || writer.envelopes[0].Scope != ScopeBills {
+		t.Errorf("envelopes = %+v", writer.envelopes)
+	}
+}
+
 func TestAdapterRejectsRepeatedCursor(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/auth", authHandler)
