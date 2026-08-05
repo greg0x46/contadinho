@@ -489,13 +489,29 @@ func TestDebtTotalOwedOverHTTP(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// A pending transaction (a not-yet-billed credit-card installment) counts
-	// toward future installments; a posted one (the default status
-	// insertTransaction uses) would not — covered by money.Eligibility's own
-	// tests, not re-verified here.
-	pendingTxID := insertTransaction(t, conn)
-	if _, err := conn.Exec(`UPDATE financial_transactions SET provider_status = 'PENDING', amount = '-100.00', amount_in_account_currency = '-100.00' WHERE id = ?`, pendingTxID); err != nil {
-		t.Fatalf("update transaction: %v", err)
+	// "Parcelas futuras (cartão)" is the sum of financial_accounts.balance
+	// across every CREDIT account — Pluggy already computes that balance
+	// authoritatively (it reflects payments applied, fees, everything), so
+	// this doesn't depend on any transaction's provider_status or on bill
+	// closing dates. A transaction inserted here just to give the account a
+	// row to exist through must NOT influence the total on its own.
+	creditTxID := insertTransaction(t, conn)
+	var creditAccountID string
+	if err := conn.QueryRow(`SELECT account_id FROM financial_transactions WHERE id = ?`, creditTxID).Scan(&creditAccountID); err != nil {
+		t.Fatalf("account id: %v", err)
+	}
+	if _, err := conn.Exec(`UPDATE financial_accounts SET account_type = 'CREDIT', balance = '5535.84' WHERE id = ?`, creditAccountID); err != nil {
+		t.Fatalf("set credit account balance: %v", err)
+	}
+
+	// A non-CREDIT account's balance must not count toward future installments.
+	bankTxID := insertTransaction(t, conn)
+	var bankAccountID string
+	if err := conn.QueryRow(`SELECT account_id FROM financial_transactions WHERE id = ?`, bankTxID).Scan(&bankAccountID); err != nil {
+		t.Fatalf("account id: %v", err)
+	}
+	if _, err := conn.Exec(`UPDATE financial_accounts SET balance = '999999.00' WHERE id = ?`, bankAccountID); err != nil {
+		t.Fatalf("set bank account balance: %v", err)
 	}
 
 	resp = doJSON(t, http.MethodGet, srv.URL+"/api/debts/total-owed", nil)
@@ -504,11 +520,11 @@ func TestDebtTotalOwedOverHTTP(t *testing.T) {
 	if total["remaining_debts_total"] != "600.00" {
 		t.Errorf("remaining_debts_total = %v, want 600.00", total["remaining_debts_total"])
 	}
-	if total["future_installments_total"] != "100.00" {
-		t.Errorf("future_installments_total = %v, want 100.00", total["future_installments_total"])
+	if total["future_installments_total"] != "5535.84" {
+		t.Errorf("future_installments_total = %v, want 5535.84", total["future_installments_total"])
 	}
-	if total["total_owed"] != "700.00" {
-		t.Errorf("total_owed = %v, want 700.00", total["total_owed"])
+	if total["total_owed"] != "6135.84" {
+		t.Errorf("total_owed = %v, want 6135.84", total["total_owed"])
 	}
 	if total["currency_code"] != "BRL" {
 		t.Errorf("currency_code = %v, want BRL", total["currency_code"])
