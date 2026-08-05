@@ -11,7 +11,7 @@ import {
   renderCategoryIcon,
 } from "../../presentation/categoryLabels";
 import { formatBRL, formatSignedBRL } from "../../presentation/money";
-import { inclusionOriginLabel, statusLabel } from "../../presentation/transactionStatus";
+import { inclusionOriginLabel } from "../../presentation/transactionStatus";
 
 const shortDate = new Intl.DateTimeFormat("pt-BR", {
   day: "numeric",
@@ -69,7 +69,6 @@ function TransactionRow({
   inclusionPending?: boolean;
 }) {
   const occurred = rowDate(item.occurred_at);
-  const status = statusLabel(item.provider_status);
   const ignored = item.inclusion.state === "ignored";
   const target = ignored ? "considered" : "ignored";
   return (
@@ -101,15 +100,13 @@ function TransactionRow({
             "Conta não informada"}
         </small>
       </span>
-      <span className="transaction-badges">
+      <span className="transaction-category">
         <Tag
+          className="transaction-category-tag"
           color={item.internal_category?.color}
           title={item.internal_category ? internalCategoryOriginLabel(item.internal_category) : undefined}
         >
           {item.internal_category && renderCategoryIcon(item.internal_category.icon)} {internalCategoryName(item)}
-        </Tag>
-        <Tag className={`status-${item.provider_status?.toLocaleLowerCase() ?? "unknown"}`}>
-          {status}
         </Tag>
       </span>
       <strong className={`transaction-amount amount-${item.classification}`}>
