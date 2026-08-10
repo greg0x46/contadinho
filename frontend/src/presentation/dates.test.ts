@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { formatDate, formatOptionalDate } from "./dates";
+import {
+  formatDate,
+  formatDay,
+  formatLocalDay,
+  formatOptionalDate,
+  formatOptionalDay,
+  formatOptionalLocalDay,
+} from "./dates";
 
 describe("date presentation", () => {
   it("formats valid dates in pt-BR local time", () => {
@@ -10,5 +17,27 @@ describe("date presentation", () => {
   it("handles invalid and absent dates explicitly", () => {
     expect(formatDate("invalid")).toBe("Data inválida");
     expect(formatOptionalDate(null)).toBe("Ainda não disponível");
+    expect(formatDay("invalid")).toBe("Data inválida");
+    expect(formatLocalDay("invalid")).toBe("Data inválida");
+    expect(formatOptionalDay(null)).toBe("—");
+    expect(formatOptionalLocalDay(null)).toBe("—");
+  });
+
+  // A calendar day carries no time of day, so it has to read the same wherever
+  // the reader is — including just past midnight UTC, where a local reading
+  // would slide it a day backwards.
+  it("pins a calendar day to UTC", () => {
+    expect(formatDay("2026-04-03T00:00:00Z")).toBe("03/04/2026");
+    expect(formatDay("2026-04-02T00:30:00Z")).toBe("02/04/2026");
+  });
+
+  // An instant is a point in time and has to read as the day it happened
+  // where the reader is: 00:30Z is still the 1st in Brazil. Comparing against
+  // the platform's own local formatting is what pins the *absence* of a
+  // timeZone override — the regression this guards is someone hard-coding UTC
+  // here, which shows up on any runner that isn't itself on UTC.
+  it("reads an instant in the reader's own timezone", () => {
+    const instant = "2026-04-02T00:30:00Z";
+    expect(formatLocalDay(instant)).toBe(new Date(instant).toLocaleDateString("pt-BR"));
   });
 });

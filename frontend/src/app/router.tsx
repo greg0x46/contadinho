@@ -16,6 +16,16 @@ const SyncRunDetailPage = lazy(() =>
     default: module.SyncRunDetailPage,
   })),
 );
+const AccountsPage = lazy(() =>
+  import("../pages/AccountsPage").then((module) => ({
+    default: module.AccountsPage,
+  })),
+);
+const AccountDetailPage = lazy(() =>
+  import("../pages/AccountDetailPage").then((module) => ({
+    default: module.AccountDetailPage,
+  })),
+);
 const TransactionsPage = lazy(() =>
   import("../pages/TransactionsPage").then((module) => ({
     default: module.TransactionsPage,
@@ -82,6 +92,8 @@ export function AppRouter() {
             <Route index element={<HomePage />} />
             <Route path="open-banking" element={<SyncRunListPage />} />
             <Route path="open-banking/sync-runs/:id" element={<SyncRunDetailPage />} />
+            <Route path="contas-e-cartoes" element={<AccountsPage />} />
+            <Route path="contas-e-cartoes/:id" element={<AccountDetailPage />} />
             <Route path="transacoes" element={<TransactionsPage />} />
             <Route path="automacoes" element={<AutomationRulesPage />} />
             <Route path="dividas" element={<DebtsPage />} />
