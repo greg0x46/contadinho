@@ -489,22 +489,32 @@ func TestDebtTotalOwedOverHTTP(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// "Parcelas futuras (cartão)" is the sum of financial_accounts.balance
-	// across every CREDIT account — Pluggy already computes that balance
-	// authoritatively (it reflects payments applied, fees, everything), so
-	// this doesn't depend on any transaction's provider_status or on bill
-	// closing dates. A transaction inserted here just to give the account a
-	// row to exist through must NOT influence the total on its own.
+	// "Parcelas futuras (cartão)" is calculated from considered transactions
+	// in the current bill cycle. The provider balance is deliberately
+	// irrelevant to this indicator.
 	creditTxID := insertTransaction(t, conn)
 	var creditAccountID string
 	if err := conn.QueryRow(`SELECT account_id FROM financial_transactions WHERE id = ?`, creditTxID).Scan(&creditAccountID); err != nil {
 		t.Fatalf("account id: %v", err)
 	}
+	loc := time.Local
+	now := time.Now().In(loc)
+	currentClosing := time.Date(now.Year(), now.Month(), 2, 0, 0, 0, 0, loc)
+	if now.Before(currentClosing) {
+		currentClosing = time.Date(now.Year(), now.Month()-1, 2, 0, 0, 0, 0, loc)
+	}
+	nextClosing := time.Date(currentClosing.Year(), currentClosing.Month()+1, 2, 0, 0, 0, 0, loc)
+	setCardDebtTransaction(t, conn, creditTxID, now, "-100.00", "DEBIT", nil)
+	// One historical closing establishes the lower bound; the transaction is
+	// associated with the next (current-cycle) bill.
+	insertBillForTransaction(t, conn, creditTxID, "bill-history", currentClosing, now)
+	insertBillForTransaction(t, conn, creditTxID, "bill-current", nextClosing, now)
 	if _, err := conn.Exec(`UPDATE financial_accounts SET account_type = 'CREDIT', balance = '5535.84' WHERE id = ?`, creditAccountID); err != nil {
 		t.Fatalf("set credit account balance: %v", err)
 	}
 
-	// A non-CREDIT account's balance must not count toward future installments.
+	// A non-CREDIT account's transactions and balance must not count toward
+	// future installments.
 	bankTxID := insertTransaction(t, conn)
 	var bankAccountID string
 	if err := conn.QueryRow(`SELECT account_id FROM financial_transactions WHERE id = ?`, bankTxID).Scan(&bankAccountID); err != nil {
@@ -520,15 +530,232 @@ func TestDebtTotalOwedOverHTTP(t *testing.T) {
 	if total["remaining_debts_total"] != "600.00" {
 		t.Errorf("remaining_debts_total = %v, want 600.00", total["remaining_debts_total"])
 	}
-	if total["future_installments_total"] != "5535.84" {
-		t.Errorf("future_installments_total = %v, want 5535.84", total["future_installments_total"])
+	if total["future_installments_total"] != "100.00" {
+		t.Errorf("future_installments_total = %v, want 100.00", total["future_installments_total"])
 	}
-	if total["total_owed"] != "6135.84" {
-		t.Errorf("total_owed = %v, want 6135.84", total["total_owed"])
+	if total["total_owed"] != "700.00" {
+		t.Errorf("total_owed = %v, want 700.00", total["total_owed"])
 	}
 	if total["currency_code"] != "BRL" {
 		t.Errorf("currency_code = %v, want BRL", total["currency_code"])
 	}
+}
+
+func TestDebtTotalOwedCalculatesConsideredCreditCardTransactionsByBillOrClosingDate(t *testing.T) {
+	srv, conn := newTestServer(t)
+
+	loc := time.Local
+	now := time.Now().In(loc)
+	currentClosing := time.Date(now.Year(), now.Month(), 2, 0, 0, 0, 0, loc)
+	if now.Before(currentClosing) {
+		currentClosing = time.Date(now.Year(), now.Month()-1, 2, 0, 0, 0, 0, loc)
+	}
+	previousClosing := time.Date(currentClosing.Year(), currentClosing.Month()-1, 2, 0, 0, 0, 0, loc)
+	nextClosing := time.Date(currentClosing.Year(), currentClosing.Month()+1, 2, 0, 0, 0, 0, loc)
+
+	// occurred_at is the provider's posted/launch date, not necessarily the
+	// original purchase date. The indicator intentionally classifies this
+	// stored provider date against the closing window when no bill is known.
+	currentNoBillID := insertTransaction(t, conn)
+	setCardDebtTransaction(t, conn, currentNoBillID, time.Date(currentClosing.Year(), currentClosing.Month(), 2, 0, 30, 0, 0, loc), "-100.00", "DEBIT", nil)
+	var currentAccountID string
+	if err := conn.QueryRow(`SELECT account_id FROM financial_transactions WHERE id = ?`, currentNoBillID).Scan(&currentAccountID); err != nil {
+		t.Fatalf("first card account id: %v", err)
+	}
+
+	currentForecastOnlyID := insertTransaction(t, conn)
+	moveTransactionToAccount(t, conn, currentForecastOnlyID, currentAccountID)
+	setCardDebtTransaction(t, conn, currentForecastOnlyID, time.Date(nextClosing.Year(), nextClosing.Month(), 1, 12, 0, 0, 0, loc), "-25.00", "DEBIT", stringPointer(`{"billForecastDate":"1900-01"}`))
+
+	nextClosingID := insertTransaction(t, conn)
+	moveTransactionToAccount(t, conn, nextClosingID, currentAccountID)
+	setCardDebtTransaction(t, conn, nextClosingID, nextClosing, "-40.00", "DEBIT", nil)
+
+	outsideCycleID := insertTransaction(t, conn)
+	moveTransactionToAccount(t, conn, outsideCycleID, currentAccountID)
+	setCardDebtTransaction(t, conn, outsideCycleID, time.Date(currentClosing.Year(), currentClosing.Month(), 1, 12, 0, 0, 0, loc), "-30.00", "DEBIT", nil)
+
+	previousBillID := insertTransaction(t, conn)
+	moveTransactionToAccount(t, conn, previousBillID, currentAccountID)
+	setCardDebtTransaction(t, conn, previousBillID, time.Date(currentClosing.Year(), currentClosing.Month(), 5, 12, 0, 0, 0, loc), "-70.00", "DEBIT", nil)
+	insertBillForTransaction(t, conn, previousBillID, "bill-previous", previousClosing,
+		time.Date(previousClosing.Year(), previousClosing.Month(), 15, 0, 0, 0, 0, loc))
+
+	currentBillID := insertTransaction(t, conn)
+	moveTransactionToAccount(t, conn, currentBillID, currentAccountID)
+	// This provider posting date is outside the current cycle, but the known
+	// bill is the current-cycle bill and therefore takes precedence. The due
+	// date is deliberately different from the closing date and must not
+	// classify the transaction.
+	setCardDebtTransaction(t, conn, currentBillID, time.Date(currentClosing.Year(), currentClosing.Month(), 1, 12, 0, 0, 0, loc), "-10.00", "DEBIT", nil)
+	insertBillForTransaction(t, conn, currentBillID, "bill-current", nextClosing,
+		time.Date(currentClosing.Year(), currentClosing.Month(), 1, 0, 0, 0, 0, loc))
+
+	cardBID := insertTransaction(t, conn)
+	setCardDebtTransaction(t, conn, cardBID, time.Date(currentClosing.Year(), currentClosing.Month(), 10, 12, 0, 0, 0, loc), "-50.00", "DEBIT", nil)
+	insertBillForTransaction(t, conn, cardBID, "bill-card-b", currentClosing,
+		time.Date(currentClosing.Year(), currentClosing.Month(), 1, 0, 0, 0, 0, loc))
+	if _, err := conn.Exec(`UPDATE financial_transactions SET credit_card_metadata = NULL WHERE id = ?`, cardBID); err != nil {
+		t.Fatalf("remove second card bill metadata: %v", err)
+	}
+
+	// A payment with a billId must not be subtracted from the cost. It is
+	// explicitly ignored and is also a CREDIT, so neither the local decision
+	// nor the movement sign can make the widget negative.
+	ignoredPaymentID := insertTransaction(t, conn)
+	moveTransactionToAccount(t, conn, ignoredPaymentID, currentAccountID)
+	setCardDebtTransaction(t, conn, ignoredPaymentID, time.Date(currentClosing.Year(), currentClosing.Month(), 3, 12, 0, 0, 0, loc), "-6133.39", "CREDIT", nil)
+	insertBillForTransaction(t, conn, ignoredPaymentID, "bill-payment", currentClosing,
+		time.Date(currentClosing.Year(), currentClosing.Month(), 10, 0, 0, 0, 0, loc))
+	resp := doJSON(t, http.MethodPut, srv.URL+"/api/transactions/"+ignoredPaymentID+"/inclusion", map[string]string{"state": "ignored"})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("ignore payment status = %d, want 200", resp.StatusCode)
+	}
+
+	// A considered CREDIT (refund/reversal) reduces the cost by its absolute
+	// value; this is separate from the ignored bill payment above.
+	consideredCreditID := insertTransaction(t, conn)
+	moveTransactionToAccount(t, conn, consideredCreditID, currentAccountID)
+	setCardDebtTransaction(t, conn, consideredCreditID, time.Date(currentClosing.Year(), currentClosing.Month(), 4, 12, 0, 0, 0, loc), "-12.00", "CREDIT", nil)
+
+	// An ignored debit is also excluded even though it is in the current
+	// cycle. This keeps the test focused on the considered set rather than on
+	// the provider balance.
+	ignoredDebitID := insertTransaction(t, conn)
+	moveTransactionToAccount(t, conn, ignoredDebitID, currentAccountID)
+	setCardDebtTransaction(t, conn, ignoredDebitID, time.Date(currentClosing.Year(), currentClosing.Month(), 7, 12, 0, 0, 0, loc), "-999.00", "DEBIT", nil)
+	resp = doJSON(t, http.MethodPut, srv.URL+"/api/transactions/"+ignoredDebitID+"/inclusion", map[string]string{"state": "ignored"})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("ignore debit status = %d, want 200", resp.StatusCode)
+	}
+
+	var cardBAccountID string
+	if err := conn.QueryRow(`SELECT account_id FROM financial_transactions WHERE id = ?`, cardBID).Scan(&cardBAccountID); err != nil {
+		t.Fatalf("second card account id: %v", err)
+	}
+	if _, err := conn.Exec(`UPDATE financial_accounts SET account_type = 'CREDIT', balance = '1000.00' WHERE id = ?`, currentAccountID); err != nil {
+		t.Fatalf("set first credit account: %v", err)
+	}
+	if _, err := conn.Exec(`UPDATE financial_accounts SET account_type = 'CREDIT', balance = '2000.00' WHERE id = ?`, cardBAccountID); err != nil {
+		t.Fatalf("set second credit account: %v", err)
+	}
+
+	bankID := insertTransaction(t, conn)
+	var bankAccountID string
+	if err := conn.QueryRow(`SELECT account_id FROM financial_transactions WHERE id = ?`, bankID).Scan(&bankAccountID); err != nil {
+		t.Fatalf("bank account id: %v", err)
+	}
+	if _, err := conn.Exec(`UPDATE financial_accounts SET balance = '999999.00' WHERE id = ?`, bankAccountID); err != nil {
+		t.Fatalf("set bank account balance: %v", err)
+	}
+
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/debts/total-owed", nil)
+	var total map[string]any
+	decodeJSON(t, resp, &total)
+	// First card: 100 + 25 + 10 - 12 = 123. The current-cycle payment,
+	// ignored debit, previous-bill, no-bill outside-cycle, and next-closing
+	// transactions do not count. Second card: 50. The bank account and both
+	// provider balances are isolated from the result.
+	if total["future_installments_total"] != "173.00" {
+		t.Errorf("future_installments_total = %v, want 173.00", total["future_installments_total"])
+	}
+	if total["total_owed"] != "173.00" {
+		t.Errorf("total_owed = %v, want 173.00", total["total_owed"])
+	}
+}
+
+func TestDebtTotalOwedReturnsZeroWithoutClosingDate(t *testing.T) {
+	srv, conn := newTestServer(t)
+	loc := time.Local
+	now := time.Now().In(loc)
+	txID := insertTransaction(t, conn)
+	setCardDebtTransaction(t, conn, txID, now, "-40.00", "DEBIT", nil)
+	insertBillForTransaction(t, conn, txID, "bill-without-closing",
+		time.Date(now.Year(), now.Month(), 2, 0, 0, 0, 0, loc), now)
+	if _, err := conn.Exec(`UPDATE financial_bills SET closing_date = NULL WHERE external_id = ?`, "bill-without-closing"); err != nil {
+		t.Fatalf("remove closing date: %v", err)
+	}
+
+	resp := doJSON(t, http.MethodPut, srv.URL+"/api/transactions/"+txID+"/inclusion", map[string]string{"state": "ignored"})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("ignore status = %d, want 200", resp.StatusCode)
+	}
+
+	var accountID string
+	if err := conn.QueryRow(`SELECT account_id FROM financial_transactions WHERE id = ?`, txID).Scan(&accountID); err != nil {
+		t.Fatalf("account id: %v", err)
+	}
+	if _, err := conn.Exec(`UPDATE financial_accounts SET account_type = 'CREDIT', balance = '100.00' WHERE id = ?`, accountID); err != nil {
+		t.Fatalf("set credit account: %v", err)
+	}
+
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/debts/total-owed", nil)
+	var total map[string]any
+	decodeJSON(t, resp, &total)
+	if total["future_installments_total"] != "0" {
+		t.Errorf("future_installments_total = %v, want 0", total["future_installments_total"])
+	}
+}
+
+func setCardDebtTransaction(t *testing.T, conn *sql.DB, transactionID string, occurredAt time.Time, amount, movementType string, metadata *string) {
+	t.Helper()
+	if _, err := conn.Exec(`UPDATE financial_transactions
+		SET occurred_at = ?, amount = ?, amount_in_account_currency = ?, movement_type = ?, credit_card_metadata = ?
+		WHERE id = ?`, db.FormatTime(occurredAt), amount, amount, movementType, metadata, transactionID); err != nil {
+		t.Fatalf("set card transaction %s: %v", transactionID, err)
+	}
+}
+
+func moveTransactionToAccount(t *testing.T, conn *sql.DB, transactionID, accountID string) {
+	t.Helper()
+	var sourceID, rawImportID string
+	if err := conn.QueryRow(`SELECT source_id, current_raw_import_id FROM financial_accounts WHERE id = ?`, accountID).Scan(&sourceID, &rawImportID); err != nil {
+		t.Fatalf("account source for transaction %s: %v", transactionID, err)
+	}
+	if _, err := conn.Exec(`UPDATE financial_transactions
+		SET account_id = ?, source_id = ?, current_raw_import_id = ? WHERE id = ?`,
+		accountID, sourceID, rawImportID, transactionID); err != nil {
+		t.Fatalf("move transaction %s to account %s: %v", transactionID, accountID, err)
+	}
+}
+
+func insertBillForTransaction(t *testing.T, conn *sql.DB, transactionID, externalID string, closingDate, dueDate time.Time) {
+	t.Helper()
+	var accountID, sourceID, rawImportID string
+	if err := conn.QueryRow(`
+		SELECT fa.id, fa.source_id, fa.current_raw_import_id
+		FROM financial_transactions ft
+		JOIN financial_accounts fa ON fa.id = ft.account_id
+		WHERE ft.id = ?`, transactionID).Scan(&accountID, &sourceID, &rawImportID); err != nil {
+		t.Fatalf("transaction account for bill: %v", err)
+	}
+	billID := uuid.NewString()
+	now := db.FormatTime(time.Now())
+	providerClosingDate := providerCalendarDate(closingDate)
+	providerDueDate := providerCalendarDate(dueDate)
+	if _, err := conn.Exec(`INSERT INTO financial_bills (
+		id, source_id, account_id, external_id, due_date, closing_date,
+		current_raw_import_id, normalized_hash, created_at, updated_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, 'hash', ?, ?)`,
+		billID, sourceID, accountID, externalID, db.FormatTime(providerDueDate), db.FormatTime(providerClosingDate), rawImportID, now, now); err != nil {
+		t.Fatalf("insert bill: %v", err)
+	}
+	if _, err := conn.Exec(`UPDATE financial_transactions SET credit_card_metadata = ? WHERE id = ?`,
+		`{"billId":"`+externalID+`"}`, transactionID); err != nil {
+		t.Fatalf("set bill metadata: %v", err)
+	}
+}
+
+func providerCalendarDate(value time.Time) time.Time {
+	year, month, day := value.Date()
+	return time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+}
+
+func stringPointer(value string) *string {
+	return &value
 }
 
 func TestSpendingByCategoryOverHTTP(t *testing.T) {
