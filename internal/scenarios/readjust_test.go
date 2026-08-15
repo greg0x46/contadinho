@@ -12,7 +12,7 @@ func TestReadjustReduceTermRecomputesCountFromReferenceAmount(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()
 	d := newDebt(t, conn)
-	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID, nil)
+	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
 
 	// Three 400.00 installments (1200.00 total), none allocated.
 	drafts, _ := scenarios.GenerateInstallments(dec(t, "1200.00"), 3, date(t, "2026-09-01"), scenarios.CadenceMonthly)
@@ -60,7 +60,7 @@ func TestReadjustReduceTermTwiceDoesNotLockOntoRemainderInstallment(t *testing.T
 	conn := newTestDB(t)
 	ctx := context.Background()
 	d := newDebt(t, conn)
-	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID, nil)
+	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
 
 	// Three 400.00 installments (1200.00 total), none allocated.
 	drafts, _ := scenarios.GenerateInstallments(dec(t, "1200.00"), 3, date(t, "2026-09-01"), scenarios.CadenceMonthly)
@@ -99,7 +99,7 @@ func TestReadjustRedistributePreservesInstallmentCountAndDates(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()
 	d := newDebt(t, conn)
-	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID, nil)
+	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
 
 	drafts, _ := scenarios.GenerateInstallments(dec(t, "1200.00"), 3, date(t, "2026-09-01"), scenarios.CadenceMonthly)
 	if _, err := scenarios.CreateGeneratedInstallments(ctx, conn, s.ID, drafts); err != nil {
@@ -133,14 +133,14 @@ func TestReadjustPreservesInstallmentsWithAnyAllocation(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()
 	d := newDebt(t, conn)
-	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID, nil)
+	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
 
 	paidPartially, _ := scenarios.CreateScenarioTransaction(ctx, conn, s.ID, "Parcela 1", dec(t, "400.00"), date(t, "2026-09-01"), nil)
 	untouched1, _ := scenarios.CreateScenarioTransaction(ctx, conn, s.ID, "Parcela 2", dec(t, "400.00"), date(t, "2026-10-01"), nil)
 	untouched2, _ := scenarios.CreateScenarioTransaction(ctx, conn, s.ID, "Parcela 3", dec(t, "400.00"), date(t, "2026-11-01"), nil)
 
 	link := linkFixture(t, conn, d.ID, "-300.00")
-	if _, err := scenarios.CreateRealization(ctx, conn, paidPartially.ID, &link.ID, nil, dec(t, "300.00")); err != nil {
+	if _, err := scenarios.CreateRealization(ctx, conn, paidPartially.ID, &link.ID, dec(t, "300.00")); err != nil {
 		t.Fatalf("CreateRealization: %v", err)
 	}
 
@@ -175,14 +175,47 @@ func TestReadjustPreservesInstallmentsWithAnyAllocation(t *testing.T) {
 	}
 }
 
+func TestReadjustAbatesOverpaidInstallmentInsteadOfInflatingBalance(t *testing.T) {
+	conn := newTestDB(t)
+	ctx := context.Background()
+	d := newDebt(t, conn)
+	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
+
+	overpaid, _ := scenarios.CreateScenarioTransaction(ctx, conn, s.ID, "Parcela 1", dec(t, "200.00"), date(t, "2026-09-01"), nil)
+	scenarios.CreateScenarioTransaction(ctx, conn, s.ID, "Parcela 2", dec(t, "200.00"), date(t, "2026-10-01"), nil)
+	scenarios.CreateScenarioTransaction(ctx, conn, s.ID, "Parcela 3", dec(t, "200.00"), date(t, "2026-11-01"), nil)
+
+	// Paid 350.00 against a 200.00 installment: 150.00 more than owed.
+	link := linkFixture(t, conn, d.ID, "-350.00")
+	if _, err := scenarios.CreateRealization(ctx, conn, overpaid.ID, &link.ID, dec(t, "350.00")); err != nil {
+		t.Fatalf("CreateRealization: %v", err)
+	}
+
+	// Debt owed 600.00 across the three installments; 350.00 of that was
+	// just paid, so only 250.00 (600 - 350) should be left for the two
+	// remaining installments — not 400.00, which is what you'd get if the
+	// 150.00 overpayment got added back instead of credited.
+	created, err := scenarios.Readjust(ctx, conn, s.ID, dec(t, "250.00"), scenarios.StrategyReduceTerm)
+	if err != nil {
+		t.Fatalf("Readjust: %v", err)
+	}
+	sum := dec(t, "0")
+	for _, ins := range created {
+		sum = sum.Add(ins.Amount)
+	}
+	if !sum.Equal(dec(t, "250.00")) {
+		t.Errorf("sum of new installments = %s, want 250.00 (overpayment must not inflate the balance)", sum)
+	}
+}
+
 func TestReadjustFailsWhenEverythingIsAllocated(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()
 	d := newDebt(t, conn)
-	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID, nil)
+	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
 	st, _ := scenarios.CreateScenarioTransaction(ctx, conn, s.ID, "Parcela 1", dec(t, "400.00"), date(t, "2026-09-01"), nil)
 	link := linkFixture(t, conn, d.ID, "-400.00")
-	if _, err := scenarios.CreateRealization(ctx, conn, st.ID, &link.ID, nil, dec(t, "400.00")); err != nil {
+	if _, err := scenarios.CreateRealization(ctx, conn, st.ID, &link.ID, dec(t, "400.00")); err != nil {
 		t.Fatalf("CreateRealization: %v", err)
 	}
 
@@ -195,7 +228,7 @@ func TestReadjustFailsWhenNothingLeftToRedistribute(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()
 	d := newDebt(t, conn)
-	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID, nil)
+	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
 	scenarios.CreateScenarioTransaction(ctx, conn, s.ID, "Parcela 1", dec(t, "400.00"), date(t, "2026-09-01"), nil)
 
 	if _, err := scenarios.Readjust(ctx, conn, s.ID, dec(t, "0.00"), scenarios.StrategyRedistribute); !errors.Is(err, scenarios.ErrNothingToRedistribute) {
@@ -207,7 +240,7 @@ func TestReadjustRejectsInvalidStrategy(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()
 	d := newDebt(t, conn)
-	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID, nil)
+	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
 	scenarios.CreateScenarioTransaction(ctx, conn, s.ID, "Parcela 1", dec(t, "400.00"), date(t, "2026-09-01"), nil)
 
 	if _, err := scenarios.Readjust(ctx, conn, s.ID, dec(t, "400.00"), scenarios.ReadjustStrategy("bogus")); !errors.Is(err, scenarios.ErrInvalidStrategy) {

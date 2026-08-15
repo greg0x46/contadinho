@@ -48,9 +48,8 @@ func TestPostgresMigrateAppliesAllTables(t *testing.T) {
 		"automation_rules", "automation_rule_conditions",
 		"transaction_inclusion_decisions", "transaction_inclusion_events",
 		"categories", "transaction_category_decisions", "transaction_category_events",
-		"debts", "debt_transaction_links", "settings", "app_auth",
-		"receivables", "receivable_transaction_links", "scenarios",
-		"scenario_transactions", "scenario_transaction_realizations",
+		"payables", "payable_transaction_links", "settings", "app_auth",
+		"scenarios", "scenario_transactions", "scenario_transaction_realizations",
 		"financial_investments", "financial_investment_transactions",
 	}
 	for _, table := range tables {

@@ -10,7 +10,7 @@ import (
 func TestScenarioLifecycleOverHTTP(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "debt", "name": "Financiamento", "total_amount": "1200.00"})
 	if resp.StatusCode != 201 {
 		t.Fatalf("create debt status = %d, want 201", resp.StatusCode)
 	}
@@ -18,21 +18,21 @@ func TestScenarioLifecycleOverHTTP(t *testing.T) {
 	decodeJSON(t, resp, &debt)
 	debtID := debt["id"].(string)
 
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano de pagamento"})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debtID+"/scenarios", map[string]any{"name": "Plano de pagamento"})
 	if resp.StatusCode != 201 {
 		t.Fatalf("create scenario status = %d, want 201", resp.StatusCode)
 	}
 	var scenario map[string]any
 	decodeJSON(t, resp, &scenario)
 	scenarioID := scenario["id"].(string)
-	if scenario["kind"] != "debt_plan" || scenario["debt_id"] != debtID {
+	if scenario["kind"] != "debt_plan" || scenario["payable_id"] != debtID {
 		t.Errorf("scenario = %+v", scenario)
 	}
 	if txs, ok := scenario["transactions"].([]any); !ok || len(txs) != 0 {
 		t.Errorf("scenario transactions = %+v, want empty", scenario["transactions"])
 	}
 
-	resp = doJSON(t, http.MethodGet, srv.URL+"/api/debts/"+debtID+"/scenarios", nil)
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/payables/"+debtID+"/scenarios", nil)
 	if resp.StatusCode != 200 {
 		t.Fatalf("list scenarios status = %d, want 200", resp.StatusCode)
 	}
@@ -100,12 +100,12 @@ func TestScenarioLifecycleOverHTTP(t *testing.T) {
 func TestScenarioTransactionStatusReflectsProjectedDate(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "debt", "name": "Financiamento", "total_amount": "1200.00"})
 	var debt map[string]any
 	decodeJSON(t, resp, &debt)
 	debtID := debt["id"].(string)
 
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
 	var scenario map[string]any
 	decodeJSON(t, resp, &scenario)
 	scenarioID := scenario["id"].(string)
@@ -135,12 +135,12 @@ func TestScenarioTransactionStatusReflectsProjectedDate(t *testing.T) {
 func TestRealizationAllocatesDebtLinkToInstallmentAndUpdatesStatus(t *testing.T) {
 	srv, conn := newTestServer(t)
 
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "debt", "name": "Financiamento", "total_amount": "1200.00"})
 	var debt map[string]any
 	decodeJSON(t, resp, &debt)
 	debtID := debt["id"].(string)
 
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
 	var scenario map[string]any
 	decodeJSON(t, resp, &scenario)
 	scenarioID := scenario["id"].(string)
@@ -156,7 +156,7 @@ func TestRealizationAllocatesDebtLinkToInstallmentAndUpdatesStatus(t *testing.T)
 	}
 
 	txID := insertTransaction(t, conn)
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/links", map[string]any{"transaction_id": txID})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debtID+"/links", map[string]any{"transaction_id": txID})
 	if resp.StatusCode != 201 {
 		t.Fatalf("create link status = %d, want 201", resp.StatusCode)
 	}
@@ -165,7 +165,7 @@ func TestRealizationAllocatesDebtLinkToInstallmentAndUpdatesStatus(t *testing.T)
 	linkID := link["id"].(string)
 
 	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/transactions/"+transactionID+"/realizations", map[string]any{
-		"debt_link_id": linkID, "allocated_amount": "42.00",
+		"payable_link_id": linkID, "allocated_amount": "42.00",
 	})
 	if resp.StatusCode != 201 {
 		t.Fatalf("create realization status = %d, want 201", resp.StatusCode)
@@ -188,14 +188,14 @@ func TestRealizationAllocatesDebtLinkToInstallmentAndUpdatesStatus(t *testing.T)
 func TestRealizationRejectsDebtLinkFromAnotherDebt(t *testing.T) {
 	srv, conn := newTestServer(t)
 
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Dívida A", "total_amount": "1000.00"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "debt", "name": "Dívida A", "total_amount": "1000.00"})
 	var debtA map[string]any
 	decodeJSON(t, resp, &debtA)
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Dívida B", "total_amount": "1000.00"})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "debt", "name": "Dívida B", "total_amount": "1000.00"})
 	var debtB map[string]any
 	decodeJSON(t, resp, &debtB)
 
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtA["id"].(string)+"/scenarios", map[string]any{"name": "Plano A"})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debtA["id"].(string)+"/scenarios", map[string]any{"name": "Plano A"})
 	var scenario map[string]any
 	decodeJSON(t, resp, &scenario)
 	scenarioID := scenario["id"].(string)
@@ -208,13 +208,13 @@ func TestRealizationRejectsDebtLinkFromAnotherDebt(t *testing.T) {
 	transactionID := st["id"].(string)
 
 	txID := insertTransaction(t, conn)
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtB["id"].(string)+"/links", map[string]any{"transaction_id": txID})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debtB["id"].(string)+"/links", map[string]any{"transaction_id": txID})
 	var link map[string]any
 	decodeJSON(t, resp, &link)
 	linkID := link["id"].(string)
 
 	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/transactions/"+transactionID+"/realizations", map[string]any{
-		"debt_link_id": linkID, "allocated_amount": "42.00",
+		"payable_link_id": linkID, "allocated_amount": "42.00",
 	})
 	if resp.StatusCode != 422 {
 		t.Fatalf("status = %d, want 422", resp.StatusCode)
@@ -225,12 +225,12 @@ func TestRealizationRejectsDebtLinkFromAnotherDebt(t *testing.T) {
 func TestDeleteRealizationRevertsStatus(t *testing.T) {
 	srv, conn := newTestServer(t)
 
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "debt", "name": "Financiamento", "total_amount": "1200.00"})
 	var debt map[string]any
 	decodeJSON(t, resp, &debt)
 	debtID := debt["id"].(string)
 
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
 	var scenario map[string]any
 	decodeJSON(t, resp, &scenario)
 	scenarioID := scenario["id"].(string)
@@ -243,13 +243,13 @@ func TestDeleteRealizationRevertsStatus(t *testing.T) {
 	transactionID := st["id"].(string)
 
 	txID := insertTransaction(t, conn)
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/links", map[string]any{"transaction_id": txID})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debtID+"/links", map[string]any{"transaction_id": txID})
 	var link map[string]any
 	decodeJSON(t, resp, &link)
 	linkID := link["id"].(string)
 
 	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/transactions/"+transactionID+"/realizations", map[string]any{
-		"debt_link_id": linkID, "allocated_amount": "42.00",
+		"payable_link_id": linkID, "allocated_amount": "42.00",
 	})
 	resp.Body.Close()
 
@@ -279,12 +279,12 @@ func TestDeleteRealizationRevertsStatus(t *testing.T) {
 func TestAccumulatedDeviationSumsOnlyDueInstallments(t *testing.T) {
 	srv, conn := newTestServer(t)
 
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "debt", "name": "Financiamento", "total_amount": "1200.00"})
 	var debt map[string]any
 	decodeJSON(t, resp, &debt)
 	debtID := debt["id"].(string)
 
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
 	var scenario map[string]any
 	decodeJSON(t, resp, &scenario)
 	scenarioID := scenario["id"].(string)
@@ -309,13 +309,13 @@ func TestAccumulatedDeviationSumsOnlyDueInstallments(t *testing.T) {
 	}).Body.Close()
 
 	txID := insertTransaction(t, conn)
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/links", map[string]any{"transaction_id": txID})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debtID+"/links", map[string]any{"transaction_id": txID})
 	var link map[string]any
 	decodeJSON(t, resp, &link)
 	linkID := link["id"].(string)
 
 	doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/transactions/"+overdueID+"/realizations", map[string]any{
-		"debt_link_id": linkID, "allocated_amount": "60.00",
+		"payable_link_id": linkID, "allocated_amount": "60.00",
 	}).Body.Close()
 
 	resp = doJSON(t, http.MethodGet, srv.URL+"/api/scenarios/"+scenarioID, nil)
@@ -329,12 +329,12 @@ func TestAccumulatedDeviationSumsOnlyDueInstallments(t *testing.T) {
 func TestReadjustReplacesUnallocatedInstallments(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "debt", "name": "Financiamento", "total_amount": "1200.00"})
 	var debt map[string]any
 	decodeJSON(t, resp, &debt)
 	debtID := debt["id"].(string)
 
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
 	var scenario map[string]any
 	decodeJSON(t, resp, &scenario)
 	scenarioID := scenario["id"].(string)
@@ -370,12 +370,12 @@ func TestReadjustReplacesUnallocatedInstallments(t *testing.T) {
 func TestReadjustRejectsInvalidStrategyOverHTTP(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "debt", "name": "Financiamento", "total_amount": "1200.00"})
 	var debt map[string]any
 	decodeJSON(t, resp, &debt)
 	debtID := debt["id"].(string)
 
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
 	var scenario map[string]any
 	decodeJSON(t, resp, &scenario)
 	scenarioID := scenario["id"].(string)
@@ -390,12 +390,12 @@ func TestReadjustRejectsInvalidStrategyOverHTTP(t *testing.T) {
 func TestGenerateInstallmentsCreatesMonthlyPlanFromRemainingAmount(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "debt", "name": "Financiamento", "total_amount": "1200.00"})
 	var debt map[string]any
 	decodeJSON(t, resp, &debt)
 	debtID := debt["id"].(string)
 
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
 	var scenario map[string]any
 	decodeJSON(t, resp, &scenario)
 	scenarioID := scenario["id"].(string)
@@ -434,12 +434,12 @@ func TestGenerateInstallmentsCreatesMonthlyPlanFromRemainingAmount(t *testing.T)
 func TestGenerateInstallmentsWithWeeklyCadenceAndInstallmentAmount(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1000.00"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "debt", "name": "Financiamento", "total_amount": "1000.00"})
 	var debt map[string]any
 	decodeJSON(t, resp, &debt)
 	debtID := debt["id"].(string)
 
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
 	var scenario map[string]any
 	decodeJSON(t, resp, &scenario)
 	scenarioID := scenario["id"].(string)
@@ -470,12 +470,12 @@ func TestGenerateInstallmentsWithWeeklyCadenceAndInstallmentAmount(t *testing.T)
 func TestGenerateInstallmentsRejectsInvalidCadenceOverHTTP(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "debt", "name": "Financiamento", "total_amount": "1200.00"})
 	var debt map[string]any
 	decodeJSON(t, resp, &debt)
 	debtID := debt["id"].(string)
 
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
 	var scenario map[string]any
 	decodeJSON(t, resp, &scenario)
 	scenarioID := scenario["id"].(string)
@@ -490,12 +490,12 @@ func TestGenerateInstallmentsRejectsInvalidCadenceOverHTTP(t *testing.T) {
 func TestGenerateInstallmentsRejectsBothOrNeitherOfMonthsAndAmount(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "debt", "name": "Financiamento", "total_amount": "1200.00"})
 	var debt map[string]any
 	decodeJSON(t, resp, &debt)
 	debtID := debt["id"].(string)
 
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
 	var scenario map[string]any
 	decodeJSON(t, resp, &scenario)
 	scenarioID := scenario["id"].(string)
@@ -517,7 +517,7 @@ func TestGenerateInstallmentsRejectsBothOrNeitherOfMonthsAndAmount(t *testing.T)
 
 func TestCreateScenarioRejectsUnknownDebt(t *testing.T) {
 	srv, _ := newTestServer(t)
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts/unknown/scenarios", map[string]any{"name": "Plano"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables/unknown/scenarios", map[string]any{"name": "Plano"})
 	if resp.StatusCode != 404 {
 		t.Fatalf("status = %d, want 404", resp.StatusCode)
 	}
@@ -526,12 +526,12 @@ func TestCreateScenarioRejectsUnknownDebt(t *testing.T) {
 
 func TestCreateScenarioTransactionRejectsInvalidBody(t *testing.T) {
 	srv, _ := newTestServer(t)
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1200.00"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "debt", "name": "Financiamento", "total_amount": "1200.00"})
 	var debt map[string]any
 	decodeJSON(t, resp, &debt)
 	debtID := debt["id"].(string)
 
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debtID+"/scenarios", map[string]any{"name": "Plano"})
 	var scenario map[string]any
 	decodeJSON(t, resp, &scenario)
 	scenarioID := scenario["id"].(string)

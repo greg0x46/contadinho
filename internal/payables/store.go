@@ -1,0 +1,578 @@
+// Package payables ports app/debts/eligibility.py and app/debts/service.py
+// (feature 007, since extended to also cover receivables), unified: payable
+// CRUD, and linking a payable to the transaction(s) that paid it down or
+// settled it. Every amount beyond a link's own snapshot (settled_amount,
+// remaining_amount, status, and even a link's "current" amount) is computed
+// on read from the linked transactions' live effective money — never
+// persisted — so a later sync correcting a transaction's amount is
+// reflected automatically instead of leaving stale totals.
+package payables
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
+
+	"contadinho-go/internal/db"
+	"contadinho-go/internal/money"
+	"contadinho-go/internal/transactions"
+)
+
+// ErrNotFound is returned by Get/Update/Delete when a payable id has no
+// matching row.
+var ErrNotFound = errors.New("payable not found")
+
+// ErrLinkNotFound is returned by GetLink when a payable_transaction_links
+// id has no matching row.
+var ErrLinkNotFound = errors.New("payable link not found")
+
+// Querier is satisfied by both *sql.DB and *sql.Tx, and structurally by
+// transactions.Querier too (same three methods), so it can also be passed
+// wherever that's expected — see UnlinkIfPresent.
+type Querier interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// Create mirrors create_debt/create_receivable.
+func Create(ctx context.Context, q Querier, kind Kind, name string, totalAmount, initialRemainingAmount decimal.Decimal) (Payable, error) {
+	now := time.Now().UTC()
+	p := Payable{
+		ID: uuid.NewString(), Kind: kind, Name: name, TotalAmount: totalAmount,
+		StartingSettledAmount: totalAmount.Sub(initialRemainingAmount),
+		CreatedAt:             now, UpdatedAt: now,
+	}
+	_, err := q.ExecContext(ctx, `
+		INSERT INTO payables (id, kind, name, total_amount, starting_settled_amount, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, string(p.Kind), p.Name, money.CanonicalDecimal(p.TotalAmount), money.CanonicalDecimal(p.StartingSettledAmount),
+		db.FormatTime(now), db.FormatTime(now),
+	)
+	if err != nil {
+		return Payable{}, err
+	}
+	return p, nil
+}
+
+// Update mirrors update_debt/update_receivable (name and total_amount only
+// — starting_settled_amount is set once at creation and never edited
+// directly afterward; kind is immutable).
+func Update(ctx context.Context, q Querier, id, name string, totalAmount decimal.Decimal) (Payable, error) {
+	now := db.FormatTime(time.Now())
+	res, err := q.ExecContext(ctx, `UPDATE payables SET name = ?, total_amount = ?, updated_at = ? WHERE id = ?`,
+		name, money.CanonicalDecimal(totalAmount), now, id)
+	if err != nil {
+		return Payable{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return Payable{}, ErrNotFound
+	}
+	return Get(ctx, q, id)
+}
+
+// Delete mirrors delete_debt/delete_receivable (payable_transaction_links
+// cascades via the schema's ON DELETE CASCADE).
+func Delete(ctx context.Context, q Querier, id string) error {
+	res, err := q.ExecContext(ctx, `DELETE FROM payables WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func scanPayable(row *sql.Row) (Payable, error) {
+	var (
+		p                                        Payable
+		kindRaw                                  string
+		totalAmountRaw, startingSettledAmountRaw string
+		createdAtRaw, updatedAtRaw               string
+	)
+	if err := row.Scan(&p.ID, &kindRaw, &p.Name, &totalAmountRaw, &startingSettledAmountRaw, &createdAtRaw, &updatedAtRaw); err != nil {
+		return Payable{}, err
+	}
+	p.Kind = Kind(kindRaw)
+	var err error
+	if p.TotalAmount, err = decimal.NewFromString(totalAmountRaw); err != nil {
+		return Payable{}, err
+	}
+	if p.StartingSettledAmount, err = decimal.NewFromString(startingSettledAmountRaw); err != nil {
+		return Payable{}, err
+	}
+	if p.CreatedAt, err = db.ParseTime(createdAtRaw); err != nil {
+		return Payable{}, err
+	}
+	if p.UpdatedAt, err = db.ParseTime(updatedAtRaw); err != nil {
+		return Payable{}, err
+	}
+	return p, nil
+}
+
+// Get mirrors get_debt/get_receivable (without eager-loaded links — call
+// Links separately, as List and the HTTP handlers do, since not every
+// caller needs them).
+func Get(ctx context.Context, q Querier, id string) (Payable, error) {
+	row := q.QueryRowContext(ctx, `SELECT id, kind, name, total_amount, starting_settled_amount, created_at, updated_at FROM payables WHERE id = ?`, id)
+	p, err := scanPayable(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Payable{}, ErrNotFound
+	}
+	return p, err
+}
+
+// List mirrors list_debts/list_receivables, ordered by created_at. A nil
+// kind lists both; a non-nil kind filters to just that one.
+func List(ctx context.Context, q Querier, kind *Kind) ([]Payable, error) {
+	query := `SELECT id, kind, name, total_amount, starting_settled_amount, created_at, updated_at FROM payables`
+	args := []any{}
+	if kind != nil {
+		query += ` WHERE kind = ?`
+		args = append(args, string(*kind))
+	}
+	query += ` ORDER BY created_at`
+
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []Payable
+	for rows.Next() {
+		var (
+			p                                        Payable
+			kindRaw                                  string
+			totalAmountRaw, startingSettledAmountRaw string
+			createdAtRaw, updatedAtRaw               string
+		)
+		if err := rows.Scan(&p.ID, &kindRaw, &p.Name, &totalAmountRaw, &startingSettledAmountRaw, &createdAtRaw, &updatedAtRaw); err != nil {
+			return nil, err
+		}
+		p.Kind = Kind(kindRaw)
+		if p.TotalAmount, err = decimal.NewFromString(totalAmountRaw); err != nil {
+			return nil, err
+		}
+		if p.StartingSettledAmount, err = decimal.NewFromString(startingSettledAmountRaw); err != nil {
+			return nil, err
+		}
+		if p.CreatedAt, err = db.ParseTime(createdAtRaw); err != nil {
+			return nil, err
+		}
+		if p.UpdatedAt, err = db.ParseTime(updatedAtRaw); err != nil {
+			return nil, err
+		}
+		list = append(list, p)
+	}
+	return list, rows.Err()
+}
+
+// Links mirrors accessing payable.links: every link for payableID, newest
+// first (matching the reference's order_by(...linked_at.desc())).
+func Links(ctx context.Context, q Querier, payableID string) ([]Link, error) {
+	rows, err := q.QueryContext(ctx,
+		`SELECT id, payable_id, transaction_id, linked_amount, linked_at FROM payable_transaction_links
+		 WHERE payable_id = ? ORDER BY linked_at DESC`, payableID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var links []Link
+	for rows.Next() {
+		var l Link
+		var linkedAmountRaw, linkedAtRaw string
+		if err := rows.Scan(&l.ID, &l.PayableID, &l.TransactionID, &linkedAmountRaw, &linkedAtRaw); err != nil {
+			return nil, err
+		}
+		if l.LinkedAmount, err = decimal.NewFromString(linkedAmountRaw); err != nil {
+			return nil, err
+		}
+		if l.LinkedAt, err = db.ParseTime(linkedAtRaw); err != nil {
+			return nil, err
+		}
+		links = append(links, l)
+	}
+	return links, rows.Err()
+}
+
+// GetLink mirrors reading a single payable_transaction_links row by id,
+// regardless of which payable it belongs to — callers that need to scope it
+// to a specific payable (e.g. DeleteLink) check Link.PayableID themselves.
+func GetLink(ctx context.Context, q Querier, id string) (Link, error) {
+	var l Link
+	var linkedAmountRaw, linkedAtRaw string
+	err := q.QueryRowContext(ctx,
+		`SELECT id, payable_id, transaction_id, linked_amount, linked_at FROM payable_transaction_links WHERE id = ?`, id,
+	).Scan(&l.ID, &l.PayableID, &l.TransactionID, &linkedAmountRaw, &linkedAtRaw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Link{}, ErrLinkNotFound
+	}
+	if err != nil {
+		return Link{}, err
+	}
+	if l.LinkedAmount, err = decimal.NewFromString(linkedAmountRaw); err != nil {
+		return Link{}, err
+	}
+	if l.LinkedAt, err = db.ParseTime(linkedAtRaw); err != nil {
+		return Link{}, err
+	}
+	return l, nil
+}
+
+// LinkEffectiveAmount mirrors link_effective_amount: recomputed from the
+// linked transaction's *current* amount/currency, not the link's stored
+// snapshot — see the package doc comment.
+func LinkEffectiveAmount(ctx context.Context, q Querier, transactionID string) (decimal.Decimal, error) {
+	eff, err := effectiveMoneyFor(ctx, q, transactionID)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	if eff == nil || eff.CurrencyCode != "BRL" {
+		return decimal.Zero, nil
+	}
+	return eff.Value.Abs(), nil
+}
+
+// LinkedTransactionSummary is the display-only transaction fields a
+// PayableLinkedTransaction response needs alongside the link row itself.
+type LinkedTransactionSummary struct {
+	OccurredAt  *time.Time
+	Description *string
+}
+
+// TransactionSummaryFor loads the fields _linked_transaction_response reads
+// off link.transaction directly (this package has no ORM relationship to
+// walk, so the HTTP layer asks for them explicitly per link).
+func TransactionSummaryFor(ctx context.Context, q Querier, transactionID string) (LinkedTransactionSummary, error) {
+	s, _, err := loadTransaction(ctx, q, transactionID)
+	if err != nil {
+		return LinkedTransactionSummary{}, err
+	}
+	return LinkedTransactionSummary{OccurredAt: s.occurredAt, Description: s.description}, nil
+}
+
+type transactionSnapshot struct {
+	description    *string
+	occurredAt     *time.Time
+	movementType   *string
+	amount         *decimal.Decimal
+	amountInAcct   *decimal.Decimal
+	currencyCode   *string
+	acctCurrency   *string
+	acctName       *string
+	inclusionState *string
+}
+
+func loadTransaction(ctx context.Context, q Querier, transactionID string) (transactionSnapshot, bool, error) {
+	var (
+		s                                       transactionSnapshot
+		description, movementType, currencyCode sql.NullString
+		amountRaw, amountInAcctRaw              sql.NullString
+		occurredAtRaw                           sql.NullString
+		acctCurrency, acctName                  sql.NullString
+		inclusionState                          sql.NullString
+	)
+	err := q.QueryRowContext(ctx, `
+		SELECT ft.description, ft.occurred_at, ft.movement_type, ft.amount, ft.amount_in_account_currency,
+			ft.currency_code, fa.currency_code, fa.name, tid.state
+		FROM financial_transactions ft
+		JOIN financial_accounts fa ON fa.id = ft.account_id
+		LEFT JOIN transaction_inclusion_decisions tid ON tid.transaction_id = ft.id
+		WHERE ft.id = ?`, transactionID,
+	).Scan(&description, &occurredAtRaw, &movementType, &amountRaw, &amountInAcctRaw,
+		&currencyCode, &acctCurrency, &acctName, &inclusionState)
+	if errors.Is(err, sql.ErrNoRows) {
+		return transactionSnapshot{}, false, nil
+	}
+	if err != nil {
+		return transactionSnapshot{}, false, err
+	}
+	if description.Valid {
+		s.description = &description.String
+	}
+	if movementType.Valid {
+		s.movementType = &movementType.String
+	}
+	if currencyCode.Valid {
+		s.currencyCode = &currencyCode.String
+	}
+	if acctCurrency.Valid {
+		s.acctCurrency = &acctCurrency.String
+	}
+	if acctName.Valid {
+		s.acctName = &acctName.String
+	}
+	if inclusionState.Valid {
+		s.inclusionState = &inclusionState.String
+	}
+	if occurredAtRaw.Valid {
+		t, err := db.ParseTime(occurredAtRaw.String)
+		if err != nil {
+			return transactionSnapshot{}, false, err
+		}
+		s.occurredAt = &t
+	}
+	if amountRaw.Valid {
+		d, err := decimal.NewFromString(amountRaw.String)
+		if err != nil {
+			return transactionSnapshot{}, false, err
+		}
+		s.amount = &d
+	}
+	if amountInAcctRaw.Valid {
+		d, err := decimal.NewFromString(amountInAcctRaw.String)
+		if err != nil {
+			return transactionSnapshot{}, false, err
+		}
+		s.amountInAcct = &d
+	}
+	return s, true, nil
+}
+
+func effectiveMoneyFor(ctx context.Context, q Querier, transactionID string) (*money.EffectiveMoney, error) {
+	s, ok, err := loadTransaction(ctx, q, transactionID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+	return money.SelectEffectiveMoney(s.amountInAcct, s.acctCurrency, s.amount, s.currencyCode), nil
+}
+
+func inclusionStateFor(s transactionSnapshot) money.InclusionState {
+	if s.inclusionState != nil && *s.inclusionState == string(money.Ignored) {
+		return money.Ignored
+	}
+	return money.Considered
+}
+
+// EligibleTransaction mirrors EligibleTransactionRow.
+type EligibleTransaction struct {
+	ID             string
+	OccurredAt     *time.Time
+	Description    *string
+	AccountName    *string
+	EffectiveMoney money.EffectiveMoney
+}
+
+// ListEligibleTransactions mirrors list_eligible_transactions: every
+// not-yet-linked transaction eligible to pay down a debt or settle a
+// receivable (per kind), optionally filtered by a case-insensitive
+// description search, newest first. "Not-yet-linked" is checked against
+// payable_transaction_links as a whole (not scoped to kind), since a
+// transaction settling a debt can never simultaneously settle a
+// receivable — one link per transaction, regardless of kind.
+func ListEligibleTransactions(ctx context.Context, q Querier, kind Kind, search *string, limit int) ([]EligibleTransaction, error) {
+	rows, err := q.QueryContext(ctx, `
+		SELECT ft.id, ft.description, ft.occurred_at, ft.movement_type, ft.amount, ft.amount_in_account_currency,
+			ft.currency_code, fa.currency_code, fa.name, tid.state
+		FROM financial_transactions ft
+		JOIN financial_accounts fa ON fa.id = ft.account_id
+		LEFT JOIN transaction_inclusion_decisions tid ON tid.transaction_id = ft.id
+		WHERE ft.id NOT IN (SELECT transaction_id FROM payable_transaction_links)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var needle string
+	if search != nil {
+		needle = strings.ToLower(strings.TrimSpace(*search))
+	}
+
+	type candidate struct {
+		row EligibleTransaction
+		key time.Time
+	}
+	var candidates []candidate
+	for rows.Next() {
+		var (
+			id                                      string
+			description, movementType, currencyCode sql.NullString
+			amountRaw, amountInAcctRaw              sql.NullString
+			occurredAtRaw                           sql.NullString
+			acctCurrency, acctName                  sql.NullString
+			inclusionState                          sql.NullString
+		)
+		if err := rows.Scan(&id, &description, &occurredAtRaw, &movementType, &amountRaw, &amountInAcctRaw,
+			&currencyCode, &acctCurrency, &acctName, &inclusionState); err != nil {
+			return nil, err
+		}
+		s := transactionSnapshot{}
+		if description.Valid {
+			s.description = &description.String
+		}
+		if movementType.Valid {
+			s.movementType = &movementType.String
+		}
+		if currencyCode.Valid {
+			s.currencyCode = &currencyCode.String
+		}
+		if acctCurrency.Valid {
+			s.acctCurrency = &acctCurrency.String
+		}
+		if acctName.Valid {
+			s.acctName = &acctName.String
+		}
+		if inclusionState.Valid {
+			s.inclusionState = &inclusionState.String
+		}
+		if occurredAtRaw.Valid {
+			t, err := db.ParseTime(occurredAtRaw.String)
+			if err != nil {
+				return nil, err
+			}
+			s.occurredAt = &t
+		}
+		if amountRaw.Valid {
+			d, err := decimal.NewFromString(amountRaw.String)
+			if err != nil {
+				return nil, err
+			}
+			s.amount = &d
+		}
+		if amountInAcctRaw.Valid {
+			d, err := decimal.NewFromString(amountInAcctRaw.String)
+			if err != nil {
+				return nil, err
+			}
+			s.amountInAcct = &d
+		}
+
+		classification := money.Classify(s.movementType)
+		eff := money.SelectEffectiveMoney(s.amountInAcct, s.acctCurrency, s.amount, s.currencyCode)
+		eligibility := EligibilityForLink(kind, classification, inclusionStateFor(s), eff, false)
+		if !eligibility.Eligible {
+			continue
+		}
+		if needle != "" && (s.description == nil || !strings.Contains(strings.ToLower(*s.description), needle)) {
+			continue
+		}
+		orderKey := time.Time{}
+		if s.occurredAt != nil {
+			orderKey = *s.occurredAt
+		}
+		candidates = append(candidates, candidate{
+			row: EligibleTransaction{ID: id, OccurredAt: s.occurredAt, Description: s.description, AccountName: s.acctName, EffectiveMoney: *eff},
+			key: orderKey,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].key.After(candidates[j].key) })
+	if limit > 0 && len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	result := make([]EligibleTransaction, len(candidates))
+	for i, c := range candidates {
+		result[i] = c.row
+	}
+	return result, nil
+}
+
+// CreateLinkStatus mirrors CreateLinkResult.status.
+type CreateLinkStatus string
+
+const (
+	StatusCreated             CreateLinkStatus = "created"
+	StatusPayableNotFound     CreateLinkStatus = "payable_not_found"
+	StatusTransactionNotFound CreateLinkStatus = "transaction_not_found"
+	StatusIneligible          CreateLinkStatus = "ineligible"
+	StatusConflict            CreateLinkStatus = "conflict"
+)
+
+// CreateLinkResult mirrors CreateLinkResult.
+type CreateLinkResult struct {
+	Status CreateLinkStatus
+	Link   *Link
+	Reason *LinkIneligibilityReason
+}
+
+// CreateLink mirrors create_link. payableID must already be known to have
+// kind — callers look the payable up first (they need it for other reasons
+// anyway) and pass its Kind through rather than this function re-fetching
+// it.
+func CreateLink(ctx context.Context, conn *sql.DB, kind Kind, payableID, transactionID string) (CreateLinkResult, error) {
+	if _, err := Get(ctx, conn, payableID); errors.Is(err, ErrNotFound) {
+		return CreateLinkResult{Status: StatusPayableNotFound}, nil
+	} else if err != nil {
+		return CreateLinkResult{}, err
+	}
+
+	snapshot, found, err := loadTransaction(ctx, conn, transactionID)
+	if err != nil {
+		return CreateLinkResult{}, err
+	}
+	if !found {
+		return CreateLinkResult{Status: StatusTransactionNotFound}, nil
+	}
+
+	var existingLinkID sql.NullString
+	if err := conn.QueryRowContext(ctx, `SELECT id FROM payable_transaction_links WHERE transaction_id = ?`, transactionID).Scan(&existingLinkID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return CreateLinkResult{}, err
+	}
+	alreadyLinked := existingLinkID.Valid
+
+	classification := money.Classify(snapshot.movementType)
+	eff := money.SelectEffectiveMoney(snapshot.amountInAcct, snapshot.acctCurrency, snapshot.amount, snapshot.currencyCode)
+	eligibility := EligibilityForLink(kind, classification, inclusionStateFor(snapshot), eff, alreadyLinked)
+	if eligibility.Reason != nil && *eligibility.Reason == ReasonAlreadyLinked {
+		return CreateLinkResult{Status: StatusConflict}, nil
+	}
+	if !eligibility.Eligible {
+		return CreateLinkResult{Status: StatusIneligible, Reason: eligibility.Reason}, nil
+	}
+
+	link := Link{ID: uuid.NewString(), PayableID: payableID, TransactionID: transactionID, LinkedAmount: eff.Value.Abs(), LinkedAt: time.Now().UTC()}
+	_, err = conn.ExecContext(ctx, `
+		INSERT INTO payable_transaction_links (id, payable_id, transaction_id, linked_amount, linked_at)
+		VALUES (?, ?, ?, ?, ?)`,
+		link.ID, link.PayableID, link.TransactionID, money.CanonicalDecimal(link.LinkedAmount), db.FormatTime(link.LinkedAt),
+	)
+	if err != nil {
+		// A UNIQUE violation here (transaction_id) means a concurrent
+		// caller won the race despite the already-linked check above —
+		// defense in depth, since SQLite's single-connection model (see
+		// internal/db) makes this practically unreachable.
+		return CreateLinkResult{Status: StatusConflict}, nil
+	}
+	return CreateLinkResult{Status: StatusCreated, Link: &link}, nil
+}
+
+// DeleteLink mirrors delete_link: returns found=false when linkID doesn't
+// exist under payableID (a 404 either way at the HTTP layer, but keeps the
+// scoping check explicit here rather than delegating it to a WHERE clause
+// that would silently no-op on a mismatched payable_id).
+func DeleteLink(ctx context.Context, conn *sql.DB, payableID, linkID string) (bool, error) {
+	var storedPayableID string
+	err := conn.QueryRowContext(ctx, `SELECT payable_id FROM payable_transaction_links WHERE id = ?`, linkID).Scan(&storedPayableID)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && storedPayableID != payableID) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if _, err := conn.ExecContext(ctx, `DELETE FROM payable_transaction_links WHERE id = ?`, linkID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// UnlinkIfPresent mirrors unlink_if_present. Its signature matches
+// transactions.OnIgnoredHook exactly, so it can be passed directly wherever
+// one is needed (transactions.SetInclusion, automation's apply paths, and
+// the sync pipeline via automation.NewTransactionHook) without an adapter.
+func UnlinkIfPresent(ctx context.Context, q transactions.Querier, transactionID string) error {
+	_, err := q.ExecContext(ctx, `DELETE FROM payable_transaction_links WHERE transaction_id = ?`, transactionID)
+	return err
+}

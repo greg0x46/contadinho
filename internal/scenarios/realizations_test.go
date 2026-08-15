@@ -10,15 +10,15 @@ import (
 	"github.com/google/uuid"
 
 	"contadinho-go/internal/db"
-	"contadinho-go/internal/debts"
+	"contadinho-go/internal/payables"
 	"contadinho-go/internal/scenarios"
 )
 
 // linkFixture creates the minimal sync-schema chain plus one
 // financial_transactions row and links it to debtID, mirroring
-// internal/debts/store_test.go's fixture (not importable here since it's
-// unexported in an external test package).
-func linkFixture(t *testing.T, conn *sql.DB, debtID, amount string) debts.Link {
+// internal/payables/store_test.go's fixture (not importable here since
+// it's unexported in an external test package).
+func linkFixture(t *testing.T, conn *sql.DB, debtID, amount string) payables.Link {
 	t.Helper()
 	ctx := context.Background()
 	now := db.FormatTime(time.Now())
@@ -54,11 +54,11 @@ func linkFixture(t *testing.T, conn *sql.DB, debtID, amount string) debts.Link {
 		) VALUES (?, ?, ?, ?, 'Pagamento', ?, ?, 'BRL', ?, 'POSTED', 'DEBIT', ?, 'hash', ?, ?)`,
 		txID, sourceID, accountID, txID, amount, amount, now, rawImportID, now, now)
 
-	result, err := debts.CreateLink(ctx, conn, debtID, txID)
+	result, err := payables.CreateLink(ctx, conn, payables.KindDebt, debtID, txID)
 	if err != nil {
 		t.Fatalf("CreateLink: %v", err)
 	}
-	if result.Status != debts.StatusCreated {
+	if result.Status != payables.StatusCreated {
 		t.Fatalf("CreateLink status = %s", result.Status)
 	}
 	return *result.Link
@@ -68,16 +68,16 @@ func TestCreateRealizationAndRealizedTotal(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()
 	d := newDebt(t, conn)
-	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID, nil)
+	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
 	st, _ := scenarios.CreateScenarioTransaction(ctx, conn, s.ID, "Parcela 1", dec(t, "400.00"), date(t, "2026-09-01"), nil)
 
 	link1 := linkFixture(t, conn, d.ID, "-150.00")
 	link2 := linkFixture(t, conn, d.ID, "-250.00")
 
-	if _, err := scenarios.CreateRealization(ctx, conn, st.ID, &link1.ID, nil, dec(t, "150.00")); err != nil {
+	if _, err := scenarios.CreateRealization(ctx, conn, st.ID, &link1.ID, dec(t, "150.00")); err != nil {
 		t.Fatalf("CreateRealization: %v", err)
 	}
-	if _, err := scenarios.CreateRealization(ctx, conn, st.ID, &link2.ID, nil, dec(t, "250.00")); err != nil {
+	if _, err := scenarios.CreateRealization(ctx, conn, st.ID, &link2.ID, dec(t, "250.00")); err != nil {
 		t.Fatalf("CreateRealization: %v", err)
 	}
 
@@ -102,7 +102,7 @@ func TestRealizedTotalIsZeroWithNoAllocations(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()
 	d := newDebt(t, conn)
-	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID, nil)
+	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
 	st, _ := scenarios.CreateScenarioTransaction(ctx, conn, s.ID, "Parcela 1", dec(t, "400.00"), date(t, "2026-09-01"), nil)
 
 	total, err := scenarios.RealizedTotal(ctx, conn, st.ID)
@@ -118,10 +118,10 @@ func TestDeleteRealization(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()
 	d := newDebt(t, conn)
-	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID, nil)
+	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
 	st, _ := scenarios.CreateScenarioTransaction(ctx, conn, s.ID, "Parcela 1", dec(t, "400.00"), date(t, "2026-09-01"), nil)
 	link := linkFixture(t, conn, d.ID, "-400.00")
-	realization, err := scenarios.CreateRealization(ctx, conn, st.ID, &link.ID, nil, dec(t, "400.00"))
+	realization, err := scenarios.CreateRealization(ctx, conn, st.ID, &link.ID, dec(t, "400.00"))
 	if err != nil {
 		t.Fatalf("CreateRealization: %v", err)
 	}
@@ -166,11 +166,11 @@ func TestCreateRealizationRejectsUnknownDebtLink(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()
 	d := newDebt(t, conn)
-	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID, nil)
+	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
 	st, _ := scenarios.CreateScenarioTransaction(ctx, conn, s.ID, "Parcela 1", dec(t, "400.00"), date(t, "2026-09-01"), nil)
 
 	unknownLink := "unknown-link"
-	if _, err := scenarios.CreateRealization(ctx, conn, st.ID, &unknownLink, nil, dec(t, "100.00")); err == nil {
+	if _, err := scenarios.CreateRealization(ctx, conn, st.ID, &unknownLink, dec(t, "100.00")); err == nil {
 		t.Error("CreateRealization() with an unknown debt_link_id should fail the FK constraint")
 	}
 }

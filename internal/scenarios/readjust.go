@@ -47,8 +47,8 @@ var ErrInvalidStrategy = errors.New("invalid readjustment strategy")
 // remainingAmount − Σ(amount − realizedTotal) of the installments left
 // untouched — every installment with *any* allocation, even partial, is
 // preserved exactly as-is and never touched here. remainingAmount is the
-// caller-supplied debts.RemainingAmount for the scenario's debt; this
-// package has no dependency on internal/debts, so it's passed in rather
+// caller-supplied payables.RemainingAmount for the scenario's payable; this
+// package has no dependency on internal/payables, so it's passed in rather
 // than recomputed here.
 func Readjust(ctx context.Context, conn *sql.DB, scenarioID string, remainingAmount decimal.Decimal, strategy ReadjustStrategy) ([]ScenarioTransaction, error) {
 	if strategy != StrategyReduceTerm && strategy != StrategyRedistribute {
@@ -69,8 +69,15 @@ func Readjust(ctx context.Context, conn *sql.DB, scenarioID string, remainingAmo
 		}
 		if realizedTotal.IsZero() {
 			affected = append(affected, st)
-		} else {
-			reserved = reserved.Add(st.Amount.Sub(realizedTotal))
+		} else if shortfall := st.Amount.Sub(realizedTotal); shortfall.IsPositive() {
+			// Only an unpaid shortfall needs to be reserved so it isn't
+			// double-counted against remainingAmount. An overpaid kept
+			// installment (shortfall negative) must NOT reduce reserved
+			// below zero — remainingAmount already gives full credit for
+			// the overpayment, so letting a negative shortfall inflate
+			// balance here would double-credit it and cancel out the very
+			// abatement the user is asking for.
+			reserved = reserved.Add(shortfall)
 		}
 	}
 	if len(affected) == 0 {

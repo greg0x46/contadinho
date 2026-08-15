@@ -26,24 +26,14 @@ const AutomationRulesPage = lazy(() =>
     default: module.AutomationRulesPage,
   })),
 );
-const DebtsPage = lazy(() =>
-  import("../pages/DebtsPage").then((module) => ({
-    default: module.DebtsPage,
+const PayablesPage = lazy(() =>
+  import("../pages/PayablesPage").then((module) => ({
+    default: module.PayablesPage,
   })),
 );
-const DebtDetailPage = lazy(() =>
-  import("../pages/DebtDetailPage").then((module) => ({
-    default: module.DebtDetailPage,
-  })),
-);
-const ReceivablesPage = lazy(() =>
-  import("../pages/ReceivablesPage").then((module) => ({
-    default: module.ReceivablesPage,
-  })),
-);
-const ReceivableDetailPage = lazy(() =>
-  import("../pages/ReceivableDetailPage").then((module) => ({
-    default: module.ReceivableDetailPage,
+const PayableDetailPage = lazy(() =>
+  import("../pages/PayableDetailPage").then((module) => ({
+    default: module.PayableDetailPage,
   })),
 );
 const CategoriesPage = lazy(() =>
@@ -84,10 +74,8 @@ export function AppRouter() {
             <Route path="open-banking/sync-runs/:id" element={<SyncRunDetailPage />} />
             <Route path="transacoes" element={<TransactionsPage />} />
             <Route path="automacoes" element={<AutomationRulesPage />} />
-            <Route path="dividas" element={<DebtsPage />} />
-            <Route path="dividas/:id" element={<DebtDetailPage />} />
-            <Route path="contas-a-receber" element={<ReceivablesPage />} />
-            <Route path="contas-a-receber/:id" element={<ReceivableDetailPage />} />
+            <Route path="pendencias" element={<PayablesPage />} />
+            <Route path="pendencias/:id" element={<PayableDetailPage />} />
             <Route path="investimentos" element={<InvestmentsPage />} />
             <Route path="investimentos/:id" element={<InvestmentDetailPage />} />
             <Route path="categorias" element={<CategoriesPage />} />

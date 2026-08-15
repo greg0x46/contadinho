@@ -978,23 +978,27 @@ export function parseSyncRunList(value: unknown): SyncRun[] {
   return value.map(parseSyncRun);
 }
 
-export const debtStatuses = ["open", "settled"] as const;
-export type DebtStatus = (typeof debtStatuses)[number];
+export const payableKinds = ["debt", "receivable"] as const;
+export type PayableKind = (typeof payableKinds)[number];
 
-export interface Debt {
+export const payableStatuses = ["open", "settled"] as const;
+export type PayableStatus = (typeof payableStatuses)[number];
+
+export interface Payable {
   id: string;
+  kind: PayableKind;
   name: string;
   total_amount: string;
-  starting_paid_amount: string;
-  paid_amount: string;
+  starting_settled_amount: string;
+  settled_amount: string;
   remaining_amount: string;
-  status: DebtStatus;
+  status: PayableStatus;
   link_count: number;
   created_at: string;
   updated_at: string;
 }
 
-export interface DebtLinkedTransaction {
+export interface PayableLinkedTransaction {
   id: string;
   transaction_id: string;
   occurred_at: string | null;
@@ -1004,8 +1008,8 @@ export interface DebtLinkedTransaction {
   linked_at: string;
 }
 
-export interface DebtDetail extends Debt {
-  links: DebtLinkedTransaction[];
+export interface PayableDetail extends Payable {
+  links: PayableLinkedTransaction[];
 }
 
 export interface EligibleTransaction {
@@ -1016,34 +1020,36 @@ export interface EligibleTransaction {
   effective_money: { value: string; currency_code: string };
 }
 
-export interface DebtCreate {
+export interface PayableCreate {
+  kind: PayableKind;
   name: string;
   total_amount: number;
   initial_remaining_amount?: number | null;
 }
 
-export interface DebtUpdate {
+export interface PayableUpdate {
   name: string;
   total_amount: number;
 }
 
-export interface DebtLinkCreate {
+export interface PayableLinkCreate {
   transaction_id: string;
 }
 
-export interface DebtLink {
+export interface PayableLink {
   id: string;
   transaction_id: string;
   linked_amount: string;
   linked_at: string;
 }
 
-const debtKeys = [
+const payableKeys = [
   "id",
+  "kind",
   "name",
   "total_amount",
-  "starting_paid_amount",
-  "paid_amount",
+  "starting_settled_amount",
+  "settled_amount",
   "remaining_amount",
   "status",
   "link_count",
@@ -1051,52 +1057,54 @@ const debtKeys = [
   "updated_at",
 ] as const;
 
-function debtFieldsFrom(debt: Record<string, unknown>): Debt {
+function payableFieldsFrom(payable: Record<string, unknown>): Payable {
   if (
-    typeof debt.id !== "string" ||
-    !isUuid(debt.id) ||
-    typeof debt.name !== "string" ||
-    debt.name === "" ||
-    !debtStatuses.includes(debt.status as DebtStatus) ||
-    !isCount(debt.link_count) ||
-    !isValidDate(debt.created_at) ||
-    !isValidDate(debt.updated_at)
+    typeof payable.id !== "string" ||
+    !isUuid(payable.id) ||
+    !payableKinds.includes(payable.kind as PayableKind) ||
+    typeof payable.name !== "string" ||
+    payable.name === "" ||
+    !payableStatuses.includes(payable.status as PayableStatus) ||
+    !isCount(payable.link_count) ||
+    !isValidDate(payable.created_at) ||
+    !isValidDate(payable.updated_at)
   ) {
-    throw new TypeError("Dívida inválida.");
+    throw new TypeError("Pendência inválida.");
   }
   return {
-    id: debt.id,
-    name: debt.name,
-    total_amount: decimal(debt.total_amount),
-    starting_paid_amount: decimal(debt.starting_paid_amount),
-    paid_amount: decimal(debt.paid_amount),
-    remaining_amount: decimal(debt.remaining_amount),
-    status: debt.status as DebtStatus,
-    link_count: debt.link_count,
-    created_at: debt.created_at,
-    updated_at: debt.updated_at,
+    id: payable.id,
+    kind: payable.kind as PayableKind,
+    name: payable.name,
+    total_amount: decimal(payable.total_amount),
+    starting_settled_amount: decimal(payable.starting_settled_amount),
+    settled_amount: decimal(payable.settled_amount),
+    remaining_amount: decimal(payable.remaining_amount),
+    status: payable.status as PayableStatus,
+    link_count: payable.link_count,
+    created_at: payable.created_at,
+    updated_at: payable.updated_at,
   };
 }
 
-export function parseDebt(value: unknown): Debt {
-  return debtFieldsFrom(requiredRecord(value, debtKeys, "Dívida inválida."));
+export function parsePayable(value: unknown): Payable {
+  return payableFieldsFrom(requiredRecord(value, payableKeys, "Pendência inválida."));
 }
 
-export function parseDebtList(value: unknown): Debt[] {
+export function parsePayableList(value: unknown): Payable[] {
   if (!Array.isArray(value)) {
-    throw new TypeError("Lista de dívidas inválida.");
+    throw new TypeError("Lista de pendências inválida.");
   }
-  return value.map(parseDebt);
+  return value.map(parsePayable);
 }
 
-export interface DebtTotalOwed {
+export interface PayableTotalOwed {
   remaining_debts_total: string;
   future_installments_total: string;
   total_owed: string;
   currency_code: string;
 }
 
-export function parseDebtTotalOwed(value: unknown): DebtTotalOwed {
+export function parsePayableTotalOwed(value: unknown): PayableTotalOwed {
   const item = requiredRecord(
     value,
     ["remaining_debts_total", "future_installments_total", "total_owed", "currency_code"],
@@ -1113,7 +1121,29 @@ export function parseDebtTotalOwed(value: unknown): DebtTotalOwed {
   };
 }
 
-function parseDebtLinkedTransaction(value: unknown): DebtLinkedTransaction {
+export interface PayableTotalToReceive {
+  remaining_receivables_total: string;
+  total_to_receive: string;
+  currency_code: string;
+}
+
+export function parsePayableTotalToReceive(value: unknown): PayableTotalToReceive {
+  const item = requiredRecord(
+    value,
+    ["remaining_receivables_total", "total_to_receive", "currency_code"],
+    "Total a receber inválido.",
+  );
+  if (typeof item.currency_code !== "string" || item.currency_code === "") {
+    throw new TypeError("Total a receber inválido.");
+  }
+  return {
+    remaining_receivables_total: decimal(item.remaining_receivables_total),
+    total_to_receive: decimal(item.total_to_receive),
+    currency_code: item.currency_code,
+  };
+}
+
+function parsePayableLinkedTransaction(value: unknown): PayableLinkedTransaction {
   const link = requiredRecord(
     value,
     [
@@ -1125,7 +1155,7 @@ function parseDebtLinkedTransaction(value: unknown): DebtLinkedTransaction {
       "current_amount",
       "linked_at",
     ],
-    "Vínculo de dívida inválido.",
+    "Vínculo inválido.",
   );
   if (
     typeof link.id !== "string" ||
@@ -1136,7 +1166,7 @@ function parseDebtLinkedTransaction(value: unknown): DebtLinkedTransaction {
     !isNullableString(link.description) ||
     !isValidDate(link.linked_at)
   ) {
-    throw new TypeError("Vínculo de dívida inválido.");
+    throw new TypeError("Vínculo inválido.");
   }
   return {
     id: link.id,
@@ -1149,12 +1179,35 @@ function parseDebtLinkedTransaction(value: unknown): DebtLinkedTransaction {
   };
 }
 
-export function parseDebtDetail(value: unknown): DebtDetail {
-  const detail = requiredRecord(value, [...debtKeys, "links"], "Detalhe de dívida inválido.");
+export function parsePayableDetail(value: unknown): PayableDetail {
+  const detail = requiredRecord(value, [...payableKeys, "links"], "Detalhe de pendência inválido.");
   if (!Array.isArray(detail.links)) {
-    throw new TypeError("Detalhe de dívida inválido.");
+    throw new TypeError("Detalhe de pendência inválido.");
   }
-  return { ...debtFieldsFrom(detail), links: detail.links.map(parseDebtLinkedTransaction) };
+  return { ...payableFieldsFrom(detail), links: detail.links.map(parsePayableLinkedTransaction) };
+}
+
+export function parsePayableLink(value: unknown): PayableLink {
+  const link = requiredRecord(
+    value,
+    ["id", "transaction_id", "linked_amount", "linked_at"],
+    "Vínculo inválido.",
+  );
+  if (
+    typeof link.id !== "string" ||
+    !isUuid(link.id) ||
+    typeof link.transaction_id !== "string" ||
+    !isUuid(link.transaction_id) ||
+    !isValidDate(link.linked_at)
+  ) {
+    throw new TypeError("Vínculo inválido.");
+  }
+  return {
+    id: link.id,
+    transaction_id: link.transaction_id,
+    linked_amount: decimal(link.linked_amount),
+    linked_at: link.linked_at,
+  };
 }
 
 export function parseEligibleTransaction(value: unknown): EligibleTransaction {
@@ -1195,228 +1248,6 @@ export function parseEligibleTransactionList(value: unknown): EligibleTransactio
   return value.map(parseEligibleTransaction);
 }
 
-export const receivableStatuses = ["open", "settled"] as const;
-export type ReceivableStatus = (typeof receivableStatuses)[number];
-
-export interface Receivable {
-  id: string;
-  name: string;
-  total_amount: string;
-  starting_received_amount: string;
-  received_amount: string;
-  remaining_amount: string;
-  status: ReceivableStatus;
-  link_count: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ReceivableLinkedTransaction {
-  id: string;
-  transaction_id: string;
-  occurred_at: string | null;
-  description: string | null;
-  linked_amount: string;
-  current_amount: string;
-  linked_at: string;
-}
-
-export interface ReceivableDetail extends Receivable {
-  links: ReceivableLinkedTransaction[];
-}
-
-export interface ReceivableCreate {
-  name: string;
-  total_amount: number;
-  initial_remaining_amount?: number | null;
-}
-
-export interface ReceivableUpdate {
-  name: string;
-  total_amount: number;
-}
-
-export interface ReceivableLinkCreate {
-  transaction_id: string;
-}
-
-export interface ReceivableLink {
-  id: string;
-  transaction_id: string;
-  linked_amount: string;
-  linked_at: string;
-}
-
-const receivableKeys = [
-  "id",
-  "name",
-  "total_amount",
-  "starting_received_amount",
-  "received_amount",
-  "remaining_amount",
-  "status",
-  "link_count",
-  "created_at",
-  "updated_at",
-] as const;
-
-function receivableFieldsFrom(receivable: Record<string, unknown>): Receivable {
-  if (
-    typeof receivable.id !== "string" ||
-    !isUuid(receivable.id) ||
-    typeof receivable.name !== "string" ||
-    receivable.name === "" ||
-    !receivableStatuses.includes(receivable.status as ReceivableStatus) ||
-    !isCount(receivable.link_count) ||
-    !isValidDate(receivable.created_at) ||
-    !isValidDate(receivable.updated_at)
-  ) {
-    throw new TypeError("Conta a receber inválida.");
-  }
-  return {
-    id: receivable.id,
-    name: receivable.name,
-    total_amount: decimal(receivable.total_amount),
-    starting_received_amount: decimal(receivable.starting_received_amount),
-    received_amount: decimal(receivable.received_amount),
-    remaining_amount: decimal(receivable.remaining_amount),
-    status: receivable.status as ReceivableStatus,
-    link_count: receivable.link_count,
-    created_at: receivable.created_at,
-    updated_at: receivable.updated_at,
-  };
-}
-
-export function parseReceivable(value: unknown): Receivable {
-  return receivableFieldsFrom(requiredRecord(value, receivableKeys, "Conta a receber inválida."));
-}
-
-export function parseReceivableList(value: unknown): Receivable[] {
-  if (!Array.isArray(value)) {
-    throw new TypeError("Lista de contas a receber inválida.");
-  }
-  return value.map(parseReceivable);
-}
-
-export interface ReceivableTotalToReceive {
-  remaining_receivables_total: string;
-  total_to_receive: string;
-  currency_code: string;
-}
-
-export function parseReceivableTotalToReceive(value: unknown): ReceivableTotalToReceive {
-  const item = requiredRecord(
-    value,
-    ["remaining_receivables_total", "total_to_receive", "currency_code"],
-    "Total a receber inválido.",
-  );
-  if (typeof item.currency_code !== "string" || item.currency_code === "") {
-    throw new TypeError("Total a receber inválido.");
-  }
-  return {
-    remaining_receivables_total: decimal(item.remaining_receivables_total),
-    total_to_receive: decimal(item.total_to_receive),
-    currency_code: item.currency_code,
-  };
-}
-
-function parseReceivableLinkedTransaction(value: unknown): ReceivableLinkedTransaction {
-  const link = requiredRecord(
-    value,
-    [
-      "id",
-      "transaction_id",
-      "occurred_at",
-      "description",
-      "linked_amount",
-      "current_amount",
-      "linked_at",
-    ],
-    "Vínculo de conta a receber inválido.",
-  );
-  if (
-    typeof link.id !== "string" ||
-    !isUuid(link.id) ||
-    typeof link.transaction_id !== "string" ||
-    !isUuid(link.transaction_id) ||
-    !(link.occurred_at === null || isValidDate(link.occurred_at)) ||
-    !isNullableString(link.description) ||
-    !isValidDate(link.linked_at)
-  ) {
-    throw new TypeError("Vínculo de conta a receber inválido.");
-  }
-  return {
-    id: link.id,
-    transaction_id: link.transaction_id,
-    occurred_at: link.occurred_at as string | null,
-    description: nullableText(link.description),
-    linked_amount: decimal(link.linked_amount),
-    current_amount: decimal(link.current_amount),
-    linked_at: link.linked_at,
-  };
-}
-
-export function parseReceivableDetail(value: unknown): ReceivableDetail {
-  const detail = requiredRecord(
-    value,
-    [...receivableKeys, "links"],
-    "Detalhe de conta a receber inválido.",
-  );
-  if (!Array.isArray(detail.links)) {
-    throw new TypeError("Detalhe de conta a receber inválido.");
-  }
-  return {
-    ...receivableFieldsFrom(detail),
-    links: detail.links.map(parseReceivableLinkedTransaction),
-  };
-}
-
-export function parseReceivableLink(value: unknown): ReceivableLink {
-  const link = requiredRecord(
-    value,
-    ["id", "transaction_id", "linked_amount", "linked_at"],
-    "Vínculo inválido.",
-  );
-  if (
-    typeof link.id !== "string" ||
-    !isUuid(link.id) ||
-    typeof link.transaction_id !== "string" ||
-    !isUuid(link.transaction_id) ||
-    !isValidDate(link.linked_at)
-  ) {
-    throw new TypeError("Vínculo inválido.");
-  }
-  return {
-    id: link.id,
-    transaction_id: link.transaction_id,
-    linked_amount: decimal(link.linked_amount),
-    linked_at: link.linked_at,
-  };
-}
-
-export function parseDebtLink(value: unknown): DebtLink {
-  const link = requiredRecord(
-    value,
-    ["id", "transaction_id", "linked_amount", "linked_at"],
-    "Vínculo inválido.",
-  );
-  if (
-    typeof link.id !== "string" ||
-    !isUuid(link.id) ||
-    typeof link.transaction_id !== "string" ||
-    !isUuid(link.transaction_id) ||
-    !isValidDate(link.linked_at)
-  ) {
-    throw new TypeError("Vínculo inválido.");
-  }
-  return {
-    id: link.id,
-    transaction_id: link.transaction_id,
-    linked_amount: decimal(link.linked_amount),
-    linked_at: link.linked_at,
-  };
-}
-
 export const scenarioKinds = ["debt_plan", "receivable_plan"] as const;
 export type ScenarioKind = (typeof scenarioKinds)[number];
 
@@ -1424,8 +1255,7 @@ export interface Scenario {
   id: string;
   kind: ScenarioKind;
   name: string;
-  debt_id: string | null;
-  receivable_id: string | null;
+  payable_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -1441,8 +1271,7 @@ export type ScenarioTransactionStatus = (typeof scenarioTransactionStatuses)[num
 
 export interface Realization {
   id: string;
-  debt_link_id: string | null;
-  receivable_link_id: string | null;
+  payable_link_id: string | null;
   allocated_amount: string;
   created_at: string;
 }
@@ -1474,11 +1303,10 @@ export interface ScenarioTransactionWrite {
   category?: string | null;
 }
 
-// RealizationWrite carries exactly one of debt_link_id/receivable_link_id,
-// matching the scenario's own kind — never both, never neither.
-export type RealizationWrite =
-  | { debt_link_id: string; receivable_link_id?: undefined; allocated_amount: number }
-  | { debt_link_id?: undefined; receivable_link_id: string; allocated_amount: number };
+export interface RealizationWrite {
+  payable_link_id: string;
+  allocated_amount: number;
+}
 
 export const cadences = ["mensal", "semanal", "quinzenal"] as const;
 export type Cadence = (typeof cadences)[number];
@@ -1497,15 +1325,7 @@ export interface ReadjustWrite {
   strategy: ReadjustStrategy;
 }
 
-const scenarioKeys = [
-  "id",
-  "kind",
-  "name",
-  "debt_id",
-  "receivable_id",
-  "created_at",
-  "updated_at",
-] as const;
+const scenarioKeys = ["id", "kind", "name", "payable_id", "created_at", "updated_at"] as const;
 
 function isNullableUuid(value: unknown): value is string | null {
   return value === null || (typeof value === "string" && isUuid(value));
@@ -1518,8 +1338,7 @@ function scenarioFieldsFrom(scenario: Record<string, unknown>): Scenario {
     !scenarioKinds.includes(scenario.kind as ScenarioKind) ||
     typeof scenario.name !== "string" ||
     scenario.name === "" ||
-    !isNullableUuid(scenario.debt_id) ||
-    !isNullableUuid(scenario.receivable_id) ||
+    !isNullableUuid(scenario.payable_id) ||
     !isValidDate(scenario.created_at) ||
     !isValidDate(scenario.updated_at)
   ) {
@@ -1529,8 +1348,7 @@ function scenarioFieldsFrom(scenario: Record<string, unknown>): Scenario {
     id: scenario.id,
     kind: scenario.kind as ScenarioKind,
     name: scenario.name,
-    debt_id: scenario.debt_id as string | null,
-    receivable_id: scenario.receivable_id as string | null,
+    payable_id: scenario.payable_id as string | null,
     created_at: scenario.created_at,
     updated_at: scenario.updated_at,
   };
@@ -1547,29 +1365,21 @@ export function parseScenarioList(value: unknown): Scenario[] {
   return value.map(parseScenario);
 }
 
-const realizationKeys = [
-  "id",
-  "debt_link_id",
-  "receivable_link_id",
-  "allocated_amount",
-  "created_at",
-] as const;
+const realizationKeys = ["id", "payable_link_id", "allocated_amount", "created_at"] as const;
 
 function parseRealization(value: unknown): Realization {
   const item = requiredRecord(value, realizationKeys, "Alocação inválida.");
   if (
     typeof item.id !== "string" ||
     !isUuid(item.id) ||
-    !isNullableUuid(item.debt_link_id) ||
-    !isNullableUuid(item.receivable_link_id) ||
+    !isNullableUuid(item.payable_link_id) ||
     !isValidDate(item.created_at)
   ) {
     throw new TypeError("Alocação inválida.");
   }
   return {
     id: item.id,
-    debt_link_id: item.debt_link_id as string | null,
-    receivable_link_id: item.receivable_link_id as string | null,
+    payable_link_id: item.payable_link_id as string | null,
     allocated_amount: decimal(item.allocated_amount),
     created_at: item.created_at,
   };

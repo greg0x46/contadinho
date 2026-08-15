@@ -1,11 +1,11 @@
 // Package scenarios implements hypothetical, user-authored projections
 // layered on top of real data — see
 // .specs/plano-pagamento-e-cenarios-projecao.md. A Scenario groups a set of
-// ScenarioTransaction "planned installments"; in this v1 the only kind is
-// "debt_plan", a payment plan attached to a debts.Debt. Nothing here changes
-// how internal/debts computes paid/remaining amounts — a scenario is a
-// read-layer projection, never a source of real totals, unless a caller
-// explicitly opts in (see the transactions package's scenario_id union).
+// ScenarioTransaction "planned installments" attached to a
+// payables.Payable. Nothing here changes how internal/payables computes
+// settled/remaining amounts — a scenario is a read-layer projection, never
+// a source of real totals, unless a caller explicitly opts in (see the
+// transactions package's scenario_id union).
 package scenarios
 
 import (
@@ -14,10 +14,11 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// Kind is the scenario's flavor: a payment plan attached to a debts.Debt,
-// or the mirror-image collection plan attached to a receivables.Receivable.
-// "what_if" (a free-standing scenario with no debt_id/receivable_id) is
-// left as a possible future kind, per the spec's non-goals.
+// Kind is the scenario's flavor: a payment plan attached to a
+// payables.Payable of KindDebt, or the mirror-image collection plan
+// attached to one of KindReceivable. "what_if" (a free-standing scenario
+// with no payable_id) is left as a possible future kind, per the spec's
+// non-goals.
 type Kind string
 
 const (
@@ -25,16 +26,17 @@ const (
 	KindReceivablePlan Kind = "receivable_plan"
 )
 
-// Scenario mirrors the scenarios table. Exactly one of DebtID/ReceivableID
-// is set, matching the Kind — enforced by the schema's CHECK constraints.
+// Scenario mirrors the scenarios table. PayableID is required — enforced
+// by the schema's CHECK constraint — and its payable's Kind must agree with
+// Kind, validated at the HTTP layer (a cross-table CHECK isn't available in
+// SQLite).
 type Scenario struct {
-	ID           string
-	Kind         Kind
-	Name         string
-	DebtID       *string
-	ReceivableID *string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID        string
+	Kind      Kind
+	Name      string
+	PayableID *string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // ScenarioTransaction mirrors the scenario_transactions table: a single
@@ -52,21 +54,19 @@ type ScenarioTransaction struct {
 }
 
 // ScenarioTransactionRealization mirrors the scenario_transaction_realizations
-// table: (part of) a real debt_transaction_links or
-// receivable_transaction_links row allocated to a planned installment.
-// Exactly one of DebtLinkID/ReceivableLinkID is set, matching the parent
-// scenario's Kind — enforced by the schema's CHECK constraint.
+// table: (part of) a real payable_transaction_links row allocated to a
+// planned installment. PayableLinkID is required — enforced by the
+// schema's CHECK constraint.
 type ScenarioTransactionRealization struct {
 	ID                    string
 	ScenarioTransactionID string
-	DebtLinkID            *string
-	ReceivableLinkID      *string
+	PayableLinkID         *string
 	AllocatedAmount       decimal.Decimal
 	CreatedAt             time.Time
 }
 
 // Status is a ScenarioTransaction's recomputed-on-read state — never
-// persisted, mirroring debts.Status's pattern.
+// persisted, mirroring payables.Status's pattern.
 type Status string
 
 const (
