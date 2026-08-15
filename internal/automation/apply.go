@@ -87,8 +87,8 @@ func ApplyToNewTransaction(
 }
 
 // NewTransactionHook adapts ApplyToNewTransaction to
-// syncsvc.TransactionUpsertedHook, closing over onIgnored (the debts-unlink
-// hook from package debts, once phase 6 provides one; nil is a valid no-op).
+// syncsvc.TransactionUpsertedHook, closing over onIgnored (the
+// payable-unlink hook from package payables; nil is a valid no-op).
 func NewTransactionHook(onIgnored transactions.OnIgnoredHook) syncsvc.TransactionUpsertedHook {
 	return func(ctx context.Context, conn *sql.DB, transactionID, _ string) error {
 		return ApplyToNewTransaction(ctx, conn, transactionID, onIgnored)

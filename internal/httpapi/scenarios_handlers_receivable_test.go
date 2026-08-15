@@ -50,7 +50,7 @@ func insertInflowTransaction(t *testing.T, conn *sql.DB) string {
 func TestReceivableScenarioLifecycleOverHTTP(t *testing.T) {
 	srv, conn := newTestServer(t)
 
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/receivables", map[string]any{"name": "Empréstimo para Ana", "total_amount": "1200.00"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "receivable", "name": "Empréstimo para Ana", "total_amount": "1200.00"})
 	if resp.StatusCode != 201 {
 		t.Fatalf("create receivable status = %d, want 201", resp.StatusCode)
 	}
@@ -58,18 +58,18 @@ func TestReceivableScenarioLifecycleOverHTTP(t *testing.T) {
 	decodeJSON(t, resp, &rec)
 	receivableID := rec["id"].(string)
 
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/receivables/"+receivableID+"/scenarios", map[string]any{"name": "Plano de recebimento"})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+receivableID+"/scenarios", map[string]any{"name": "Plano de recebimento"})
 	if resp.StatusCode != 201 {
 		t.Fatalf("create scenario status = %d, want 201", resp.StatusCode)
 	}
 	var scenario map[string]any
 	decodeJSON(t, resp, &scenario)
 	scenarioID := scenario["id"].(string)
-	if scenario["kind"] != "receivable_plan" || scenario["receivable_id"] != receivableID {
+	if scenario["kind"] != "receivable_plan" || scenario["payable_id"] != receivableID {
 		t.Errorf("scenario = %+v", scenario)
 	}
 
-	resp = doJSON(t, http.MethodGet, srv.URL+"/api/receivables/"+receivableID+"/scenarios", nil)
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/payables/"+receivableID+"/scenarios", nil)
 	if resp.StatusCode != 200 {
 		t.Fatalf("list scenarios status = %d, want 200", resp.StatusCode)
 	}
@@ -93,7 +93,7 @@ func TestReceivableScenarioLifecycleOverHTTP(t *testing.T) {
 	transactionID := installments[0]["id"].(string)
 
 	txID := insertInflowTransaction(t, conn)
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/receivables/"+receivableID+"/links", map[string]any{"transaction_id": txID})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+receivableID+"/links", map[string]any{"transaction_id": txID})
 	if resp.StatusCode != 201 {
 		t.Fatalf("create link status = %d, want 201", resp.StatusCode)
 	}
@@ -102,7 +102,7 @@ func TestReceivableScenarioLifecycleOverHTTP(t *testing.T) {
 	linkID := link["id"].(string)
 
 	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/transactions/"+transactionID+"/realizations", map[string]any{
-		"receivable_link_id": linkID, "allocated_amount": "42.00",
+		"payable_link_id": linkID, "allocated_amount": "42.00",
 	})
 	if resp.StatusCode != 201 {
 		t.Fatalf("create realization status = %d, want 201", resp.StatusCode)
@@ -110,18 +110,19 @@ func TestReceivableScenarioLifecycleOverHTTP(t *testing.T) {
 	var updated map[string]any
 	decodeJSON(t, resp, &updated)
 	realizations := updated["realizations"].([]any)
-	if len(realizations) != 1 || realizations[0].(map[string]any)["receivable_link_id"] != linkID {
+	if len(realizations) != 1 || realizations[0].(map[string]any)["payable_link_id"] != linkID {
 		t.Errorf("realizations = %+v", realizations)
 	}
 }
 
-func TestRealizationRejectsBothOrNeitherLinkKind(t *testing.T) {
-	srv, _ := newTestServer(t)
+func TestRealizationRejectsMissingOrForeignLink(t *testing.T) {
+	srv, conn := newTestServer(t)
 
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/receivables", map[string]any{"name": "Empréstimo", "total_amount": "1000.00"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "receivable", "name": "Empréstimo", "total_amount": "1000.00"})
 	var rec map[string]any
 	decodeJSON(t, resp, &rec)
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/receivables/"+rec["id"].(string)+"/scenarios", map[string]any{"name": "Plano"})
+	receivableID := rec["id"].(string)
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+receivableID+"/scenarios", map[string]any{"name": "Plano"})
 	var scenario map[string]any
 	decodeJSON(t, resp, &scenario)
 	scenarioID := scenario["id"].(string)
@@ -137,15 +138,25 @@ func TestRealizationRejectsBothOrNeitherLinkKind(t *testing.T) {
 		"allocated_amount": "42.00",
 	})
 	if resp.StatusCode != 422 {
-		t.Fatalf("neither link kind: status = %d, want 422", resp.StatusCode)
+		t.Fatalf("no link: status = %d, want 422", resp.StatusCode)
 	}
 	resp.Body.Close()
 
+	// A link that belongs to a different (debt) payable must be rejected,
+	// not silently allocated against this receivable's scenario.
+	debtResp := doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "debt", "name": "Outra dívida", "total_amount": "1000.00"})
+	var debt map[string]any
+	decodeJSON(t, debtResp, &debt)
+	txID := insertTransaction(t, conn)
+	linkResp := doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debt["id"].(string)+"/links", map[string]any{"transaction_id": txID})
+	var foreignLink map[string]any
+	decodeJSON(t, linkResp, &foreignLink)
+
 	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/transactions/"+transactionID+"/realizations", map[string]any{
-		"debt_link_id": "x", "receivable_link_id": "y", "allocated_amount": "42.00",
+		"payable_link_id": foreignLink["id"], "allocated_amount": "42.00",
 	})
 	if resp.StatusCode != 422 {
-		t.Fatalf("both link kinds: status = %d, want 422", resp.StatusCode)
+		t.Fatalf("foreign link: status = %d, want 422", resp.StatusCode)
 	}
 	resp.Body.Close()
 }

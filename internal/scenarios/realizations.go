@@ -17,23 +17,21 @@ import (
 // realization id has no matching row.
 var ErrRealizationNotFound = errors.New("scenario transaction realization not found")
 
-// CreateRealization mirrors allocating (part of) a debt_transaction_links or
-// receivable_transaction_links row's amount to scenarioTransactionID —
-// exactly one of debtLinkID/receivableLinkID must be set, matching the
-// parent scenario's Kind. Callers are responsible for validating that both
-// ids exist and belong to the same debt/receivable before calling this —
-// the schema's FKs (ON DELETE CASCADE both ways) are the only enforcement
-// at this layer.
-func CreateRealization(ctx context.Context, q Querier, scenarioTransactionID string, debtLinkID, receivableLinkID *string, allocatedAmount decimal.Decimal) (ScenarioTransactionRealization, error) {
+// CreateRealization mirrors allocating (part of) a
+// payable_transaction_links row's amount to scenarioTransactionID.
+// Callers are responsible for validating that both ids exist and belong to
+// the same payable before calling this — the schema's FKs (ON DELETE
+// CASCADE both ways) are the only enforcement at this layer.
+func CreateRealization(ctx context.Context, q Querier, scenarioTransactionID string, payableLinkID *string, allocatedAmount decimal.Decimal) (ScenarioTransactionRealization, error) {
 	now := time.Now().UTC()
 	r := ScenarioTransactionRealization{
-		ID: uuid.NewString(), ScenarioTransactionID: scenarioTransactionID, DebtLinkID: debtLinkID, ReceivableLinkID: receivableLinkID,
+		ID: uuid.NewString(), ScenarioTransactionID: scenarioTransactionID, PayableLinkID: payableLinkID,
 		AllocatedAmount: allocatedAmount, CreatedAt: now,
 	}
 	_, err := q.ExecContext(ctx, `
-		INSERT INTO scenario_transaction_realizations (id, scenario_transaction_id, debt_link_id, receivable_link_id, allocated_amount, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		r.ID, r.ScenarioTransactionID, r.DebtLinkID, r.ReceivableLinkID, money.CanonicalDecimal(r.AllocatedAmount), db.FormatTime(now),
+		INSERT INTO scenario_transaction_realizations (id, scenario_transaction_id, payable_link_id, allocated_amount, created_at)
+		VALUES (?, ?, ?, ?, ?)`,
+		r.ID, r.ScenarioTransactionID, r.PayableLinkID, money.CanonicalDecimal(r.AllocatedAmount), db.FormatTime(now),
 	)
 	if err != nil {
 		return ScenarioTransactionRealization{}, err
@@ -44,25 +42,22 @@ func CreateRealization(ctx context.Context, q Querier, scenarioTransactionID str
 // GetRealization mirrors reading a single allocation by id — callers that
 // need to scope it to a specific scenario_transaction (the HTTP layer's
 // delete endpoint) check ScenarioTransactionID themselves, the same
-// pattern debts.GetLink/DeleteLink uses.
+// pattern payables.GetLink/DeleteLink uses.
 func GetRealization(ctx context.Context, q Querier, id string) (ScenarioTransactionRealization, error) {
 	var r ScenarioTransactionRealization
-	var debtLinkID, receivableLinkID sql.NullString
+	var payableLinkID sql.NullString
 	var allocatedAmountRaw, createdAtRaw string
 	err := q.QueryRowContext(ctx,
-		`SELECT id, scenario_transaction_id, debt_link_id, receivable_link_id, allocated_amount, created_at FROM scenario_transaction_realizations WHERE id = ?`, id,
-	).Scan(&r.ID, &r.ScenarioTransactionID, &debtLinkID, &receivableLinkID, &allocatedAmountRaw, &createdAtRaw)
+		`SELECT id, scenario_transaction_id, payable_link_id, allocated_amount, created_at FROM scenario_transaction_realizations WHERE id = ?`, id,
+	).Scan(&r.ID, &r.ScenarioTransactionID, &payableLinkID, &allocatedAmountRaw, &createdAtRaw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ScenarioTransactionRealization{}, ErrRealizationNotFound
 	}
 	if err != nil {
 		return ScenarioTransactionRealization{}, err
 	}
-	if debtLinkID.Valid {
-		r.DebtLinkID = &debtLinkID.String
-	}
-	if receivableLinkID.Valid {
-		r.ReceivableLinkID = &receivableLinkID.String
+	if payableLinkID.Valid {
+		r.PayableLinkID = &payableLinkID.String
 	}
 	if r.AllocatedAmount, err = decimal.NewFromString(allocatedAmountRaw); err != nil {
 		return ScenarioTransactionRealization{}, err
@@ -120,7 +115,7 @@ func RealizedTotal(ctx context.Context, q Querier, scenarioTransactionID string)
 // installment has received, newest first.
 func ListRealizationsForTransaction(ctx context.Context, q Querier, scenarioTransactionID string) ([]ScenarioTransactionRealization, error) {
 	rows, err := q.QueryContext(ctx, `
-		SELECT id, scenario_transaction_id, debt_link_id, receivable_link_id, allocated_amount, created_at
+		SELECT id, scenario_transaction_id, payable_link_id, allocated_amount, created_at
 		FROM scenario_transaction_realizations WHERE scenario_transaction_id = ? ORDER BY created_at DESC`, scenarioTransactionID)
 	if err != nil {
 		return nil, err
@@ -129,19 +124,16 @@ func ListRealizationsForTransaction(ctx context.Context, q Querier, scenarioTran
 	var list []ScenarioTransactionRealization
 	for rows.Next() {
 		var (
-			r                            ScenarioTransactionRealization
-			debtLinkID, receivableLinkID sql.NullString
-			allocatedAmountRaw           string
-			createdAtRaw                 string
+			r                  ScenarioTransactionRealization
+			payableLinkID      sql.NullString
+			allocatedAmountRaw string
+			createdAtRaw       string
 		)
-		if err := rows.Scan(&r.ID, &r.ScenarioTransactionID, &debtLinkID, &receivableLinkID, &allocatedAmountRaw, &createdAtRaw); err != nil {
+		if err := rows.Scan(&r.ID, &r.ScenarioTransactionID, &payableLinkID, &allocatedAmountRaw, &createdAtRaw); err != nil {
 			return nil, err
 		}
-		if debtLinkID.Valid {
-			r.DebtLinkID = &debtLinkID.String
-		}
-		if receivableLinkID.Valid {
-			r.ReceivableLinkID = &receivableLinkID.String
+		if payableLinkID.Valid {
+			r.PayableLinkID = &payableLinkID.String
 		}
 		if r.AllocatedAmount, err = decimal.NewFromString(allocatedAmountRaw); err != nil {
 			return nil, err

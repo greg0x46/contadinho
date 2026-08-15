@@ -41,7 +41,7 @@ func newTestServerWithSession(t *testing.T) (*httptest.Server, *sql.DB, *setting
 }
 
 // newTestServer returns a server that is already configured and unlocked —
-// what every test exercising categories/transactions/debts/automation/
+// what every test exercising categories/transactions/payables/automation/
 // sync-runs behavior wants, since it isn't testing the lock gate itself
 // (see newLockedTestServer, TestSetupAndUnlockFlow, and TestLockGate* for
 // that). It bypasses the HTTP /api/setup handler and calls settings.Setup
@@ -142,7 +142,7 @@ func TestLockGateRejectsAPIWhileLocked(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/categories"},
 		{http.MethodPost, "/api/transactions/query"},
-		{http.MethodGet, "/api/debts"},
+		{http.MethodGet, "/api/payables"},
 		{http.MethodGet, "/api/automation-rules"},
 		{http.MethodGet, "/api/sync-runs"},
 	}
@@ -374,25 +374,25 @@ func TestCreateAutomationRuleRejectsEmptyConditions(t *testing.T) {
 func TestDebtLifecycleOverHTTP(t *testing.T) {
 	srv, conn := newTestServer(t)
 
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Cartão", "total_amount": "1000.00", "initial_remaining_amount": "600.00"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "debt", "name": "Cartão", "total_amount": "1000.00", "initial_remaining_amount": "600.00"})
 	if resp.StatusCode != 201 {
 		t.Fatalf("create status = %d, want 201", resp.StatusCode)
 	}
 	var created map[string]any
 	decodeJSON(t, resp, &created)
 	debtID := created["id"].(string)
-	if created["starting_paid_amount"] != "400.00" || created["status"] != "open" || created["link_count"].(float64) != 0 {
+	if created["starting_settled_amount"] != "400.00" || created["status"] != "open" || created["link_count"].(float64) != 0 {
 		t.Errorf("created = %+v", created)
 	}
 
-	resp = doJSON(t, http.MethodGet, srv.URL+"/api/debts", nil)
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/payables", nil)
 	var list []map[string]any
 	decodeJSON(t, resp, &list)
 	if len(list) != 1 {
 		t.Fatalf("len(list) = %d, want 1", len(list))
 	}
 
-	resp = doJSON(t, http.MethodPut, srv.URL+"/api/debts/"+debtID, map[string]any{"name": "Cartão renomeado", "total_amount": "2000.00"})
+	resp = doJSON(t, http.MethodPut, srv.URL+"/api/payables/"+debtID, map[string]any{"name": "Cartão renomeado", "total_amount": "2000.00"})
 	if resp.StatusCode != 200 {
 		t.Fatalf("update status = %d, want 200", resp.StatusCode)
 	}
@@ -411,14 +411,14 @@ func TestDebtLifecycleOverHTTP(t *testing.T) {
 		t.Fatalf("update account: %v", err)
 	}
 
-	resp = doJSON(t, http.MethodGet, srv.URL+"/api/debts/eligible-transactions", nil)
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/payables/eligible-transactions?kind=debt", nil)
 	var eligible []map[string]any
 	decodeJSON(t, resp, &eligible)
 	if len(eligible) != 1 || eligible[0]["id"] != txID {
 		t.Fatalf("eligible = %+v, want just %s", eligible, txID)
 	}
 
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/links", map[string]string{"transaction_id": txID})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debtID+"/links", map[string]string{"transaction_id": txID})
 	if resp.StatusCode != 201 {
 		t.Fatalf("create link status = %d, want 201", resp.StatusCode)
 	}
@@ -430,17 +430,17 @@ func TestDebtLifecycleOverHTTP(t *testing.T) {
 	}
 
 	// Linking the same transaction again must conflict.
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts/"+debtID+"/links", map[string]string{"transaction_id": txID})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables/"+debtID+"/links", map[string]string{"transaction_id": txID})
 	resp.Body.Close()
 	if resp.StatusCode != 409 {
 		t.Errorf("re-link status = %d, want 409", resp.StatusCode)
 	}
 
-	resp = doJSON(t, http.MethodGet, srv.URL+"/api/debts/"+debtID, nil)
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/payables/"+debtID, nil)
 	var detail map[string]any
 	decodeJSON(t, resp, &detail)
-	if detail["paid_amount"] != "550.00" { // 400 starting + 150 linked
-		t.Errorf("paid_amount = %v, want 550.00", detail["paid_amount"])
+	if detail["settled_amount"] != "550.00" { // 400 starting + 150 linked
+		t.Errorf("settled_amount = %v, want 550.00", detail["settled_amount"])
 	}
 	if detail["link_count"].(float64) != 1 {
 		t.Errorf("link_count = %v, want 1", detail["link_count"])
@@ -450,30 +450,30 @@ func TestDebtLifecycleOverHTTP(t *testing.T) {
 		t.Fatalf("links = %+v", links)
 	}
 
-	// Ignoring the transaction must unlink it (via debts.UnlinkIfPresent).
+	// Ignoring the transaction must unlink it (via payables.UnlinkIfPresent).
 	resp = doJSON(t, http.MethodPut, srv.URL+"/api/transactions/"+txID+"/inclusion", map[string]string{"state": "ignored"})
 	resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("ignore status = %d, want 200", resp.StatusCode)
 	}
-	resp = doJSON(t, http.MethodGet, srv.URL+"/api/debts/"+debtID, nil)
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/payables/"+debtID, nil)
 	decodeJSON(t, resp, &detail)
 	if detail["link_count"].(float64) != 0 {
 		t.Errorf("link_count after ignoring = %v, want 0", detail["link_count"])
 	}
 
-	resp = doJSON(t, http.MethodDelete, srv.URL+"/api/debts/"+debtID+"/links/"+linkID, nil)
+	resp = doJSON(t, http.MethodDelete, srv.URL+"/api/payables/"+debtID+"/links/"+linkID, nil)
 	resp.Body.Close()
 	if resp.StatusCode != 404 {
 		t.Errorf("delete already-removed link status = %d, want 404", resp.StatusCode)
 	}
 
-	resp = doJSON(t, http.MethodDelete, srv.URL+"/api/debts/"+debtID, nil)
+	resp = doJSON(t, http.MethodDelete, srv.URL+"/api/payables/"+debtID, nil)
 	resp.Body.Close()
 	if resp.StatusCode != 204 {
 		t.Errorf("delete debt status = %d, want 204", resp.StatusCode)
 	}
-	resp = doJSON(t, http.MethodGet, srv.URL+"/api/debts/"+debtID, nil)
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/payables/"+debtID, nil)
 	resp.Body.Close()
 	if resp.StatusCode != 404 {
 		t.Errorf("get deleted debt status = %d, want 404", resp.StatusCode)
@@ -483,7 +483,7 @@ func TestDebtLifecycleOverHTTP(t *testing.T) {
 func TestDebtTotalOwedOverHTTP(t *testing.T) {
 	srv, conn := newTestServer(t)
 
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "Financiamento", "total_amount": "1000.00", "initial_remaining_amount": "600.00"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "debt", "name": "Financiamento", "total_amount": "1000.00", "initial_remaining_amount": "600.00"})
 	if resp.StatusCode != 201 {
 		t.Fatalf("create debt status = %d, want 201", resp.StatusCode)
 	}
@@ -524,7 +524,7 @@ func TestDebtTotalOwedOverHTTP(t *testing.T) {
 		t.Fatalf("set bank account balance: %v", err)
 	}
 
-	resp = doJSON(t, http.MethodGet, srv.URL+"/api/debts/total-owed", nil)
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/payables/total-owed", nil)
 	var total map[string]any
 	decodeJSON(t, resp, &total)
 	if total["remaining_debts_total"] != "600.00" {
@@ -651,7 +651,7 @@ func TestDebtTotalOwedCalculatesConsideredCreditCardTransactionsByBillOrClosingD
 		t.Fatalf("set bank account balance: %v", err)
 	}
 
-	resp = doJSON(t, http.MethodGet, srv.URL+"/api/debts/total-owed", nil)
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/payables/total-owed", nil)
 	var total map[string]any
 	decodeJSON(t, resp, &total)
 	// First card: 100 + 25 + 10 - 12 = 123. The current-cycle payment,
@@ -692,7 +692,7 @@ func TestDebtTotalOwedReturnsZeroWithoutClosingDate(t *testing.T) {
 		t.Fatalf("set credit account: %v", err)
 	}
 
-	resp = doJSON(t, http.MethodGet, srv.URL+"/api/debts/total-owed", nil)
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/payables/total-owed", nil)
 	var total map[string]any
 	decodeJSON(t, resp, &total)
 	if total["future_installments_total"] != "0" {
@@ -809,12 +809,12 @@ func TestSpendingByCategoryOverHTTP(t *testing.T) {
 
 func TestCreateDebtValidation(t *testing.T) {
 	srv, _ := newTestServer(t)
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "", "total_amount": "100.00"})
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "debt", "name": "", "total_amount": "100.00"})
 	resp.Body.Close()
 	if resp.StatusCode != 422 {
 		t.Errorf("empty name status = %d, want 422", resp.StatusCode)
 	}
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/debts", map[string]any{"name": "x", "total_amount": "-1.00"})
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/payables", map[string]any{"kind": "debt", "name": "x", "total_amount": "-1.00"})
 	resp.Body.Close()
 	if resp.StatusCode != 422 {
 		t.Errorf("non-positive amount status = %d, want 422", resp.StatusCode)

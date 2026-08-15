@@ -13,8 +13,8 @@ import (
 
 	"contadinho-go/internal/automation"
 	"contadinho-go/internal/db"
-	"contadinho-go/internal/debts"
 	"contadinho-go/internal/httpapi"
+	"contadinho-go/internal/payables"
 	"contadinho-go/internal/pluggy"
 	"contadinho-go/internal/settings"
 	"contadinho-go/internal/webui"
@@ -43,7 +43,7 @@ func main() {
 	defer cancel()
 	go worker.Run(ctx, conn, session, worker.Config{
 		Pluggy:                pluggy.DefaultConfig(),
-		OnTransactionUpserted: automation.NewTransactionHook(debts.UnlinkIfPresent),
+		OnTransactionUpserted: automation.NewTransactionHook(payables.UnlinkIfPresent),
 	})
 
 	handler := httpapi.NewServer(conn, frontend, session)

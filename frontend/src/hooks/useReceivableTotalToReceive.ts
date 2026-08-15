@@ -1,13 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { getReceivableTotalToReceive } from "../api/receivables";
+import { getPayableTotalToReceive } from "../api/payables";
 
-export const receivableTotalToReceiveQueryKey = ["receivables", "total-to-receive"] as const;
+export const receivableTotalToReceiveQueryKey = ["payables", "total-to-receive"] as const;
 
 export function useReceivableTotalToReceive() {
   const query = useQuery({
     queryKey: receivableTotalToReceiveQueryKey,
-    queryFn: ({ signal }) => getReceivableTotalToReceive(signal),
+    queryFn: ({ signal }) => getPayableTotalToReceive(signal),
   });
 
   return {

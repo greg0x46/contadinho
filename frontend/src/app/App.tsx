@@ -1,13 +1,12 @@
 import {
   ApiOutlined,
-  CreditCardOutlined,
-  DollarOutlined,
   HomeOutlined,
   RiseOutlined,
   SettingOutlined,
   TagsOutlined,
   ThunderboltOutlined,
   TransactionOutlined,
+  WalletOutlined,
 } from "@ant-design/icons";
 import ProLayout from "@ant-design/pro-layout";
 import { Link, Outlet, useLocation } from "react-router-dom";
@@ -31,8 +30,7 @@ export function App() {
             { path: "/open-banking", name: "Open Banking", icon: <ApiOutlined /> },
             { path: "/transacoes", name: "Transações", icon: <TransactionOutlined /> },
             { path: "/automacoes", name: "Automações", icon: <ThunderboltOutlined /> },
-            { path: "/dividas", name: "Dívidas", icon: <CreditCardOutlined /> },
-            { path: "/contas-a-receber", name: "Contas a receber", icon: <DollarOutlined /> },
+            { path: "/pendencias", name: "Pendências", icon: <WalletOutlined /> },
             { path: "/investimentos", name: "Investimentos", icon: <RiseOutlined /> },
             { path: "/categorias", name: "Categorias", icon: <TagsOutlined /> },
             { path: "/configuracoes", name: "Configurações", icon: <SettingOutlined /> },

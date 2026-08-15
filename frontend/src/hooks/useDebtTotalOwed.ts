@@ -1,13 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { getDebtTotalOwed } from "../api/debts";
+import { getPayableTotalOwed } from "../api/payables";
 
-export const debtTotalOwedQueryKey = ["debts", "total-owed"] as const;
+export const debtTotalOwedQueryKey = ["payables", "total-owed"] as const;
 
 export function useDebtTotalOwed() {
   const query = useQuery({
     queryKey: debtTotalOwedQueryKey,
-    queryFn: ({ signal }) => getDebtTotalOwed(signal),
+    queryFn: ({ signal }) => getPayableTotalOwed(signal),
   });
 
   return {

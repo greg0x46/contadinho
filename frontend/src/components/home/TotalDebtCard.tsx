@@ -2,12 +2,12 @@ import { WalletOutlined } from "@ant-design/icons";
 import { Card } from "antd";
 import { Link } from "react-router-dom";
 
-import type { DebtTotalOwed } from "../../api/contracts";
+import type { PayableTotalOwed } from "../../api/contracts";
 import { useDebtTotalOwed } from "../../hooks/useDebtTotalOwed";
 import { formatBRL } from "../../presentation/money";
 import { LoadingState, UnavailableState } from "../AsyncState";
 
-function TotalDebtBreakdown({ total }: { total: DebtTotalOwed }) {
+function TotalDebtBreakdown({ total }: { total: PayableTotalOwed }) {
   const remaining = Number(total.remaining_debts_total);
   const future = Number(total.future_installments_total);
   const sum = remaining + future;
@@ -66,7 +66,7 @@ export function TotalDebtCard() {
           Dívida total
         </span>
       }
-      extra={<Link to="/dividas">Ver dívidas</Link>}
+      extra={<Link to="/pendencias?kind=debt">Ver dívidas</Link>}
     >
       {isLoading && <LoadingState>Carregando total de dívida…</LoadingState>}
       {!isLoading && (error || !total) && (

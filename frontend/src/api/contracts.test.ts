@@ -6,19 +6,15 @@ import {
   parseAutomationRuleWriteResult,
   parseCategory,
   parseCategoryList,
-  parseDebt,
-  parseDebtDetail,
-  parseDebtLink,
-  parseDebtList,
-  parseDebtTotalOwed,
   parseEligibleTransaction,
   parseEligibleTransactionList,
+  parsePayable,
+  parsePayableDetail,
+  parsePayableLink,
+  parsePayableList,
+  parsePayableTotalOwed,
+  parsePayableTotalToReceive,
   parseProblem,
-  parseReceivable,
-  parseReceivableDetail,
-  parseReceivableLink,
-  parseReceivableList,
-  parseReceivableTotalToReceive,
   parseSyncRun,
   parseSyncRunDetail,
   parseTransactionCategoryResult,
@@ -226,13 +222,28 @@ describe("automation rule contracts", () => {
   });
 });
 
-describe("debt contracts", () => {
+describe("payable contracts", () => {
   const debt = {
     id: "44444444-4444-4444-8444-444444444444",
+    kind: "debt",
     name: "Financiamento do carro",
     total_amount: "1000",
-    starting_paid_amount: "0",
-    paid_amount: "200",
+    starting_settled_amount: "0",
+    settled_amount: "200",
+    remaining_amount: "800",
+    status: "open",
+    link_count: 1,
+    created_at: "2026-07-30T12:00:00Z",
+    updated_at: "2026-07-30T12:00:00Z",
+  };
+
+  const receivable = {
+    id: "99999999-9999-4999-8999-999999999999",
+    kind: "receivable",
+    name: "Empréstimo para Ana",
+    total_amount: "1000",
+    starting_settled_amount: "0",
+    settled_amount: "200",
     remaining_amount: "800",
     status: "open",
     link_count: 1,
@@ -258,19 +269,20 @@ describe("debt contracts", () => {
     effective_money: { value: "150", currency_code: "BRL" },
   };
 
-  it("accepts a valid debt and debt list", () => {
-    expect(parseDebt(debt)).toEqual(debt);
-    expect(parseDebtList([debt])).toEqual([debt]);
+  it("accepts a valid debt/receivable payable and payable list", () => {
+    expect(parsePayable(debt)).toEqual(debt);
+    expect(parsePayable(receivable)).toEqual(receivable);
+    expect(parsePayableList([debt, receivable])).toEqual([debt, receivable]);
   });
 
-  it("accepts a debt detail with a nullable link description and nullable occurred_at", () => {
+  it("accepts a payable detail with a nullable link description and nullable occurred_at", () => {
     const detail = { ...debt, links: [link, { ...link, description: null, occurred_at: null }] };
-    expect(parseDebtDetail(detail)).toEqual(detail);
+    expect(parsePayableDetail(detail)).toEqual(detail);
   });
 
-  it("accepts a debt link write response", () => {
+  it("accepts a payable link write response", () => {
     expect(
-      parseDebtLink({
+      parsePayableLink({
         id: link.id,
         transaction_id: link.transaction_id,
         linked_amount: link.linked_amount,
@@ -299,32 +311,51 @@ describe("debt contracts", () => {
 
   it.each([
     { ...debt, id: "not-a-uuid" },
+    { ...debt, kind: "loan" },
     { ...debt, name: "" },
     { ...debt, status: "closed" },
     { ...debt, link_count: -1 },
     { ...debt, total_amount: "1000.0x" },
     { ...debt, extra: "field" },
-  ])("rejects malformed debt fields", (payload) => {
-    expect(() => parseDebt(payload)).toThrow();
+  ])("rejects malformed payable fields", (payload) => {
+    expect(() => parsePayable(payload)).toThrow();
   });
 
-  const debtTotalOwed = {
+  const payableTotalOwed = {
     remaining_debts_total: "800",
     future_installments_total: "361.49",
     total_owed: "1161.49",
     currency_code: "BRL",
   };
 
-  it("accepts a valid debt total owed", () => {
-    expect(parseDebtTotalOwed(debtTotalOwed)).toEqual(debtTotalOwed);
+  it("accepts a valid total owed", () => {
+    expect(parsePayableTotalOwed(payableTotalOwed)).toEqual(payableTotalOwed);
   });
 
   it.each([
-    { ...debtTotalOwed, currency_code: "" },
-    { ...debtTotalOwed, total_owed: "not-a-number" },
-    { ...debtTotalOwed, extra: "field" },
-  ])("rejects malformed debt total owed fields", (payload) => {
-    expect(() => parseDebtTotalOwed(payload)).toThrow();
+    { ...payableTotalOwed, currency_code: "" },
+    { ...payableTotalOwed, total_owed: "not-a-number" },
+    { ...payableTotalOwed, extra: "field" },
+  ])("rejects malformed total owed fields", (payload) => {
+    expect(() => parsePayableTotalOwed(payload)).toThrow();
+  });
+
+  const payableTotalToReceive = {
+    remaining_receivables_total: "800",
+    total_to_receive: "800",
+    currency_code: "BRL",
+  };
+
+  it("accepts a valid total to receive", () => {
+    expect(parsePayableTotalToReceive(payableTotalToReceive)).toEqual(payableTotalToReceive);
+  });
+
+  it.each([
+    { ...payableTotalToReceive, currency_code: "" },
+    { ...payableTotalToReceive, total_to_receive: "not-a-number" },
+    { ...payableTotalToReceive, extra: "field" },
+  ])("rejects malformed total to receive fields", (payload) => {
+    expect(() => parsePayableTotalToReceive(payload)).toThrow();
   });
 
   it.each([
@@ -333,86 +364,6 @@ describe("debt contracts", () => {
     { ...eligibleTransaction, id: "not-a-uuid" },
   ])("rejects malformed eligible transaction fields", (payload) => {
     expect(() => parseEligibleTransaction(payload)).toThrow();
-  });
-});
-
-describe("receivable contracts", () => {
-  const receivable = {
-    id: "99999999-9999-4999-8999-999999999999",
-    name: "Empréstimo para Ana",
-    total_amount: "1000",
-    starting_received_amount: "0",
-    received_amount: "200",
-    remaining_amount: "800",
-    status: "open",
-    link_count: 1,
-    created_at: "2026-07-30T12:00:00Z",
-    updated_at: "2026-07-30T12:00:00Z",
-  };
-
-  const link = {
-    id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-    transaction_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-    occurred_at: "2026-07-10T12:00:00Z",
-    description: "Recebimento",
-    linked_amount: "200",
-    current_amount: "200",
-    linked_at: "2026-07-30T12:00:00Z",
-  };
-
-  it("accepts a valid receivable and receivable list", () => {
-    expect(parseReceivable(receivable)).toEqual(receivable);
-    expect(parseReceivableList([receivable])).toEqual([receivable]);
-  });
-
-  it("accepts a receivable detail with a nullable link description and nullable occurred_at", () => {
-    const detail = { ...receivable, links: [link, { ...link, description: null, occurred_at: null }] };
-    expect(parseReceivableDetail(detail)).toEqual(detail);
-  });
-
-  it("accepts a receivable link write response", () => {
-    expect(
-      parseReceivableLink({
-        id: link.id,
-        transaction_id: link.transaction_id,
-        linked_amount: link.linked_amount,
-        linked_at: link.linked_at,
-      }),
-    ).toEqual({
-      id: link.id,
-      transaction_id: link.transaction_id,
-      linked_amount: link.linked_amount,
-      linked_at: link.linked_at,
-    });
-  });
-
-  it.each([
-    { ...receivable, id: "not-a-uuid" },
-    { ...receivable, name: "" },
-    { ...receivable, status: "closed" },
-    { ...receivable, link_count: -1 },
-    { ...receivable, total_amount: "1000.0x" },
-    { ...receivable, extra: "field" },
-  ])("rejects malformed receivable fields", (payload) => {
-    expect(() => parseReceivable(payload)).toThrow();
-  });
-
-  const receivableTotal = {
-    remaining_receivables_total: "800",
-    total_to_receive: "800",
-    currency_code: "BRL",
-  };
-
-  it("accepts a valid receivable total to receive", () => {
-    expect(parseReceivableTotalToReceive(receivableTotal)).toEqual(receivableTotal);
-  });
-
-  it.each([
-    { ...receivableTotal, currency_code: "" },
-    { ...receivableTotal, total_to_receive: "not-a-number" },
-    { ...receivableTotal, extra: "field" },
-  ])("rejects malformed receivable total fields", (payload) => {
-    expect(() => parseReceivableTotalToReceive(payload)).toThrow();
   });
 });
 

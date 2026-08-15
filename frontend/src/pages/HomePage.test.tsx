@@ -2,25 +2,23 @@ import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import * as debtsApi from "../api/debts";
-import * as receivablesApi from "../api/receivables";
+import * as payablesApi from "../api/payables";
 import * as transactionsApi from "../api/transactions";
-import type { DebtTotalOwed, ReceivableTotalToReceive, SpendingByCategory } from "../api/contracts";
+import type { PayableTotalOwed, PayableTotalToReceive, SpendingByCategory } from "../api/contracts";
 import { QueryTestProvider } from "../test/QueryTestProvider";
 import { HomePage } from "./HomePage";
 
-vi.mock("../api/debts");
-vi.mock("../api/receivables");
+vi.mock("../api/payables");
 vi.mock("../api/transactions");
 
-const totalOwed: DebtTotalOwed = {
+const totalOwed: PayableTotalOwed = {
   remaining_debts_total: "800.00",
   future_installments_total: "361.49",
   total_owed: "1161.49",
   currency_code: "BRL",
 };
 
-const totalToReceive: ReceivableTotalToReceive = {
+const totalToReceive: PayableTotalToReceive = {
   remaining_receivables_total: "500.00",
   total_to_receive: "500.00",
   currency_code: "BRL",
@@ -62,12 +60,12 @@ function renderPage() {
 
 beforeEach(() => {
   vi.mocked(transactionsApi.getSpendingByCategory).mockResolvedValue(spendingByCategory);
-  vi.mocked(receivablesApi.getReceivableTotalToReceive).mockResolvedValue(totalToReceive);
+  vi.mocked(payablesApi.getPayableTotalToReceive).mockResolvedValue(totalToReceive);
 });
 
 describe("TotalReceivableCard", () => {
   beforeEach(() => {
-    vi.mocked(debtsApi.getDebtTotalOwed).mockResolvedValue(totalOwed);
+    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
   });
 
   it("renders the total receivable card once loaded", async () => {
@@ -76,7 +74,7 @@ describe("TotalReceivableCard", () => {
   });
 
   it("shows a retry option when the total fails to load", async () => {
-    vi.mocked(receivablesApi.getReceivableTotalToReceive).mockRejectedValue(new Error("boom"));
+    vi.mocked(payablesApi.getPayableTotalToReceive).mockRejectedValue(new Error("boom"));
     renderPage();
     expect(await screen.findByText("Não foi possível carregar o total a receber.")).toBeVisible();
   });
@@ -84,7 +82,7 @@ describe("TotalReceivableCard", () => {
 
 describe("HomePage", () => {
   it("renders the total debt card once loaded", async () => {
-    vi.mocked(debtsApi.getDebtTotalOwed).mockResolvedValue(totalOwed);
+    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
     renderPage();
     expect(await screen.findByText(/800,00/)).toBeVisible();
     expect(screen.getByText(/361,49/)).toBeVisible();
@@ -92,14 +90,14 @@ describe("HomePage", () => {
   });
 
   it("shows a retry option when the total fails to load", async () => {
-    vi.mocked(debtsApi.getDebtTotalOwed).mockRejectedValue(new Error("boom"));
+    vi.mocked(payablesApi.getPayableTotalOwed).mockRejectedValue(new Error("boom"));
     renderPage();
     expect(await screen.findByText("Não foi possível carregar o total de dívida.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Tentar novamente" })).toBeVisible();
   });
 
   it("shows an empty state instead of a zero-width proportion bar when there is no debt", async () => {
-    vi.mocked(debtsApi.getDebtTotalOwed).mockResolvedValue({
+    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue({
       remaining_debts_total: "0.00",
       future_installments_total: "0.00",
       total_owed: "0.00",
@@ -113,7 +111,7 @@ describe("HomePage", () => {
 
 describe("SpendingByCategoryCard", () => {
   beforeEach(() => {
-    vi.mocked(debtsApi.getDebtTotalOwed).mockResolvedValue(totalOwed);
+    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
   });
 
   it("renders each category's share of the month's spending once loaded", async () => {

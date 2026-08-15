@@ -18,7 +18,7 @@ export function TotalReceivableCard() {
           Total a receber
         </span>
       }
-      extra={<Link to="/contas-a-receber">Ver contas a receber</Link>}
+      extra={<Link to="/pendencias?kind=receivable">Ver contas a receber</Link>}
     >
       {isLoading && <LoadingState>Carregando total a receber…</LoadingState>}
       {!isLoading && (error || !total) && (

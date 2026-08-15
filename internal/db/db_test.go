@@ -27,7 +27,7 @@ func TestMigrateAppliesAllMigrations(t *testing.T) {
 		"automation_rules", "automation_rule_conditions",
 		"transaction_inclusion_decisions", "transaction_inclusion_events",
 		"categories", "transaction_category_decisions", "transaction_category_events",
-		"debts", "debt_transaction_links", "settings",
+		"payables", "payable_transaction_links", "settings",
 	}
 	for _, table := range tables {
 		var name string

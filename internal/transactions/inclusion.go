@@ -36,11 +36,12 @@ type InclusionConfirmation struct {
 var ErrTransactionNotFound = errors.New("transaction not found")
 
 // OnIgnoredHook runs, within the same transaction, whenever a transaction
-// transitions into the "ignored" state. It exists so package debts (phase 6)
-// can unlink a debt-transaction link without this package importing debts —
-// package transactions is a dependency debts already has the other way
-// around (eligibility_for_link consumes classify/select_effective_money), so
-// the reverse import would cycle. Callers pass nil until that hook exists.
+// transitions into the "ignored" state. It exists so package payables can
+// unlink a payable-transaction link without this package importing
+// payables — package transactions is a dependency payables already has the
+// other way around (eligibility_for_link consumes
+// classify/select_effective_money), so the reverse import would cycle.
+// Callers pass nil until that hook exists.
 type OnIgnoredHook func(ctx context.Context, q Querier, transactionID string) error
 
 type inclusionDecision struct {
