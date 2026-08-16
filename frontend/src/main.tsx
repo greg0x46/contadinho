@@ -14,6 +14,7 @@ import "./styles/sync-runs.css";
 import "./styles/transactions.css";
 import "./styles/home.css";
 import "./styles/payables.css";
+import "./styles/timeline.css";
 
 dayjs.locale("pt-br");
 

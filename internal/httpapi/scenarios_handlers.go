@@ -223,6 +223,51 @@ func handleCreatePayableScenario(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
+// handleListScenarios serves GET /api/scenarios?kind=standalone — the only
+// supported value in this v1, since payable-backed scenarios are already
+// reachable via GET /api/payables/{id}/scenarios and standalone ones have
+// no payable to scope them by.
+func handleListScenarios(conn *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("kind") != string(scenarios.KindStandalone) {
+			invalidScenarioProblem(w, "Informe kind=standalone.")
+			return
+		}
+		list, err := scenarios.ListStandaloneScenarios(r.Context(), conn)
+		if err != nil {
+			scenariosUnavailableProblem(w)
+			return
+		}
+		dtos := make([]scenarioDTO, len(list))
+		for i, s := range list {
+			dtos[i] = scenarioToDTO(s)
+		}
+		writeJSON(w, http.StatusOK, dtos)
+	}
+}
+
+// handleCreateStandaloneScenario creates a Scenario{Kind: standalone} with
+// no payable_id — the "e se eu viajar?" / "e se eu trocar de emprego?"
+// entry point, separate from handleCreatePayableScenario which always
+// attaches to an existing payable.
+func handleCreateStandaloneScenario(conn *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req scenarioCreateRequest
+		if err := decodeStrict(r, &req); err != nil || req.Name == "" {
+			invalidScenarioProblem(w, "Informe um nome para o cenário.")
+			return
+		}
+		s, err := scenarios.CreateScenario(r.Context(), conn, scenarios.KindStandalone, req.Name, nil)
+		if err != nil {
+			scenariosUnavailableProblem(w)
+			return
+		}
+		writeJSON(w, http.StatusCreated, scenarioDetailDTO{
+			scenarioDTO: scenarioToDTO(s), Transactions: []scenarioTransactionDTO{}, AccumulatedDeviation: "0.00",
+		})
+	}
+}
+
 func handleListPayableScenarios(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		payableID := r.PathValue("id")
@@ -269,8 +314,14 @@ type scenarioTransactionWriteRequest struct {
 	Category    *string         `json:"category"`
 }
 
+// validate accepts a negative Amount — needed for a standalone scenario's
+// ScenarioTransactions, which (unlike a debt/receivable plan's
+// installments, where sign always comes from the backing Payable's Kind)
+// carry their own sign since there's no payable to derive one from: a
+// "Viagem" scenario's transactions are negative (outflow), a "Novo
+// emprego" one's are positive (inflow). Only zero is rejected.
 func (req scenarioTransactionWriteRequest) validate() (time.Time, bool) {
-	if req.Description == "" || !req.Amount.IsPositive() {
+	if req.Description == "" || req.Amount.IsZero() {
 		return time.Time{}, false
 	}
 	projectedAt, err := time.Parse(dateOnlyLayout, req.ProjectedAt)

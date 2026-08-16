@@ -16,20 +16,22 @@ import (
 
 // Kind is the scenario's flavor: a payment plan attached to a
 // payables.Payable of KindDebt, or the mirror-image collection plan
-// attached to one of KindReceivable. "what_if" (a free-standing scenario
-// with no payable_id) is left as a possible future kind, per the spec's
-// non-goals.
+// attached to one of KindReceivable — or, since M2 of
+// .specs/relatorio-financeiro.md, a free-standing "what if" scenario
+// (KindStandalone) with no payable at all, e.g. "viagem" or "novo emprego".
 type Kind string
 
 const (
 	KindDebtPlan       Kind = "debt_plan"
 	KindReceivablePlan Kind = "receivable_plan"
+	KindStandalone     Kind = "standalone"
 )
 
-// Scenario mirrors the scenarios table. PayableID is required — enforced
-// by the schema's CHECK constraint — and its payable's Kind must agree with
-// Kind, validated at the HTTP layer (a cross-table CHECK isn't available in
-// SQLite).
+// Scenario mirrors the scenarios table. PayableID is required for
+// KindDebtPlan/KindReceivablePlan and must be nil for KindStandalone —
+// enforced by the schema's CHECK constraint — and for the two payable-backed
+// kinds, the payable's own Kind must agree with Kind, validated at the HTTP
+// layer (a cross-table CHECK isn't available in SQLite).
 type Scenario struct {
 	ID        string
 	Kind      Kind

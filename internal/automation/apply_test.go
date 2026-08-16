@@ -85,6 +85,7 @@ func TestApplyToNewTransactionIgnoresOnFirstMatchingRule(t *testing.T) {
 	if _, err := automation.Create(ctx, f.conn, automation.Write{
 		Name: "Ignorar transferências", IsActive: true, LogicOperator: automation.LogicAnd,
 		Conditions: []automation.Condition{{Field: automation.FieldDescription, Operator: automation.OperatorContains, Value: "transferencia"}},
+		Actions:    []automation.ActionWrite{{Type: automation.ActionIgnore}},
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -111,6 +112,7 @@ func TestApplyToNewTransactionNoRuleMatchesLeavesConsidered(t *testing.T) {
 	if _, err := automation.Create(ctx, f.conn, automation.Write{
 		Name: "Ignorar transferências", IsActive: true, LogicOperator: automation.LogicAnd,
 		Conditions: []automation.Condition{{Field: automation.FieldDescription, Operator: automation.OperatorContains, Value: "transferencia"}},
+		Actions:    []automation.ActionWrite{{Type: automation.ActionIgnore}},
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -135,6 +137,7 @@ func TestApplyToNewTransactionMatchesCardMetadata(t *testing.T) {
 	if _, err := automation.Create(ctx, f.conn, automation.Write{
 		Name: "Ignorar cartão final 4321", IsActive: true, LogicOperator: automation.LogicAnd,
 		Conditions: []automation.Condition{{Field: automation.FieldCard, Operator: automation.OperatorContains, Value: "4321"}},
+		Actions:    []automation.ActionWrite{{Type: automation.ActionIgnore}},
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -149,6 +152,54 @@ func TestApplyToNewTransactionMatchesCardMetadata(t *testing.T) {
 	}
 	if state != string(money.Ignored) {
 		t.Errorf("state = %s, want ignored", state)
+	}
+}
+
+func TestApplyToNewTransactionNeverActsOnReconcileOnlyRules(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	acc := f.addAccount("Conta Corrente", "Banco Exemplo")
+	txID := f.addTransaction(acc, "Transferencia enviada", "")
+	commitment := newCommitment(t, f.conn)
+
+	if _, err := automation.Create(ctx, f.conn, reconcileWrite(commitment.ID)); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := automation.ApplyToNewTransaction(ctx, f.conn, txID, nil); err != nil {
+		t.Fatalf("ApplyToNewTransaction: %v", err)
+	}
+
+	var count int
+	f.conn.QueryRow(`SELECT COUNT(*) FROM transaction_inclusion_decisions WHERE transaction_id = ?`, txID).Scan(&count)
+	if count != 0 {
+		t.Errorf("a reconcile-only rule must never ignore a transaction, got %d decisions", count)
+	}
+}
+
+func TestApplyRetroactivelyNeverActsOnReconcileOnlyRules(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	acc := f.addAccount("Conta Corrente", "Banco Exemplo")
+	txID := f.addTransaction(acc, "Transferencia enviada", "")
+	commitment := newCommitment(t, f.conn)
+
+	rule, err := automation.Create(ctx, f.conn, reconcileWrite(commitment.ID))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	result, err := automation.ApplyRetroactively(ctx, f.conn, rule.ID, nil)
+	if err != nil {
+		t.Fatalf("ApplyRetroactively: %v", err)
+	}
+	if result.Matched != 0 || result.Ignored != 0 {
+		t.Errorf("a reconcile-only rule must never match/ignore transactions retroactively, got %+v", result)
+	}
+	var count int
+	f.conn.QueryRow(`SELECT COUNT(*) FROM transaction_inclusion_decisions WHERE transaction_id = ?`, txID).Scan(&count)
+	if count != 0 {
+		t.Errorf("expected no inclusion decision, got %d", count)
 	}
 }
 
@@ -189,6 +240,7 @@ func TestManualDecisionBlocksLaterRuleApplication(t *testing.T) {
 	if _, err := automation.Create(ctx, f.conn, automation.Write{
 		Name: "Ignorar transferências", IsActive: true, LogicOperator: automation.LogicAnd,
 		Conditions: []automation.Condition{{Field: automation.FieldDescription, Operator: automation.OperatorContains, Value: "transferencia"}},
+		Actions:    []automation.ActionWrite{{Type: automation.ActionIgnore}},
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -226,6 +278,7 @@ func TestApplyRetroactivelyCountsMatchedAndActuallyChanged(t *testing.T) {
 	rule, err := automation.Create(ctx, f.conn, automation.Write{
 		Name: "Ignorar transferências", IsActive: false, LogicOperator: automation.LogicAnd,
 		Conditions: []automation.Condition{{Field: automation.FieldDescription, Operator: automation.OperatorContains, Value: "transferencia"}},
+		Actions:    []automation.ActionWrite{{Type: automation.ActionIgnore}},
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -274,6 +327,7 @@ func TestNewTransactionHookMatchesSyncNewTransactionHookSignature(t *testing.T) 
 	if _, err := automation.Create(ctx, f.conn, automation.Write{
 		Name: "Ignorar transferências", IsActive: true, LogicOperator: automation.LogicAnd,
 		Conditions: []automation.Condition{{Field: automation.FieldDescription, Operator: automation.OperatorContains, Value: "transferencia"}},
+		Actions:    []automation.ActionWrite{{Type: automation.ActionIgnore}},
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}

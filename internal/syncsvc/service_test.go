@@ -304,6 +304,7 @@ func TestExecuteResyncReevaluatesAutomationRuleOnUpdatedTransaction(t *testing.T
 	if _, err := automation.Create(ctx, conn, automation.Write{
 		Name: "Ignorar cartão final 4321", IsActive: true, LogicOperator: automation.LogicAnd,
 		Conditions: []automation.Condition{{Field: automation.FieldCard, Operator: automation.OperatorContains, Value: "4321"}},
+		Actions:    []automation.ActionWrite{{Type: automation.ActionIgnore}},
 	}); err != nil {
 		t.Fatalf("Create rule: %v", err)
 	}
@@ -397,6 +398,7 @@ func TestExecuteResyncNeverOverridesManualInclusionDecision(t *testing.T) {
 	if _, err := automation.Create(ctx, conn, automation.Write{
 		Name: "Ignorar cartão final 4321", IsActive: true, LogicOperator: automation.LogicAnd,
 		Conditions: []automation.Condition{{Field: automation.FieldCard, Operator: automation.OperatorContains, Value: "4321"}},
+		Actions:    []automation.ActionWrite{{Type: automation.ActionIgnore}},
 	}); err != nil {
 		t.Fatalf("Create rule: %v", err)
 	}
