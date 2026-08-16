@@ -426,6 +426,10 @@ func decimalToStorage(value *decimal.Decimal) any {
 	return money.CanonicalDecimal(*value)
 }
 
+// upsertAccount writes an explicit column list on purpose: financial_accounts
+// also carries manual_closing_day, which the user owns and the provider knows
+// nothing about. Any column added here must be provider data — a "manual_"
+// prefix means leave it alone.
 func (s *Service) upsertAccount(ctx context.Context, snapshot pluggy.AccountSnapshot, rawImportID string) (string, error) {
 	digest := pluggy.AccountHash(snapshot)
 	now := db.FormatTime(time.Now())
@@ -441,13 +445,15 @@ func (s *Service) upsertAccount(ctx context.Context, snapshot pluggy.AccountSnap
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO financial_accounts (
 			id, source_id, external_id, institution, name, number, account_type,
-			account_subtype, balance, credit_limit, currency_code, provider_updated_at,
+			account_subtype, balance, credit_limit, available_credit_limit,
+			balance_close_date, balance_due_date, currency_code, provider_updated_at,
 			current_raw_import_id, normalized_hash, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (source_id, external_id) DO NOTHING
 		RETURNING id`,
 		newID, s.SourceID, snapshot.ExternalID, snapshot.Institution, snapshot.Name, snapshot.Number,
 		snapshot.AccountType, snapshot.AccountSubtype, decimalToStorage(snapshot.Balance), decimalToStorage(snapshot.CreditLimit),
+		decimalToStorage(snapshot.AvailableCreditLimit), db.FormatTimePtr(snapshot.BalanceCloseDate), db.FormatTimePtr(snapshot.BalanceDueDate),
 		snapshot.CurrencyCode, db.FormatTimePtr(snapshot.ProviderUpdatedAt), rawImportID, digest, now, now,
 	).Scan(&insertedID)
 	inserted := err == nil
@@ -469,11 +475,13 @@ func (s *Service) upsertAccount(ctx context.Context, snapshot pluggy.AccountSnap
 		outcome = "updated"
 		_, err = tx.ExecContext(ctx, `
 			UPDATE financial_accounts SET institution = ?, name = ?, number = ?, account_type = ?,
-				account_subtype = ?, balance = ?, credit_limit = ?, currency_code = ?,
+				account_subtype = ?, balance = ?, credit_limit = ?, available_credit_limit = ?,
+				balance_close_date = ?, balance_due_date = ?, currency_code = ?,
 				provider_updated_at = ?, current_raw_import_id = ?, normalized_hash = ?, updated_at = ?
 			WHERE id = ?`,
 			snapshot.Institution, snapshot.Name, snapshot.Number, snapshot.AccountType,
 			snapshot.AccountSubtype, decimalToStorage(snapshot.Balance), decimalToStorage(snapshot.CreditLimit),
+			decimalToStorage(snapshot.AvailableCreditLimit), db.FormatTimePtr(snapshot.BalanceCloseDate), db.FormatTimePtr(snapshot.BalanceDueDate),
 			snapshot.CurrencyCode, db.FormatTimePtr(snapshot.ProviderUpdatedAt), rawImportID, digest, now, accountID,
 		)
 		if err != nil {

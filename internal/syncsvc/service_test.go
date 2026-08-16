@@ -204,6 +204,43 @@ func TestExecuteHappyPathInsertsAccountAndTransaction(t *testing.T) {
 	}
 }
 
+func TestExecutePersistsCreditAccountLimitsAndDates(t *testing.T) {
+	conn := newTestConn(t)
+	sourceID, syncRunID := newSyncRun(t, conn)
+	insertRawImport(t, conn, "raw-accounts", syncRunID, sourceID)
+
+	closeDate := time.Date(2026, 4, 3, 0, 0, 0, 0, time.UTC)
+	dueDate := time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)
+	provider := &fakeProvider{
+		source: defaultSource(),
+		accountsPage: pluggy.AccountsPage{
+			RawImportID: "raw-accounts",
+			Accounts: []pluggy.AccountSnapshot{{
+				ExternalID: "acc-1", AccountType: strp("CREDIT"), CurrencyCode: strp("BRL"),
+				Balance: amountP("1234.56"), CreditLimit: amountP("5000.00"),
+				AvailableCreditLimit: amountP("3765.44"),
+				BalanceCloseDate:     &closeDate, BalanceDueDate: &dueDate,
+			}},
+		},
+	}
+	if err := (&syncsvc.Service{DB: conn, Provider: provider, SyncRunID: syncRunID, SourceID: sourceID}).Execute(context.Background()); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	var available, closeRaw, dueRaw string
+	err := conn.QueryRow(`SELECT available_credit_limit, balance_close_date, balance_due_date
+		FROM financial_accounts WHERE external_id = 'acc-1'`).Scan(&available, &closeRaw, &dueRaw)
+	if err != nil {
+		t.Fatalf("query account: %v", err)
+	}
+	if available != "3765.44" {
+		t.Errorf("available_credit_limit = %s", available)
+	}
+	if closeRaw != db.FormatTime(closeDate) || dueRaw != db.FormatTime(dueDate) {
+		t.Errorf("close=%s due=%s", closeRaw, dueRaw)
+	}
+}
+
 func TestExecuteSecondRunDetectsUnchangedRecords(t *testing.T) {
 	conn := newTestConn(t)
 	sourceID, syncRunID1 := newSyncRun(t, conn)

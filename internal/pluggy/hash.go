@@ -81,6 +81,9 @@ func AccountHash(a AccountSnapshot) string {
 		strField(a.AccountSubtype),
 		decField(a.Balance),
 		decField(a.CreditLimit),
+		decField(a.AvailableCreditLimit),
+		timeField(a.BalanceCloseDate),
+		timeField(a.BalanceDueDate),
 		strField(a.CurrencyCode),
 		timeField(a.ProviderUpdatedAt),
 	)

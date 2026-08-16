@@ -1,5 +1,6 @@
 import {
   ApiOutlined,
+  BankOutlined,
   HomeOutlined,
   RiseOutlined,
   SettingOutlined,
@@ -28,6 +29,7 @@ export function App() {
           routes: [
             { path: "/", name: "Home", icon: <HomeOutlined /> },
             { path: "/open-banking", name: "Open Banking", icon: <ApiOutlined /> },
+            { path: "/contas-e-cartoes", name: "Contas e cartões", icon: <BankOutlined /> },
             { path: "/transacoes", name: "Transações", icon: <TransactionOutlined /> },
             { path: "/automacoes", name: "Automações", icon: <ThunderboltOutlined /> },
             { path: "/pendencias", name: "Pendências", icon: <WalletOutlined /> },

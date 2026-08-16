@@ -54,6 +54,12 @@ func NewServer(db *sql.DB, frontend fs.FS, session *settings.Session) http.Handl
 	mux.HandleFunc("GET /api/sync-runs", handleListSyncRuns(db))
 	mux.HandleFunc("GET /api/sync-runs/{id}", handleGetSyncRun(db))
 
+	mux.HandleFunc("GET /api/accounts", handleListAccounts(db))
+	mux.HandleFunc("GET /api/accounts/{id}", handleGetAccount(db))
+	mux.HandleFunc("GET /api/accounts/{id}/cards", handleListAccountCards(db))
+	mux.HandleFunc("GET /api/accounts/{id}/bills", handleListAccountBills(db))
+	mux.HandleFunc("PUT /api/accounts/{id}/closing-day", handleSetAccountClosingDay(db))
+
 	mux.HandleFunc("GET /api/investments", handleListInvestments(db))
 	mux.HandleFunc("GET /api/investments/{id}", handleGetInvestment(db))
 	mux.HandleFunc("GET /api/investments/{id}/transactions", handleListInvestmentTransactions(db))
