@@ -53,9 +53,12 @@ func candidateFor(ctx context.Context, q transactions.Querier, transactionID str
 }
 
 // ApplyToNewTransaction mirrors apply_rules_to_new_transaction: the first
-// active rule (in creation order) that matches wins and ignores the
-// transaction; later rules are never consulted, matching the reference's
-// early return. Despite the name, it also runs for a resync's update path
+// active *ignore-action* rule (in creation order) that matches wins and
+// ignores the transaction; later rules are never consulted, matching the
+// reference's early return. A rule whose action is "reconcile" is skipped
+// here entirely — it has nothing to do with new-transaction sync-time
+// processing, only with internal/timeline's read-time projection. Despite
+// the name, it also runs for a resync's update path
 // (see NewTransactionHook below and syncsvc.TransactionUpsertedHook) so a
 // transaction that starts out matching no rule gets re-evaluated once a
 // later sync changes a field a rule cares about — applyInclusion (package
@@ -76,6 +79,9 @@ func ApplyToNewTransaction(
 		return err
 	}
 	for _, rule := range rules {
+		if !isIgnoreRule(rule) {
+			continue
+		}
 		if Matches(candidate, rule.Conditions, rule.LogicOperator) {
 			_, err := transactions.SetInclusion(
 				ctx, conn, transactionID, money.Ignored, transactions.InclusionOriginRule, &rule.ID, &rule.Name, onIgnored,
@@ -84,6 +90,10 @@ func ApplyToNewTransaction(
 		}
 	}
 	return nil
+}
+
+func isIgnoreRule(rule Rule) bool {
+	return len(rule.Actions) == 1 && rule.Actions[0].Type == ActionIgnore
 }
 
 // NewTransactionHook adapts ApplyToNewTransaction to
@@ -111,6 +121,9 @@ func ApplyRetroactively(ctx context.Context, conn *sql.DB, ruleID string, onIgno
 			return RetroactiveResult{}, nil
 		}
 		return RetroactiveResult{}, err
+	}
+	if !isIgnoreRule(rule) {
+		return RetroactiveResult{}, nil
 	}
 
 	rows, err := conn.QueryContext(ctx, `

@@ -66,6 +66,21 @@ const SettingsPage = lazy(() =>
     default: module.SettingsPage,
   })),
 );
+const RecurringCommitmentsPage = lazy(() =>
+  import("../pages/RecurringCommitmentsPage").then((module) => ({
+    default: module.RecurringCommitmentsPage,
+  })),
+);
+const ScenariosPage = lazy(() =>
+  import("../pages/ScenariosPage").then((module) => ({
+    default: module.ScenariosPage,
+  })),
+);
+const FinancialReportPage = lazy(() =>
+  import("../pages/FinancialReportPage").then((module) => ({
+    default: module.FinancialReportPage,
+  })),
+);
 
 export function AppRouter() {
   return (
@@ -88,6 +103,9 @@ export function AppRouter() {
             <Route path="automacoes" element={<AutomationRulesPage />} />
             <Route path="pendencias" element={<PayablesPage />} />
             <Route path="pendencias/:id" element={<PayableDetailPage />} />
+            <Route path="recorrencias" element={<RecurringCommitmentsPage />} />
+            <Route path="cenarios" element={<ScenariosPage />} />
+            <Route path="relatorio-financeiro" element={<FinancialReportPage />} />
             <Route path="investimentos" element={<InvestmentsPage />} />
             <Route path="investimentos/:id" element={<InvestmentDetailPage />} />
             <Route path="categorias" element={<CategoriesPage />} />

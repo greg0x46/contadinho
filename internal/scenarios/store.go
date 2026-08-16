@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -98,6 +99,60 @@ func ListScenariosByPayable(ctx context.Context, q Querier, payableID string) ([
 		return nil, err
 	}
 	defer rows.Close()
+	return scanScenarioRows(rows)
+}
+
+// ListPayablePlanScenarios mirrors listing every Scenario{Kind: debt_plan
+// or receivable_plan} — i.e. every scenario backed by a payable, regardless
+// of which one — fed to internal/timeline's M4 projection.
+func ListPayablePlanScenarios(ctx context.Context, q Querier) ([]Scenario, error) {
+	rows, err := q.QueryContext(ctx,
+		`SELECT id, kind, name, payable_id, created_at, updated_at FROM scenarios WHERE kind IN (?, ?) ORDER BY created_at DESC`,
+		string(KindDebtPlan), string(KindReceivablePlan))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanScenarioRows(rows)
+}
+
+// ListStandaloneScenarios mirrors listing every Scenario{Kind: standalone},
+// newest first — the "what if" scenarios with no payable_id, fed to the
+// M5 multi-select.
+func ListStandaloneScenarios(ctx context.Context, q Querier) ([]Scenario, error) {
+	rows, err := q.QueryContext(ctx,
+		`SELECT id, kind, name, payable_id, created_at, updated_at FROM scenarios WHERE kind = ? ORDER BY created_at DESC`, string(KindStandalone))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanScenarioRows(rows)
+}
+
+// ListScenariosByIDs mirrors fetching a batch of scenarios by id, in no
+// particular order — used to load just the scenarios active in a
+// simulation. An empty ids returns an empty slice without touching the
+// database.
+func ListScenariosByIDs(ctx context.Context, q Querier, ids []string) ([]Scenario, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	query := `SELECT id, kind, name, payable_id, created_at, updated_at FROM scenarios WHERE id IN (` + strings.Join(placeholders, ",") + `)`
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanScenarioRows(rows)
+}
+
+func scanScenarioRows(rows *sql.Rows) ([]Scenario, error) {
 	var list []Scenario
 	for rows.Next() {
 		var (
@@ -113,6 +168,7 @@ func ListScenariosByPayable(ctx context.Context, q Querier, payableID string) ([
 		if payableID.Valid {
 			s.PayableID = &payableID.String
 		}
+		var err error
 		if s.CreatedAt, err = db.ParseTime(createdAtRaw); err != nil {
 			return nil, err
 		}

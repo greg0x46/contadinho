@@ -17,14 +17,20 @@ import (
 // matching row.
 var ErrNotFound = errors.New("automation rule not found")
 
-// Rule mirrors AutomationRule (with its conditions eager-loaded, as the
-// reference always fetches them together).
+// ErrRecurringCommitmentNotFound is returned by Create/Update when a
+// reconcile action's RecurringCommitmentID doesn't reference an existing
+// recurring commitment.
+var ErrRecurringCommitmentNotFound = errors.New("recurring commitment not found")
+
+// Rule mirrors AutomationRule (with its conditions and actions eager-loaded,
+// as the reference always fetches them together).
 type Rule struct {
 	ID            string
 	Name          string
 	IsActive      bool
 	LogicOperator LogicOperator
 	Conditions    []Condition
+	Actions       []Action
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
@@ -35,6 +41,7 @@ type Write struct {
 	IsActive      bool
 	LogicOperator LogicOperator
 	Conditions    []Condition
+	Actions       []ActionWrite
 }
 
 // Querier is satisfied by both *sql.DB and *sql.Tx.
@@ -75,6 +82,39 @@ func loadConditions(ctx context.Context, q Querier, ruleID string) ([]Condition,
 	return conditions, rows.Err()
 }
 
+func insertActions(ctx context.Context, q Querier, ruleID string, actions []ActionWrite) error {
+	for i, a := range actions {
+		if _, err := q.ExecContext(ctx, `
+			INSERT INTO automation_rule_actions (id, rule_id, action_type, recurring_commitment_id, position)
+			VALUES (?, ?, ?, ?, ?)`,
+			uuid.NewString(), ruleID, string(a.Type), a.RecurringCommitmentID, i,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func loadActions(ctx context.Context, q Querier, ruleID string) ([]Action, error) {
+	rows, err := q.QueryContext(ctx,
+		`SELECT id, action_type, recurring_commitment_id FROM automation_rule_actions WHERE rule_id = ? ORDER BY position`, ruleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var actions []Action
+	for rows.Next() {
+		var a Action
+		var actionType string
+		if err := rows.Scan(&a.ID, &actionType, &a.RecurringCommitmentID); err != nil {
+			return nil, err
+		}
+		a.Type = ActionType(actionType)
+		actions = append(actions, a)
+	}
+	return actions, rows.Err()
+}
+
 // Create mirrors create_rule.
 func Create(ctx context.Context, conn *sql.DB, write Write) (Rule, error) {
 	tx, err := conn.BeginTx(ctx, nil)
@@ -96,10 +136,16 @@ func Create(ctx context.Context, conn *sql.DB, write Write) (Rule, error) {
 	if err := insertConditions(ctx, tx, id, write.Conditions); err != nil {
 		return Rule{}, err
 	}
+	if err := insertActions(ctx, tx, id, write.Actions); err != nil {
+		if db.IsForeignKeyViolation(err) {
+			return Rule{}, ErrRecurringCommitmentNotFound
+		}
+		return Rule{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return Rule{}, err
 	}
-	return Rule{ID: id, Name: write.Name, IsActive: write.IsActive, LogicOperator: write.LogicOperator, Conditions: write.Conditions, CreatedAt: now, UpdatedAt: now}, nil
+	return Get(ctx, conn, id)
 }
 
 // Update mirrors update_rule: it replaces every condition rather than
@@ -128,19 +174,20 @@ func Update(ctx context.Context, conn *sql.DB, id string, write Write) (Rule, er
 	if err := insertConditions(ctx, tx, id, write.Conditions); err != nil {
 		return Rule{}, err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM automation_rule_actions WHERE rule_id = ?`, id); err != nil {
+		return Rule{}, err
+	}
+	if err := insertActions(ctx, tx, id, write.Actions); err != nil {
+		if db.IsForeignKeyViolation(err) {
+			return Rule{}, ErrRecurringCommitmentNotFound
+		}
+		return Rule{}, err
+	}
 
-	var createdAtRaw string
-	if err := tx.QueryRowContext(ctx, `SELECT created_at FROM automation_rules WHERE id = ?`, id).Scan(&createdAtRaw); err != nil {
-		return Rule{}, err
-	}
-	createdAt, err := db.ParseTime(createdAtRaw)
-	if err != nil {
-		return Rule{}, err
-	}
 	if err := tx.Commit(); err != nil {
 		return Rule{}, err
 	}
-	return Rule{ID: id, Name: write.Name, IsActive: write.IsActive, LogicOperator: write.LogicOperator, Conditions: write.Conditions, CreatedAt: createdAt, UpdatedAt: now}, nil
+	return Get(ctx, conn, id)
 }
 
 // SetActive mirrors set_rule_active.
@@ -204,6 +251,9 @@ func Get(ctx context.Context, q Querier, id string) (Rule, error) {
 	if r.Conditions, err = loadConditions(ctx, q, id); err != nil {
 		return Rule{}, err
 	}
+	if r.Actions, err = loadActions(ctx, q, id); err != nil {
+		return Rule{}, err
+	}
 	return r, nil
 }
 
@@ -248,6 +298,11 @@ func listWhere(ctx context.Context, q Querier, where string) ([]Rule, error) {
 			return nil, err
 		}
 		rules[i].Conditions = conditions
+		actions, err := loadActions(ctx, q, rules[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		rules[i].Actions = actions
 	}
 	return rules, nil
 }
@@ -260,6 +315,60 @@ func List(ctx context.Context, q Querier) ([]Rule, error) {
 // ListActive mirrors load_active_rules.
 func ListActive(ctx context.Context, q Querier) ([]Rule, error) {
 	return listWhere(ctx, q, "is_active = 1")
+}
+
+// ListActiveReconcileTargets returns, for every active rule whose action is
+// 'reconcile', the rule keyed by the commitment ID it targets. The
+// database's partial unique index on automation_rule_actions guarantees at
+// most one entry per commitment. internal/timeline uses this to look up
+// which rule's conditions (if any) resolve a given commitment's occurrences.
+func ListActiveReconcileTargets(ctx context.Context, q Querier) (map[string]Rule, error) {
+	rows, err := q.QueryContext(ctx, `
+		SELECT r.id, r.name, r.is_active, r.logic_operator, r.created_at, r.updated_at, a.recurring_commitment_id
+		FROM automation_rules r
+		JOIN automation_rule_actions a ON a.rule_id = r.id
+		WHERE r.is_active = 1 AND a.action_type = 'reconcile'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	targets := make(map[string]Rule)
+	for rows.Next() {
+		var (
+			r                   Rule
+			isActive            int
+			createdAtRaw        string
+			updatedAtRaw        string
+			recurringCommitment sql.NullString
+		)
+		if err := rows.Scan(&r.ID, &r.Name, &isActive, &r.LogicOperator, &createdAtRaw, &updatedAtRaw, &recurringCommitment); err != nil {
+			return nil, err
+		}
+		r.IsActive = isActive != 0
+		if r.CreatedAt, err = db.ParseTime(createdAtRaw); err != nil {
+			return nil, err
+		}
+		if r.UpdatedAt, err = db.ParseTime(updatedAtRaw); err != nil {
+			return nil, err
+		}
+		if !recurringCommitment.Valid {
+			continue
+		}
+		targets[recurringCommitment.String] = r
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for commitmentID, r := range targets {
+		conditions, err := loadConditions(ctx, q, r.ID)
+		if err != nil {
+			return nil, err
+		}
+		r.Conditions = conditions
+		targets[commitmentID] = r
+	}
+	return targets, nil
 }
 
 // ListConditionOptions mirrors list_condition_options: the distinct

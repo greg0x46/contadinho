@@ -17,6 +17,7 @@ const rule: AutomationRule = {
   is_active: true,
   logic_operator: "or",
   conditions: [{ field: "description", operator: "contains", value: "taxa" }],
+  actions: [{ type: "ignore", recurring_commitment_id: null }],
   created_at: "2026-07-30T12:00:00Z",
   updated_at: "2026-07-30T12:00:00Z",
 };
@@ -26,6 +27,7 @@ const write: AutomationRuleWrite = {
   is_active: rule.is_active,
   logic_operator: rule.logic_operator,
   conditions: rule.conditions,
+  actions: rule.actions,
   apply_retroactively: false,
 };
 

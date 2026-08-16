@@ -188,6 +188,7 @@ describe("automation rule contracts", () => {
     is_active: true,
     logic_operator: "or",
     conditions: [{ field: "description", operator: "contains", value: "taxa" }],
+    actions: [{ type: "ignore", recurring_commitment_id: null }],
     created_at: "2026-07-30T12:00:00Z",
     updated_at: "2026-07-30T12:00:00Z",
   };
@@ -216,6 +217,10 @@ describe("automation rule contracts", () => {
     { ...rule, conditions: [] },
     { ...rule, conditions: [{ field: "description", operator: "contains", value: "" }] },
     { ...rule, conditions: [{ field: "unknown", operator: "contains", value: "x" }] },
+    { ...rule, actions: [] },
+    { ...rule, actions: [{ type: "ignore", recurring_commitment_id: "not-null" }] },
+    { ...rule, actions: [{ type: "reconcile", recurring_commitment_id: null }] },
+    { ...rule, actions: [{ type: "unknown", recurring_commitment_id: null }] },
   ])("rejects malformed rule fields", (payload) => {
     expect(() => parseAutomationRule(payload)).toThrow();
   });

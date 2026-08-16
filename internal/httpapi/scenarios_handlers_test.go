@@ -515,6 +515,62 @@ func TestGenerateInstallmentsRejectsBothOrNeitherOfMonthsAndAmount(t *testing.T)
 	resp.Body.Close()
 }
 
+func TestStandaloneScenarioLifecycleOverHTTP(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/scenarios", map[string]any{"name": "Viagem"})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create standalone scenario status = %d, want 201", resp.StatusCode)
+	}
+	var scenario map[string]any
+	decodeJSON(t, resp, &scenario)
+	scenarioID := scenario["id"].(string)
+	if scenario["kind"] != "standalone" || scenario["payable_id"] != nil {
+		t.Errorf("scenario = %+v", scenario)
+	}
+
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/scenarios?kind=standalone", nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("list standalone scenarios status = %d, want 200", resp.StatusCode)
+	}
+	var list []map[string]any
+	decodeJSON(t, resp, &list)
+	if len(list) != 1 || list[0]["id"] != scenarioID {
+		t.Errorf("list = %+v", list)
+	}
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/transactions", map[string]any{
+		"description": "Passagem", "amount": "800.00", "projected_at": "2026-12-01", "category": nil,
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create scenario transaction status = %d, want 201", resp.StatusCode)
+	}
+}
+
+func TestListScenariosRejectsUnknownKind(t *testing.T) {
+	srv, _ := newTestServer(t)
+	resp := doJSON(t, http.MethodGet, srv.URL+"/api/scenarios?kind=debt_plan", nil)
+	if resp.StatusCode != 422 {
+		t.Fatalf("status = %d, want 422", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/scenarios", nil)
+	if resp.StatusCode != 422 {
+		t.Fatalf("status = %d, want 422", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+func TestCreateStandaloneScenarioRejectsEmptyName(t *testing.T) {
+	srv, _ := newTestServer(t)
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/scenarios", map[string]any{"name": ""})
+	if resp.StatusCode != 422 {
+		t.Fatalf("status = %d, want 422", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
 func TestCreateScenarioRejectsUnknownDebt(t *testing.T) {
 	srv, _ := newTestServer(t)
 	resp := doJSON(t, http.MethodPost, srv.URL+"/api/payables/unknown/scenarios", map[string]any{"name": "Plano"})
@@ -544,8 +600,11 @@ func TestCreateScenarioTransactionRejectsInvalidBody(t *testing.T) {
 	}
 	resp.Body.Close()
 
+	// A negative amount is valid at the HTTP layer (needed for standalone
+	// scenarios' expense transactions, which have no backing Payable to
+	// derive a sign from) — only zero is rejected.
 	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenarioID+"/transactions", map[string]any{
-		"description": "Parcela", "amount": "-1.00", "projected_at": "2026-09-01",
+		"description": "Parcela", "amount": "0.00", "projected_at": "2026-09-01",
 	})
 	if resp.StatusCode != 422 {
 		t.Fatalf("status = %d, want 422", resp.StatusCode)
