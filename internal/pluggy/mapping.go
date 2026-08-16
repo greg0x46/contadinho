@@ -102,6 +102,27 @@ func optionalDateTime(value any, field string) (*time.Time, error) {
 	return &utc, nil
 }
 
+// optionalFlexibleDate accepts either a full ISO timestamp or a bare calendar
+// date ("2026-04-03"). The latter is how Pluggy sends
+// creditData.balanceCloseDate/balanceDueDate, which optionalDateTime would
+// reject — and a rejected field fails the whole mapAccount, which
+// mapAccountsPage turns into a dropped account, silently taking that card's
+// transactions and bills with it. A bare date is anchored at midnight UTC.
+func optionalFlexibleDate(value any, field string) (*time.Time, error) {
+	if value == nil {
+		return nil, nil
+	}
+	s, ok := value.(string)
+	if !ok {
+		return nil, mappingErr(field, "must be an ISO date")
+	}
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		utc := t.UTC()
+		return &utc, nil
+	}
+	return optionalDateTime(value, field)
+}
+
 func optionalInteger(value any, field string) (*int, error) {
 	d, err := optionalDecimal(value, field)
 	if err != nil || d == nil {
@@ -187,9 +208,23 @@ func mapAccount(payload map[string]any, institution *string) (AccountSnapshot, e
 	if err != nil {
 		return AccountSnapshot{}, err
 	}
-	var creditLimit *decimal.Decimal
+	var (
+		creditLimit          *decimal.Decimal
+		availableCreditLimit *decimal.Decimal
+		balanceCloseDate     *time.Time
+		balanceDueDate       *time.Time
+	)
 	if creditData != nil {
 		if creditLimit, err = optionalDecimal(creditData["creditLimit"], "creditData.creditLimit"); err != nil {
+			return AccountSnapshot{}, err
+		}
+		if availableCreditLimit, err = optionalDecimal(creditData["availableCreditLimit"], "creditData.availableCreditLimit"); err != nil {
+			return AccountSnapshot{}, err
+		}
+		if balanceCloseDate, err = optionalFlexibleDate(creditData["balanceCloseDate"], "creditData.balanceCloseDate"); err != nil {
+			return AccountSnapshot{}, err
+		}
+		if balanceDueDate, err = optionalFlexibleDate(creditData["balanceDueDate"], "creditData.balanceDueDate"); err != nil {
 			return AccountSnapshot{}, err
 		}
 	}
@@ -218,15 +253,18 @@ func mapAccount(payload map[string]any, institution *string) (AccountSnapshot, e
 		return AccountSnapshot{}, err
 	}
 	return AccountSnapshot{
-		ExternalID:     externalID,
-		Institution:    institution,
-		Name:           name,
-		Number:         number,
-		AccountType:    accountType,
-		AccountSubtype: accountSubtype,
-		Balance:        balance,
-		CreditLimit:    creditLimit,
-		CurrencyCode:   currencyCode,
+		ExternalID:           externalID,
+		Institution:          institution,
+		Name:                 name,
+		Number:               number,
+		AccountType:          accountType,
+		AccountSubtype:       accountSubtype,
+		Balance:              balance,
+		CreditLimit:          creditLimit,
+		AvailableCreditLimit: availableCreditLimit,
+		BalanceCloseDate:     balanceCloseDate,
+		BalanceDueDate:       balanceDueDate,
+		CurrencyCode:         currencyCode,
 	}, nil
 }
 

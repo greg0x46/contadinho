@@ -2,6 +2,7 @@ package pluggy
 
 import (
 	"testing"
+	"time"
 )
 
 func TestDecodeJSONPreservesDecimalPrecision(t *testing.T) {
@@ -68,6 +69,70 @@ func TestMapAccountExtractsCreditLimitFromCreditData(t *testing.T) {
 	}
 	if account.Institution == nil || *account.Institution != institution {
 		t.Errorf("Institution = %v", account.Institution)
+	}
+}
+
+func TestMapAccountExtractsCreditDataLimitsAndDates(t *testing.T) {
+	payload, _ := decodeJSON([]byte(`{
+		"id": "acc-1", "name": "Cartão", "type": "CREDIT", "currencyCode": "BRL",
+		"creditData": {
+			"creditLimit": 5000.00, "availableCreditLimit": 3765.44,
+			"balanceCloseDate": "2026-04-03", "balanceDueDate": "2026-04-10"
+		}
+	}`))
+	account, err := mapAccount(payload, nil)
+	if err != nil {
+		t.Fatalf("mapAccount: %v", err)
+	}
+	if account.AvailableCreditLimit == nil || account.AvailableCreditLimit.StringFixed(2) != "3765.44" {
+		t.Errorf("AvailableCreditLimit = %v", account.AvailableCreditLimit)
+	}
+	if account.BalanceCloseDate == nil || account.BalanceCloseDate.Format(time.RFC3339) != "2026-04-03T00:00:00Z" {
+		t.Errorf("BalanceCloseDate = %v", account.BalanceCloseDate)
+	}
+	if account.BalanceDueDate == nil || account.BalanceDueDate.Format(time.RFC3339) != "2026-04-10T00:00:00Z" {
+		t.Errorf("BalanceDueDate = %v", account.BalanceDueDate)
+	}
+}
+
+// Pluggy sends the credit dates as bare calendar dates. A mapping error on
+// either would make mapAccountsPage drop the whole account, taking that
+// card's transactions and bills with it — so this guards the date-only form
+// specifically, not just the happy path above.
+func TestMapAccountsPageKeepsCreditAccountWithDateOnlyCreditDates(t *testing.T) {
+	payload, _ := decodeJSON([]byte(`{"results": [{
+		"id": "acc-1", "type": "CREDIT",
+		"creditData": {"balanceCloseDate": "2026-04-03", "balanceDueDate": "2026-04-10"}
+	}]}`))
+	accounts, rejections, err := mapAccountsPage(payload, nil)
+	if err != nil {
+		t.Fatalf("mapAccountsPage: %v", err)
+	}
+	if len(rejections) != 0 {
+		t.Fatalf("expected no rejections, got %+v", rejections)
+	}
+	if len(accounts) != 1 {
+		t.Fatalf("expected the credit account to survive, got %d", len(accounts))
+	}
+}
+
+func TestMapAccountAcceptsFullISOCreditDates(t *testing.T) {
+	payload, _ := decodeJSON([]byte(`{
+		"id": "acc-1", "creditData": {"balanceDueDate": "2026-04-10T12:30:00.000Z"}
+	}`))
+	account, err := mapAccount(payload, nil)
+	if err != nil {
+		t.Fatalf("mapAccount: %v", err)
+	}
+	if account.BalanceDueDate == nil || account.BalanceDueDate.Format(time.RFC3339) != "2026-04-10T12:30:00Z" {
+		t.Errorf("BalanceDueDate = %v", account.BalanceDueDate)
+	}
+}
+
+func TestMapAccountRejectsUnparseableCreditDate(t *testing.T) {
+	payload, _ := decodeJSON([]byte(`{"id": "acc-1", "creditData": {"balanceDueDate": "ontem"}}`))
+	if _, err := mapAccount(payload, nil); err == nil {
+		t.Fatal("expected an error for an unparseable credit date")
 	}
 }
 

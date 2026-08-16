@@ -62,16 +62,19 @@ type SourceSnapshot struct {
 
 // AccountSnapshot mirrors AccountSnapshot.
 type AccountSnapshot struct {
-	ExternalID        string
-	Institution       *string
-	Name              *string
-	Number            *string
-	AccountType       *string
-	AccountSubtype    *string
-	Balance           *decimal.Decimal
-	CreditLimit       *decimal.Decimal
-	CurrencyCode      *string
-	ProviderUpdatedAt *time.Time
+	ExternalID           string
+	Institution          *string
+	Name                 *string
+	Number               *string
+	AccountType          *string
+	AccountSubtype       *string
+	Balance              *decimal.Decimal
+	CreditLimit          *decimal.Decimal
+	AvailableCreditLimit *decimal.Decimal
+	BalanceCloseDate     *time.Time
+	BalanceDueDate       *time.Time
+	CurrencyCode         *string
+	ProviderUpdatedAt    *time.Time
 }
 
 // TransactionSnapshot mirrors TransactionSnapshot. PaymentData,

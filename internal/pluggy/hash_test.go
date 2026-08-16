@@ -2,6 +2,7 @@ package pluggy
 
 import (
 	"testing"
+	"time"
 
 	"github.com/shopspring/decimal"
 )
@@ -29,6 +30,29 @@ func TestAccountHashChangesWithRealChange(t *testing.T) {
 	a2 := AccountSnapshot{ExternalID: "acc-1", Balance: decp("20.00")}
 	if AccountHash(a1) == AccountHash(a2) {
 		t.Error("hash should change when balance actually changes")
+	}
+}
+
+func TestAccountHashCoversCreditData(t *testing.T) {
+	due := time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)
+	base := AccountSnapshot{ExternalID: "acc-1", CreditLimit: decp("5000.00")}
+
+	withAvailable := base
+	withAvailable.AvailableCreditLimit = decp("3765.44")
+	if AccountHash(base) == AccountHash(withAvailable) {
+		t.Error("hash should change when the available credit limit changes")
+	}
+
+	withDue := base
+	withDue.BalanceDueDate = &due
+	if AccountHash(base) == AccountHash(withDue) {
+		t.Error("hash should change when the balance due date changes")
+	}
+
+	withClose := base
+	withClose.BalanceCloseDate = &due
+	if AccountHash(withDue) == AccountHash(withClose) {
+		t.Error("close and due dates should not be interchangeable in the hash")
 	}
 }
 

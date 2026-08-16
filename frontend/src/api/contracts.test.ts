@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  parseAccount,
+  parseAccountBill,
+  parseAccountBillList,
+  parseAccountCard,
+  parseAccountCardList,
+  parseAccountList,
   parseAutomationRule,
   parseAutomationRuleList,
   parseAutomationRuleWriteResult,
@@ -22,6 +28,12 @@ import {
   parseTransactionQueryResult,
 } from "./contracts";
 import { syncRun } from "../test/fixtures";
+import {
+  accountBill,
+  accountCard,
+  bankAccount,
+  creditAccount,
+} from "../test/accountFixtures";
 import {
   categoryId,
   ignoredTransactionResult,
@@ -446,5 +458,65 @@ describe("category contracts", () => {
         ],
       }),
     ).toThrow();
+  });
+
+  it("accepts valid bank and credit accounts", () => {
+    expect(parseAccount(bankAccount)).toEqual(bankAccount);
+    expect(parseAccountList([bankAccount, creditAccount])).toEqual([bankAccount, creditAccount]);
+  });
+
+  it("accepts a manually stated closing day", () => {
+    const manual = { ...creditAccount, closing_day: 18, closing_day_source: "manual" as const };
+    expect(parseAccount(manual)).toEqual(manual);
+  });
+
+  it("accepts an account with no type", () => {
+    expect(parseAccount({ ...creditAccount, account_type: null }).account_type).toBeNull();
+  });
+
+  it.each([
+    { ...bankAccount, id: "nao-e-uuid" },
+    { ...bankAccount, external_id: "" },
+    { ...bankAccount, account_type: "SAVINGS" },
+    { ...bankAccount, balance: "mil reais" },
+    { ...bankAccount, balance_due_date: "ontem" },
+    { ...bankAccount, closing_day: 0 },
+    { ...bankAccount, closing_day: 32 },
+    { ...bankAccount, closing_day: 10.5 },
+    { ...bankAccount, closing_day_source: "chutado" },
+    // The day and its source always travel together.
+    { ...bankAccount, closing_day: 10, closing_day_source: null },
+    { ...bankAccount, closing_day: null, closing_day_source: "manual" },
+    // hasOnlyKeys rejects a payload that drifted from the Go DTO.
+    { ...bankAccount, extra: true },
+  ])("rejects malformed account fields", (payload) => {
+    expect(() => parseAccount(payload)).toThrow();
+  });
+
+  it("accepts a card and a bill", () => {
+    expect(parseAccountCard(accountCard)).toEqual(accountCard);
+    expect(parseAccountCardList([accountCard])).toEqual([accountCard]);
+    expect(parseAccountBill(accountBill)).toEqual(accountBill);
+    expect(parseAccountBillList([accountBill])).toEqual([accountBill]);
+  });
+
+  it("accepts a card that was never used", () => {
+    const unused = { ...accountCard, transaction_count: 0, last_transaction_at: null };
+    expect(parseAccountCard(unused)).toEqual(unused);
+  });
+
+  it.each([
+    { ...accountCard, card_number: "" },
+    { ...accountCard, transaction_count: -1 },
+    { ...accountCard, transaction_count: "12" },
+  ])("rejects malformed card fields", (payload) => {
+    expect(() => parseAccountCard(payload)).toThrow();
+  });
+
+  it.each([
+    { ...accountBill, id: "nao-e-uuid" },
+    { ...accountBill, total_amount: "muito" },
+  ])("rejects malformed bill fields", (payload) => {
+    expect(() => parseAccountBill(payload)).toThrow();
   });
 });
