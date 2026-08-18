@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 
+	"contadinho-go/internal/categories"
 	"contadinho-go/internal/money"
 	"contadinho-go/internal/syncsvc"
 	"contadinho-go/internal/transactions"
@@ -52,18 +53,40 @@ func candidateFor(ctx context.Context, q transactions.Querier, transactionID str
 	return candidate, nil
 }
 
-// ApplyToNewTransaction mirrors apply_rules_to_new_transaction: the first
-// active *ignore-action* rule (in creation order) that matches wins and
-// ignores the transaction; later rules are never consulted, matching the
-// reference's early return. A rule whose action is "reconcile" is skipped
-// here entirely — it has nothing to do with new-transaction sync-time
-// processing, only with internal/timeline's read-time projection. Despite
-// the name, it also runs for a resync's update path
-// (see NewTransactionHook below and syncsvc.TransactionUpsertedHook) so a
-// transaction that starts out matching no rule gets re-evaluated once a
-// later sync changes a field a rule cares about — applyInclusion (package
-// transactions) already refuses to let a rule-origin decision overwrite a
-// manual one, so re-running this on an update is safe by construction.
+// findAction returns rule's first action of type t, if any.
+func findAction(rule Rule, t ActionType) (Action, bool) {
+	for _, a := range rule.Actions {
+		if a.Type == t {
+			return a, true
+		}
+	}
+	return Action{}, false
+}
+
+// isReconcileOnlyRule reports whether rule's only action is "reconcile" —
+// such rules have nothing to do with new-transaction/retroactive
+// processing, only with internal/timeline's read-time projection (see
+// ListActiveReconcileTargets).
+func isReconcileOnlyRule(rule Rule) bool {
+	return len(rule.Actions) == 1 && rule.Actions[0].Type == ActionReconcile
+}
+
+// ApplyToNewTransaction mirrors apply_rules_to_new_transaction: rules are
+// evaluated in creation order; a matching rule's "ignore" and
+// "set_category" actions (if present) both fire. Once a matching rule's
+// "ignore" action fires, evaluation stops — an ignored transaction has
+// nothing left to categorize — matching the reference's early return. A
+// matching rule whose only action is "set_category" (no "ignore") applies
+// it and evaluation continues, so a later rule can still ignore the same
+// transaction. A rule whose only action is "reconcile" is skipped here
+// entirely — see isReconcileOnlyRule. Despite the name, it also runs for a
+// resync's update path (see NewTransactionHook below and
+// syncsvc.TransactionUpsertedHook) so a transaction that starts out
+// matching no rule gets re-evaluated once a later sync changes a field a
+// rule cares about — applyInclusion (package transactions) and
+// categories.ApplyRule already refuse to let a rule-origin decision
+// overwrite a manual one, so re-running this on an update is safe by
+// construction.
 func ApplyToNewTransaction(
 	ctx context.Context, conn *sql.DB, transactionID string, onIgnored transactions.OnIgnoredHook,
 ) error {
@@ -79,10 +102,18 @@ func ApplyToNewTransaction(
 		return err
 	}
 	for _, rule := range rules {
-		if !isIgnoreRule(rule) {
+		if isReconcileOnlyRule(rule) {
 			continue
 		}
-		if Matches(candidate, rule.Conditions, rule.LogicOperator) {
+		if !Matches(candidate, rule.Conditions, rule.LogicOperator) {
+			continue
+		}
+		if setCategory, ok := findAction(rule, ActionSetCategory); ok {
+			if _, _, err := categories.ApplyRule(ctx, conn, transactionID, *setCategory.CategoryID); err != nil {
+				return err
+			}
+		}
+		if _, ok := findAction(rule, ActionIgnore); ok {
 			_, err := transactions.SetInclusion(
 				ctx, conn, transactionID, money.Ignored, transactions.InclusionOriginRule, &rule.ID, &rule.Name, onIgnored,
 			)
@@ -90,10 +121,6 @@ func ApplyToNewTransaction(
 		}
 	}
 	return nil
-}
-
-func isIgnoreRule(rule Rule) bool {
-	return len(rule.Actions) == 1 && rule.Actions[0].Type == ActionIgnore
 }
 
 // NewTransactionHook adapts ApplyToNewTransaction to
@@ -107,13 +134,17 @@ func NewTransactionHook(onIgnored transactions.OnIgnoredHook) syncsvc.Transactio
 
 // RetroactiveResult mirrors RetroactiveApplyResult.
 type RetroactiveResult struct {
-	Matched int
-	Ignored int
+	Matched     int
+	Ignored     int
+	Categorized int
 }
 
 // ApplyRetroactively mirrors apply_retroactively: silently returns a zero
 // result for an unknown rule id, matching the reference (the caller already
 // validated the rule exists when creating/updating it in the same request).
+// It applies whichever of the rule's "ignore"/"set_category" actions are
+// present to every matching transaction; a reconcile-only rule keeps
+// returning a zero result (see isReconcileOnlyRule).
 func ApplyRetroactively(ctx context.Context, conn *sql.DB, ruleID string, onIgnored transactions.OnIgnoredHook) (RetroactiveResult, error) {
 	rule, err := Get(ctx, conn, ruleID)
 	if err != nil {
@@ -122,7 +153,9 @@ func ApplyRetroactively(ctx context.Context, conn *sql.DB, ruleID string, onIgno
 		}
 		return RetroactiveResult{}, err
 	}
-	if !isIgnoreRule(rule) {
+	_, hasIgnore := findAction(rule, ActionIgnore)
+	setCategoryAction, hasSetCategory := findAction(rule, ActionSetCategory)
+	if !hasIgnore && !hasSetCategory {
 		return RetroactiveResult{}, nil
 	}
 
@@ -173,14 +206,25 @@ func ApplyRetroactively(ctx context.Context, conn *sql.DB, ruleID string, onIgno
 			continue
 		}
 		result.Matched++
-		confirmation, err := transactions.SetInclusion(
-			ctx, conn, c.id, money.Ignored, transactions.InclusionOriginRule, &rule.ID, &rule.Name, onIgnored,
-		)
-		if err != nil {
-			return RetroactiveResult{}, err
+		if hasSetCategory {
+			_, changed, err := categories.ApplyRule(ctx, conn, c.id, *setCategoryAction.CategoryID)
+			if err != nil {
+				return RetroactiveResult{}, err
+			}
+			if changed {
+				result.Categorized++
+			}
 		}
-		if confirmation.Changed {
-			result.Ignored++
+		if hasIgnore {
+			confirmation, err := transactions.SetInclusion(
+				ctx, conn, c.id, money.Ignored, transactions.InclusionOriginRule, &rule.ID, &rule.Name, onIgnored,
+			)
+			if err != nil {
+				return RetroactiveResult{}, err
+			}
+			if confirmation.Changed {
+				result.Ignored++
+			}
 		}
 	}
 	return result, nil

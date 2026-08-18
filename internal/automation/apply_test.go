@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"contadinho-go/internal/automation"
+	"contadinho-go/internal/categories"
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/money"
 	"contadinho-go/internal/transactions"
@@ -315,6 +316,123 @@ func TestApplyRetroactivelyUnknownRuleIsANoOp(t *testing.T) {
 	}
 	if result.Matched != 0 || result.Ignored != 0 {
 		t.Errorf("result = %+v, want zero", result)
+	}
+}
+
+func TestApplyToNewTransactionAppliesSetCategoryAction(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	acc := f.addAccount("Conta Corrente", "Banco Exemplo")
+	txID := f.addTransaction(acc, "Assinatura streaming", "")
+
+	category, err := categories.Create(ctx, f.conn, "Assinaturas", money.Expense, "icon", "#fff")
+	if err != nil {
+		t.Fatalf("categories.Create: %v", err)
+	}
+
+	if _, err := automation.Create(ctx, f.conn, automation.Write{
+		Name: "Categorizar assinaturas", IsActive: true, LogicOperator: automation.LogicAnd,
+		Conditions: []automation.Condition{{Field: automation.FieldDescription, Operator: automation.OperatorContains, Value: "assinatura"}},
+		Actions:    []automation.ActionWrite{{Type: automation.ActionSetCategory, CategoryID: &category.ID}},
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := automation.ApplyToNewTransaction(ctx, f.conn, txID, nil); err != nil {
+		t.Fatalf("ApplyToNewTransaction: %v", err)
+	}
+
+	var categoryID, origin string
+	if err := f.conn.QueryRow(`SELECT category_id, origin FROM transaction_category_decisions WHERE transaction_id = ?`, txID).Scan(&categoryID, &origin); err != nil {
+		t.Fatalf("query decision: %v", err)
+	}
+	if categoryID != category.ID || origin != string(categories.OriginRule) {
+		t.Errorf("category_id=%s origin=%s, want %s/%s", categoryID, origin, category.ID, categories.OriginRule)
+	}
+}
+
+func TestApplyToNewTransactionCombinesIgnoreAndSetCategoryOnOneRule(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	acc := f.addAccount("Conta Corrente", "Banco Exemplo")
+	txID := f.addTransaction(acc, "Transferencia enviada", "")
+
+	category, err := categories.Create(ctx, f.conn, "Transferências", money.Expense, "icon", "#fff")
+	if err != nil {
+		t.Fatalf("categories.Create: %v", err)
+	}
+
+	if _, err := automation.Create(ctx, f.conn, automation.Write{
+		Name: "Ignorar e categorizar transferências", IsActive: true, LogicOperator: automation.LogicAnd,
+		Conditions: []automation.Condition{{Field: automation.FieldDescription, Operator: automation.OperatorContains, Value: "transferencia"}},
+		Actions: []automation.ActionWrite{
+			{Type: automation.ActionIgnore},
+			{Type: automation.ActionSetCategory, CategoryID: &category.ID},
+		},
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := automation.ApplyToNewTransaction(ctx, f.conn, txID, nil); err != nil {
+		t.Fatalf("ApplyToNewTransaction: %v", err)
+	}
+
+	var state string
+	if err := f.conn.QueryRow(`SELECT state FROM transaction_inclusion_decisions WHERE transaction_id = ?`, txID).Scan(&state); err != nil {
+		t.Fatalf("query inclusion decision: %v", err)
+	}
+	if state != string(money.Ignored) {
+		t.Errorf("state = %s, want ignored", state)
+	}
+	var categoryID string
+	if err := f.conn.QueryRow(`SELECT category_id FROM transaction_category_decisions WHERE transaction_id = ?`, txID).Scan(&categoryID); err != nil {
+		t.Fatalf("query category decision: %v", err)
+	}
+	if categoryID != category.ID {
+		t.Errorf("category_id = %s, want %s", categoryID, category.ID)
+	}
+}
+
+func TestApplyRetroactivelyAppliesSetCategoryAction(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	acc := f.addAccount("Conta", "Banco")
+	tx1 := f.addTransaction(acc, "Assinatura 1", "")
+	tx2 := f.addTransaction(acc, "Mercado", "")
+
+	category, err := categories.Create(ctx, f.conn, "Assinaturas", money.Expense, "icon", "#fff")
+	if err != nil {
+		t.Fatalf("categories.Create: %v", err)
+	}
+
+	rule, err := automation.Create(ctx, f.conn, automation.Write{
+		Name: "Categorizar assinaturas", IsActive: false, LogicOperator: automation.LogicAnd,
+		Conditions: []automation.Condition{{Field: automation.FieldDescription, Operator: automation.OperatorContains, Value: "assinatura"}},
+		Actions:    []automation.ActionWrite{{Type: automation.ActionSetCategory, CategoryID: &category.ID}},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	result, err := automation.ApplyRetroactively(ctx, f.conn, rule.ID, nil)
+	if err != nil {
+		t.Fatalf("ApplyRetroactively: %v", err)
+	}
+	if result.Matched != 1 || result.Categorized != 1 {
+		t.Errorf("result = %+v, want Matched=1 Categorized=1", result)
+	}
+
+	var categoryID string
+	if err := f.conn.QueryRow(`SELECT category_id FROM transaction_category_decisions WHERE transaction_id = ?`, tx1).Scan(&categoryID); err != nil {
+		t.Fatalf("query category decision: %v", err)
+	}
+	if categoryID != category.ID {
+		t.Errorf("category_id = %s, want %s", categoryID, category.ID)
+	}
+	var tx2Count int
+	f.conn.QueryRow(`SELECT COUNT(*) FROM transaction_category_decisions WHERE transaction_id = ?`, tx2).Scan(&tx2Count)
+	if tx2Count != 0 {
+		t.Errorf("tx2 (non-matching) should have no category decision, got %d", tx2Count)
 	}
 }
 

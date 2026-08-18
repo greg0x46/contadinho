@@ -11,13 +11,18 @@ const (
 	// conditions are used by internal/recurrences to resolve that
 	// commitment's occurrences against real transactions at read time.
 	ActionReconcile ActionType = "reconcile"
+	// ActionSetCategory assigns a category to a matched transaction — see
+	// internal/categories.ApplyRule.
+	ActionSetCategory ActionType = "set_category"
 )
 
-// Action is one automation_rule_actions row.
+// Action is one automation_rule_actions row. A rule may carry more than one
+// Action (e.g. set_category + reconcile together).
 type Action struct {
 	ID                    string
 	Type                  ActionType
 	RecurringCommitmentID *string // set iff Type == ActionReconcile
+	CategoryID            *string // set iff Type == ActionSetCategory
 }
 
 // ActionWrite is the create/update-time shape of an Action — no ID or
@@ -26,4 +31,5 @@ type Action struct {
 type ActionWrite struct {
 	Type                  ActionType
 	RecurringCommitmentID *string
+	CategoryID            *string
 }

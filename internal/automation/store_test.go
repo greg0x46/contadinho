@@ -232,7 +232,7 @@ func TestListActiveReconcileTargetsKeyedByCommitmentID(t *testing.T) {
 
 func TestCreateReconcileActionRejectsUnknownCommitment(t *testing.T) {
 	conn := newTestDB(t)
-	if _, err := automation.Create(context.Background(), conn, reconcileWrite("does-not-exist")); !errors.Is(err, automation.ErrRecurringCommitmentNotFound) {
-		t.Errorf("Create: err = %v, want ErrRecurringCommitmentNotFound", err)
+	if _, err := automation.Create(context.Background(), conn, reconcileWrite("does-not-exist")); !errors.Is(err, automation.ErrInvalidActionTarget) {
+		t.Errorf("Create: err = %v, want ErrInvalidActionTarget", err)
 	}
 }
