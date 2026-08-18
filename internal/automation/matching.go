@@ -6,13 +6,15 @@
 // The condition-matching primitives below are aliases of internal/rules —
 // see .specs/relatorio-financeiro/m0-motor-de-regras.md. A rule whose only
 // action is "ignore" only ever populates the description/card/account
-// fields of MatchCandidate and only ever writes contains/equals conditions
-// (ApplyToNewTransaction/ApplyRetroactively never have a reference
-// amount/day to inject). The amount/day_of_month fields and their
-// within_percent/near_day operators are only meaningful — and only
-// validated as allowed, see Write.Validate — on a rule with a "reconcile"
-// action, whose conditions internal/recurrences uses to resolve that
-// commitment's occurrences against real transactions at read time.
+// fields of MatchCandidate and only ever writes contains/equals conditions.
+// The amount field (within_percent) and day_of_month field (day_range) are
+// only meaningful — and only validated as allowed, see Write.Validate — on a
+// rule with a "reconcile" action, whose conditions internal/recurrences uses
+// to resolve that commitment's occurrences against real transactions at read
+// time. Both carry their own reference value/tolerance directly in
+// Condition.Value ("<reference>:<tolerance>" and "<min>:<max>" respectively)
+// — independent of the linked commitment's own amount/day_of_month, so the
+// same condition applies unchanged across every occurrence.
 package automation
 
 import "contadinho-go/internal/rules"
@@ -33,7 +35,7 @@ const (
 	OperatorContains      = rules.OperatorContains
 	OperatorEquals        = rules.OperatorEquals
 	OperatorWithinPercent = rules.OperatorWithinPercent
-	OperatorNearDay       = rules.OperatorNearDay
+	OperatorDayRange      = rules.OperatorDayRange
 )
 
 type LogicOperator = rules.LogicOperator

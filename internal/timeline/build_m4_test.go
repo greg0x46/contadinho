@@ -15,8 +15,8 @@ import (
 )
 
 var testReconciliationConditions = []rules.Condition{
-	{Field: rules.FieldAmount, Operator: rules.OperatorWithinPercent, Value: "10"},
-	{Field: rules.FieldDayOfMonth, Operator: rules.OperatorNearDay, Value: "3"},
+	{Field: rules.FieldAmount, Operator: rules.OperatorWithinPercent, Value: "1500.00:10"},
+	{Field: rules.FieldDayOfMonth, Operator: rules.OperatorDayRange, Value: "2:8"},
 }
 
 func decT(t *testing.T, s string) decimal.Decimal {

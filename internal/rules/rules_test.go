@@ -112,33 +112,41 @@ func TestMatchesWithinPercentMalformedValueNeverMatches(t *testing.T) {
 	}
 }
 
-func TestMatchesNearDayAcceptsDayInsideTolerance(t *testing.T) {
+func TestMatchesDayRangeAcceptsDayInsideRange(t *testing.T) {
 	candidate := rules.MatchCandidate{DayOfMonth: intp(17)}
-	conditions := []rules.Condition{{Field: rules.FieldDayOfMonth, Operator: rules.OperatorNearDay, Value: "15:3"}}
+	conditions := []rules.Condition{{Field: rules.FieldDayOfMonth, Operator: rules.OperatorDayRange, Value: "15:20"}}
 	if !rules.Matches(candidate, conditions, rules.LogicAnd) {
-		t.Error("day 17 should be within 3 days of day 15")
+		t.Error("day 17 should be within the 15-20 range")
 	}
 }
 
-func TestMatchesNearDayRejectsDayOutsideTolerance(t *testing.T) {
+func TestMatchesDayRangeRejectsDayOutsideRange(t *testing.T) {
 	candidate := rules.MatchCandidate{DayOfMonth: intp(25)}
-	conditions := []rules.Condition{{Field: rules.FieldDayOfMonth, Operator: rules.OperatorNearDay, Value: "15:3"}}
+	conditions := []rules.Condition{{Field: rules.FieldDayOfMonth, Operator: rules.OperatorDayRange, Value: "15:20"}}
 	if rules.Matches(candidate, conditions, rules.LogicAnd) {
-		t.Error("day 25 should be outside 3 days of day 15")
+		t.Error("day 25 should be outside the 15-20 range")
 	}
 }
 
-func TestMatchesNearDayWrapsAroundMonthBoundary(t *testing.T) {
+func TestMatchesDayRangeWrapsAroundMonthBoundary(t *testing.T) {
 	candidate := rules.MatchCandidate{DayOfMonth: intp(1)}
-	conditions := []rules.Condition{{Field: rules.FieldDayOfMonth, Operator: rules.OperatorNearDay, Value: "31:2"}}
+	conditions := []rules.Condition{{Field: rules.FieldDayOfMonth, Operator: rules.OperatorDayRange, Value: "28:2"}}
 	if !rules.Matches(candidate, conditions, rules.LogicAnd) {
-		t.Error("day 1 should be within 2 days of day 31 across the month boundary")
+		t.Error("day 1 should be inside the 28-2 range across the month boundary")
 	}
 }
 
-func TestMatchesNearDayNilDayNeverMatches(t *testing.T) {
+func TestMatchesDayRangeRejectsDayOutsideWrappedRange(t *testing.T) {
+	candidate := rules.MatchCandidate{DayOfMonth: intp(15)}
+	conditions := []rules.Condition{{Field: rules.FieldDayOfMonth, Operator: rules.OperatorDayRange, Value: "28:2"}}
+	if rules.Matches(candidate, conditions, rules.LogicAnd) {
+		t.Error("day 15 should be outside the 28-2 wrapped range")
+	}
+}
+
+func TestMatchesDayRangeNilDayNeverMatches(t *testing.T) {
 	candidate := rules.MatchCandidate{}
-	conditions := []rules.Condition{{Field: rules.FieldDayOfMonth, Operator: rules.OperatorNearDay, Value: "15:3"}}
+	conditions := []rules.Condition{{Field: rules.FieldDayOfMonth, Operator: rules.OperatorDayRange, Value: "15:20"}}
 	if rules.Matches(candidate, conditions, rules.LogicAnd) {
 		t.Error("a nil candidate day should never match")
 	}

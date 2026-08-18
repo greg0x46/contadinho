@@ -18,6 +18,9 @@ type Origin string
 const (
 	OriginManual    Origin = "manual"
 	OriginAutomatic Origin = "automatic"
+	// OriginRule is set by a matching automation rule's set_category
+	// action — see ApplyRule.
+	OriginRule Origin = "rule"
 )
 
 // Decision is a transaction's current category assignment.
@@ -169,6 +172,71 @@ func AssignManual(ctx context.Context, conn *sql.DB, transactionID, categoryID s
 		return Decision{}, err
 	}
 	return primary, nil
+}
+
+// ApplyRule assigns categoryID to transactionID on behalf of a matching
+// automation rule's set_category action. It never overrides a manual
+// decision (mirroring InclusionOriginRule never overriding
+// InclusionOriginManual in internal/transactions/inclusion.go), but does
+// override a prior automatic or rule-origin decision. Like AssignManual, it
+// propagates the same decision to every installment of a split card
+// purchase.
+func ApplyRule(ctx context.Context, conn *sql.DB, transactionID, categoryID string) (Decision, bool, error) {
+	var exists int
+	err := conn.QueryRowContext(ctx,
+		`SELECT 1 FROM financial_transactions WHERE id = ?`, transactionID,
+	).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Decision{}, false, ErrTransactionNotFound
+	}
+	if err != nil {
+		return Decision{}, false, err
+	}
+
+	category, err := Get(ctx, conn, categoryID)
+	if errors.Is(err, ErrNotFound) || !category.IsActive {
+		return Decision{}, false, ErrCategoryInvalid
+	}
+	if err != nil {
+		return Decision{}, false, err
+	}
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return Decision{}, false, err
+	}
+	defer tx.Rollback()
+
+	existing, err := getDecision(ctx, tx, transactionID)
+	if err != nil {
+		return Decision{}, false, err
+	}
+	if existing != nil && existing.Origin == OriginManual {
+		return *existing, false, nil
+	}
+
+	group, err := findInstallmentGroup(ctx, tx, transactionID)
+	if err != nil {
+		return Decision{}, false, err
+	}
+
+	var primary Decision
+	var changed bool
+	for _, id := range group {
+		decision, didChange, err := writeDecision(ctx, tx, id, categoryID, OriginRule)
+		if err != nil {
+			return Decision{}, false, err
+		}
+		if id == transactionID {
+			primary = decision
+			changed = didChange
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return Decision{}, false, err
+	}
+	return primary, changed, nil
 }
 
 // ApplyAutomatic mirrors apply_automatic_category: writes an automatic

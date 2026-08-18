@@ -29,12 +29,18 @@ type ConditionOperator string
 const (
 	OperatorContains ConditionOperator = "contains"
 	OperatorEquals   ConditionOperator = "equals"
-	// OperatorWithinPercent and OperatorNearDay carry their reference value
-	// inside Condition.Value as "<reference>:<tolerance>" (see package doc
-	// and m0-motor-de-regras.md) because Matches only ever sees the
-	// candidate being tested, never a second "expected" value.
+	// OperatorWithinPercent carries its reference value inside
+	// Condition.Value as "<reference>:<tolerance>" (see package doc and
+	// m0-motor-de-regras.md) because Matches only ever sees the candidate
+	// being tested, never a second "expected" value.
 	OperatorWithinPercent ConditionOperator = "within_percent"
-	OperatorNearDay       ConditionOperator = "near_day"
+	// OperatorDayRange carries its bounds inside Condition.Value as
+	// "<min>:<max>", both 1-31. It's a plain absolute day-of-month window —
+	// unlike OperatorWithinPercent it has no "expected" reference to inject
+	// at resolve time, so the same condition applies unchanged regardless of
+	// which occurrence it's tested against. min > max wraps around the
+	// month boundary (e.g. "28:5" covers day 28 through day 5).
+	OperatorDayRange ConditionOperator = "day_range"
 )
 
 type LogicOperator string
@@ -115,27 +121,32 @@ func withinPercentMatches(candidateAmount *decimal.Decimal, value string) bool {
 	return diff.LessThanOrEqual(toleranceDecimal)
 }
 
-func nearDayMatches(candidateDay *int, value string) bool {
+// dayRangeMatches parses a "<min>:<max>" Value and checks candidateDay falls
+// within it, inclusive on both ends. min > max wraps around the month
+// boundary (e.g. "28:5" matches day 28 through day 31, then day 1 through
+// day 5) so a window spanning the turn of the month doesn't need special
+// casing by the caller.
+func dayRangeMatches(candidateDay *int, value string) bool {
 	if candidateDay == nil {
 		return false
 	}
-	referenceFloat, toleranceFloat, ok := splitReferenceAndTolerance(value)
-	if !ok {
+	parts := strings.SplitN(value, ":", 2)
+	if len(parts) != 2 {
 		return false
 	}
-	reference, tolerance := int(referenceFloat), int(toleranceFloat)
-	diff := *candidateDay - reference
-	if diff < 0 {
-		diff = -diff
+	min, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	if err != nil {
+		return false
 	}
-	// Wrap-around distance (e.g. day 31 vs day 1 is 1 day apart, not 30) so
-	// a commitment near a month boundary isn't penalized for the calendar's
-	// varying month length.
-	wrapped := 31 - diff
-	if wrapped < diff {
-		diff = wrapped
+	max, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if err != nil {
+		return false
 	}
-	return diff <= tolerance
+	day := *candidateDay
+	if min <= max {
+		return day >= min && day <= max
+	}
+	return day >= min || day <= max
 }
 
 func conditionMatches(candidate MatchCandidate, condition Condition) bool {
@@ -147,7 +158,7 @@ func conditionMatches(candidate MatchCandidate, condition Condition) bool {
 	case FieldAmount:
 		return withinPercentMatches(candidate.Amount, condition.Value)
 	case FieldDayOfMonth:
-		return nearDayMatches(candidate.DayOfMonth, condition.Value)
+		return dayRangeMatches(candidate.DayOfMonth, condition.Value)
 	default: // FieldAccount
 		return textMatches(candidate.AccountName, condition.Operator, condition.Value) ||
 			textMatches(candidate.AccountInstitution, condition.Operator, condition.Value)

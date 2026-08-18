@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"slices"
 	"time"
 
 	"contadinho-go/internal/automation"
@@ -12,12 +13,13 @@ import (
 type actionDTO struct {
 	Type                  string  `json:"type"`
 	RecurringCommitmentID *string `json:"recurring_commitment_id"`
+	CategoryID            *string `json:"category_id"`
 }
 
 func toActionDTOs(actions []automation.Action) []actionDTO {
 	dtos := make([]actionDTO, len(actions))
 	for i, a := range actions {
-		dtos[i] = actionDTO{Type: string(a.Type), RecurringCommitmentID: a.RecurringCommitmentID}
+		dtos[i] = actionDTO{Type: string(a.Type), RecurringCommitmentID: a.RecurringCommitmentID, CategoryID: a.CategoryID}
 	}
 	return dtos
 }
@@ -25,9 +27,15 @@ func toActionDTOs(actions []automation.Action) []actionDTO {
 func actionsFromDTOs(dtos []actionDTO) []automation.ActionWrite {
 	actions := make([]automation.ActionWrite, len(dtos))
 	for i, d := range dtos {
-		actions[i] = automation.ActionWrite{Type: automation.ActionType(d.Type), RecurringCommitmentID: d.RecurringCommitmentID}
+		actions[i] = automation.ActionWrite{
+			Type: automation.ActionType(d.Type), RecurringCommitmentID: d.RecurringCommitmentID, CategoryID: d.CategoryID,
+		}
 	}
 	return actions
+}
+
+func hasActionType(actions []automation.ActionWrite, t automation.ActionType) bool {
+	return slices.ContainsFunc(actions, func(a automation.ActionWrite) bool { return a.Type == t })
 }
 
 type ruleDTO struct {
@@ -57,7 +65,7 @@ var (
 	}
 	reconcileOnlyFieldOperators = map[string]map[string]bool{
 		"amount":       {"within_percent": true},
-		"day_of_month": {"near_day": true},
+		"day_of_month": {"day_range": true},
 	}
 )
 
@@ -85,7 +93,7 @@ type ruleWriteRequest struct {
 
 func (req ruleWriteRequest) toWrite() (automation.Write, bool) {
 	actions := actionsFromDTOs(req.Actions)
-	hasReconcile := len(actions) == 1 && actions[0].Type == automation.ActionReconcile
+	hasReconcile := hasActionType(actions, automation.ActionReconcile)
 	conditions, ok := conditionsFromDTOs(req.Conditions, allowedAutomationCondition(hasReconcile))
 	if !ok {
 		return automation.Write{}, false
@@ -101,8 +109,9 @@ func (req ruleWriteRequest) toWrite() (automation.Write, bool) {
 }
 
 type retroactiveResultDTO struct {
-	Matched int `json:"matched"`
-	Ignored int `json:"ignored"`
+	Matched     int `json:"matched"`
+	Ignored     int `json:"ignored"`
+	Categorized int `json:"categorized"`
 }
 
 type ruleWriteResultDTO struct {
@@ -163,7 +172,7 @@ func handleCreateAutomationRule(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 		rule, err := automation.Create(r.Context(), conn, write)
-		if errors.Is(err, automation.ErrRecurringCommitmentNotFound) {
+		if errors.Is(err, automation.ErrInvalidActionTarget) {
 			invalidAutomationRuleProblem(w)
 			return
 		}
@@ -172,13 +181,13 @@ func handleCreateAutomationRule(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 		result := ruleWriteResultDTO{Rule: toRuleDTO(rule)}
-		if req.ApplyRetroactively && write.Actions[0].Type == automation.ActionIgnore {
+		if req.ApplyRetroactively && (hasActionType(write.Actions, automation.ActionIgnore) || hasActionType(write.Actions, automation.ActionSetCategory)) {
 			outcome, err := automation.ApplyRetroactively(r.Context(), conn, rule.ID, onIgnoredHook)
 			if err != nil {
 				automationRuleUnavailableProblem(w)
 				return
 			}
-			result.RetroactiveApply = &retroactiveResultDTO{Matched: outcome.Matched, Ignored: outcome.Ignored}
+			result.RetroactiveApply = &retroactiveResultDTO{Matched: outcome.Matched, Ignored: outcome.Ignored, Categorized: outcome.Categorized}
 		}
 		writeJSON(w, http.StatusCreated, result)
 	}
@@ -202,7 +211,7 @@ func handleUpdateAutomationRule(conn *sql.DB) http.HandlerFunc {
 			writeProblem(w, 404, "automation-rule-not-found", "Regra não encontrada", "")
 			return
 		}
-		if errors.Is(err, automation.ErrRecurringCommitmentNotFound) {
+		if errors.Is(err, automation.ErrInvalidActionTarget) {
 			invalidAutomationRuleProblem(w)
 			return
 		}
@@ -211,13 +220,13 @@ func handleUpdateAutomationRule(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 		result := ruleWriteResultDTO{Rule: toRuleDTO(rule)}
-		if req.ApplyRetroactively && write.Actions[0].Type == automation.ActionIgnore {
+		if req.ApplyRetroactively && (hasActionType(write.Actions, automation.ActionIgnore) || hasActionType(write.Actions, automation.ActionSetCategory)) {
 			outcome, err := automation.ApplyRetroactively(r.Context(), conn, rule.ID, onIgnoredHook)
 			if err != nil {
 				automationRuleUnavailableProblem(w)
 				return
 			}
-			result.RetroactiveApply = &retroactiveResultDTO{Matched: outcome.Matched, Ignored: outcome.Ignored}
+			result.RetroactiveApply = &retroactiveResultDTO{Matched: outcome.Matched, Ignored: outcome.Ignored, Categorized: outcome.Categorized}
 		}
 		writeJSON(w, http.StatusOK, result)
 	}

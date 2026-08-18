@@ -17,10 +17,10 @@ import (
 // matching row.
 var ErrNotFound = errors.New("automation rule not found")
 
-// ErrRecurringCommitmentNotFound is returned by Create/Update when a
-// reconcile action's RecurringCommitmentID doesn't reference an existing
-// recurring commitment.
-var ErrRecurringCommitmentNotFound = errors.New("recurring commitment not found")
+// ErrInvalidActionTarget is returned by Create/Update when an action's
+// target doesn't reference an existing row — a reconcile action's
+// RecurringCommitmentID or a set_category action's CategoryID.
+var ErrInvalidActionTarget = errors.New("automation action target not found")
 
 // Rule mirrors AutomationRule (with its conditions and actions eager-loaded,
 // as the reference always fetches them together).
@@ -85,9 +85,9 @@ func loadConditions(ctx context.Context, q Querier, ruleID string) ([]Condition,
 func insertActions(ctx context.Context, q Querier, ruleID string, actions []ActionWrite) error {
 	for i, a := range actions {
 		if _, err := q.ExecContext(ctx, `
-			INSERT INTO automation_rule_actions (id, rule_id, action_type, recurring_commitment_id, position)
-			VALUES (?, ?, ?, ?, ?)`,
-			uuid.NewString(), ruleID, string(a.Type), a.RecurringCommitmentID, i,
+			INSERT INTO automation_rule_actions (id, rule_id, action_type, recurring_commitment_id, category_id, position)
+			VALUES (?, ?, ?, ?, ?, ?)`,
+			uuid.NewString(), ruleID, string(a.Type), a.RecurringCommitmentID, a.CategoryID, i,
 		); err != nil {
 			return err
 		}
@@ -97,7 +97,7 @@ func insertActions(ctx context.Context, q Querier, ruleID string, actions []Acti
 
 func loadActions(ctx context.Context, q Querier, ruleID string) ([]Action, error) {
 	rows, err := q.QueryContext(ctx,
-		`SELECT id, action_type, recurring_commitment_id FROM automation_rule_actions WHERE rule_id = ? ORDER BY position`, ruleID)
+		`SELECT id, action_type, recurring_commitment_id, category_id FROM automation_rule_actions WHERE rule_id = ? ORDER BY position`, ruleID)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +106,7 @@ func loadActions(ctx context.Context, q Querier, ruleID string) ([]Action, error
 	for rows.Next() {
 		var a Action
 		var actionType string
-		if err := rows.Scan(&a.ID, &actionType, &a.RecurringCommitmentID); err != nil {
+		if err := rows.Scan(&a.ID, &actionType, &a.RecurringCommitmentID, &a.CategoryID); err != nil {
 			return nil, err
 		}
 		a.Type = ActionType(actionType)
@@ -138,7 +138,7 @@ func Create(ctx context.Context, conn *sql.DB, write Write) (Rule, error) {
 	}
 	if err := insertActions(ctx, tx, id, write.Actions); err != nil {
 		if db.IsForeignKeyViolation(err) {
-			return Rule{}, ErrRecurringCommitmentNotFound
+			return Rule{}, ErrInvalidActionTarget
 		}
 		return Rule{}, err
 	}
@@ -179,7 +179,7 @@ func Update(ctx context.Context, conn *sql.DB, id string, write Write) (Rule, er
 	}
 	if err := insertActions(ctx, tx, id, write.Actions); err != nil {
 		if db.IsForeignKeyViolation(err) {
-			return Rule{}, ErrRecurringCommitmentNotFound
+			return Rule{}, ErrInvalidActionTarget
 		}
 		return Rule{}, err
 	}

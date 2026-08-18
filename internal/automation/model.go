@@ -5,13 +5,13 @@ import (
 	"strings"
 )
 
-// Validate checks a Write for structural correctness: exactly one action
-// (the table shape supports more later, application logic pins it to
-// exactly one for now — see automation_rule_actions' migration comment),
-// its target reference matching its type, and every condition's
-// field/operator pairing (amount/day_of_month only allowed when the rule
-// has a reconcile action, since those conditions are meaningless without a
-// commitment supplying the reference amount/day to inject at resolve time).
+// Validate checks a Write for structural correctness: at least one action —
+// a rule may carry several (e.g. set_category + reconcile together), any
+// combination is allowed — each action's target reference matching its
+// type, and every condition's field/operator pairing. amount/day_of_month
+// conditions are allowed regardless of action type: each carries its own
+// reference value and tolerance/range directly in Condition.Value,
+// independent of any linked commitment's own amount/day_of_month.
 func (w Write) Validate() error {
 	if strings.TrimSpace(w.Name) == "" {
 		return fmt.Errorf("name is required")
@@ -22,52 +22,56 @@ func (w Write) Validate() error {
 	if len(w.Conditions) == 0 {
 		return fmt.Errorf("at least one condition is required")
 	}
-	if len(w.Actions) != 1 {
-		return fmt.Errorf("exactly one action is required")
+	if len(w.Actions) == 0 {
+		return fmt.Errorf("at least one action is required")
 	}
 
-	action := w.Actions[0]
-	switch action.Type {
-	case ActionIgnore:
-		if action.RecurringCommitmentID != nil {
-			return fmt.Errorf("ignore action must not reference a recurring commitment")
+	for _, action := range w.Actions {
+		switch action.Type {
+		case ActionIgnore:
+			if action.RecurringCommitmentID != nil || action.CategoryID != nil {
+				return fmt.Errorf("ignore action must not reference a target")
+			}
+		case ActionReconcile:
+			if action.RecurringCommitmentID == nil || strings.TrimSpace(*action.RecurringCommitmentID) == "" {
+				return fmt.Errorf("reconcile action requires a recurring_commitment_id")
+			}
+			if action.CategoryID != nil {
+				return fmt.Errorf("reconcile action must not reference a category")
+			}
+		case ActionSetCategory:
+			if action.CategoryID == nil || strings.TrimSpace(*action.CategoryID) == "" {
+				return fmt.Errorf("set_category action requires a category_id")
+			}
+			if action.RecurringCommitmentID != nil {
+				return fmt.Errorf("set_category action must not reference a recurring commitment")
+			}
+		default:
+			return fmt.Errorf("unknown action type %q", action.Type)
 		}
-	case ActionReconcile:
-		if action.RecurringCommitmentID == nil || strings.TrimSpace(*action.RecurringCommitmentID) == "" {
-			return fmt.Errorf("reconcile action requires a recurring_commitment_id")
-		}
-	default:
-		return fmt.Errorf("unknown action type %q", action.Type)
 	}
 
-	allowReconcileFields := action.Type == ActionReconcile
 	for _, c := range w.Conditions {
-		if err := validateCondition(c, allowReconcileFields); err != nil {
+		if err := validateCondition(c); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateCondition(c Condition, allowReconcileFields bool) error {
+func validateCondition(c Condition) error {
 	switch c.Field {
 	case FieldDescription, FieldCard, FieldAccount:
 		if c.Operator != OperatorContains && c.Operator != OperatorEquals {
 			return fmt.Errorf("field %q only accepts contains/equals, got %q", c.Field, c.Operator)
 		}
 	case FieldAmount:
-		if !allowReconcileFields {
-			return fmt.Errorf("field %q is only valid for a reconcile action", FieldAmount)
-		}
 		if c.Operator != OperatorWithinPercent {
 			return fmt.Errorf("field %q only accepts within_percent, got %q", c.Field, c.Operator)
 		}
 	case FieldDayOfMonth:
-		if !allowReconcileFields {
-			return fmt.Errorf("field %q is only valid for a reconcile action", FieldDayOfMonth)
-		}
-		if c.Operator != OperatorNearDay {
-			return fmt.Errorf("field %q only accepts near_day, got %q", c.Field, c.Operator)
+		if c.Operator != OperatorDayRange {
+			return fmt.Errorf("field %q only accepts day_range, got %q", c.Field, c.Operator)
 		}
 	default:
 		return fmt.Errorf("unknown condition field %q", c.Field)

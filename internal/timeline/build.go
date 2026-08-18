@@ -328,7 +328,7 @@ func recurrenceEntries(ctx context.Context, q Querier, from, to time.Time, realC
 			amount := occurrence.ExpectedAmount
 			sourceRefID := commitment.ID + ":" + occurrence.Date.Format("2006-01-02")
 			if rule, hasRule := reconcileTargets[commitment.ID]; hasRule {
-				if matched, ok := recurrences.ResolveOccurrence(occurrence, rule.Conditions, rule.LogicOperator, candidates); ok {
+				if matched, ok := recurrences.ResolveOccurrence(rule.Conditions, rule.LogicOperator, candidates); ok {
 					matchedAmount, err := decimal.NewFromString(matched.EffectiveMoney.Value)
 					if err != nil {
 						return nil, fmt.Errorf("parse recurrence match amount %q: %w", matched.EffectiveMoney.Value, err)
