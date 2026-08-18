@@ -2,29 +2,30 @@ import type { ProColumns } from "@ant-design/pro-table";
 import ProTable from "@ant-design/pro-table";
 import { Button, Popconfirm, Space, Switch, Tag } from "antd";
 
-import type { AutomationActionType, AutomationRule, RecurringCommitment } from "../../api/contracts";
+import type { AutomationActionType, AutomationRule, Category, RecurringCommitment } from "../../api/contracts";
 import { summarizeConditions } from "../../presentation/ruleConditionLabels";
 
 type EntryRow = {
   key: string;
   rule: AutomationRule;
-  action: AutomationActionType;
-  linkedCommitmentName: string | null;
 };
 
 const actionLabel: Record<AutomationActionType, string> = {
   ignore: "Ignorar",
   reconcile: "Conciliar",
+  set_category: "Aplicar categoria",
 };
 
 const actionColor: Record<AutomationActionType, string> = {
   ignore: "default",
   reconcile: "blue",
+  set_category: "green",
 };
 
 export function AutomationEntryList({
   rules,
   commitments,
+  categories,
   isLoading,
   togglingRuleId,
   onEditRule,
@@ -33,6 +34,7 @@ export function AutomationEntryList({
 }: {
   rules: AutomationRule[];
   commitments: RecurringCommitment[];
+  categories: Category[];
   isLoading: boolean;
   togglingRuleId: string | null;
   onEditRule: (rule: AutomationRule) => void;
@@ -41,29 +43,28 @@ export function AutomationEntryList({
 }) {
   const commitmentName = (commitmentId: string) =>
     commitments.find((commitment) => commitment.id === commitmentId)?.name ?? "Recorrência removida";
+  const categoryName = (categoryId: string) =>
+    categories.find((category) => category.id === categoryId)?.name ?? "Categoria removida";
 
-  const rows: EntryRow[] = rules.map((rule) => {
-    const action = rule.actions[0]?.type ?? "ignore";
-    const targetId = rule.actions[0]?.recurring_commitment_id ?? null;
-    return {
-      key: rule.id,
-      rule,
-      action,
-      linkedCommitmentName: targetId ? commitmentName(targetId) : null,
-    };
-  });
+  const rows: EntryRow[] = rules.map((rule) => ({ key: rule.id, rule }));
 
   const columns: ProColumns<EntryRow>[] = [
     { title: "Nome", dataIndex: ["rule", "name"] },
     {
-      title: "Ação",
-      dataIndex: "action",
+      title: "Ações",
+      key: "actions",
       render: (_, row) => (
-        <Tag color={actionColor[row.action]}>
-          {row.action === "reconcile" && row.linkedCommitmentName
-            ? `Concilia: ${row.linkedCommitmentName}`
-            : actionLabel[row.action]}
-        </Tag>
+        <Space size={4} wrap>
+          {row.rule.actions.map((action) => (
+            <Tag key={action.type} color={actionColor[action.type]}>
+              {action.type === "reconcile" && action.recurring_commitment_id
+                ? `Concilia: ${commitmentName(action.recurring_commitment_id)}`
+                : action.type === "set_category" && action.category_id
+                  ? `Categoriza: ${categoryName(action.category_id)}`
+                  : actionLabel[action.type]}
+            </Tag>
+          ))}
+        </Space>
       ),
     },
     {
@@ -95,9 +96,9 @@ export function AutomationEntryList({
           <Popconfirm
             title="Excluir automação"
             description={
-              row.action === "ignore"
-                ? "Transações já ignoradas por esta regra permanecem ignoradas."
-                : "A recorrência vinculada não será excluída, apenas deixará de ser conciliada automaticamente."
+              row.rule.actions.some((action) => action.type === "reconcile")
+                ? "A recorrência vinculada não será excluída, apenas deixará de ser conciliada automaticamente. Transações já ignoradas/categorizadas por esta regra permanecem como estão."
+                : "Transações já ignoradas/categorizadas por esta regra permanecem como estão."
             }
             onConfirm={() => onDeleteRule(row.rule)}
             okText="Excluir"

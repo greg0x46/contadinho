@@ -25,7 +25,7 @@ const rule: AutomationRule = {
   is_active: true,
   logic_operator: "or",
   conditions: [{ field: "description", operator: "contains", value: "taxa" }],
-  actions: [{ type: "ignore", recurring_commitment_id: null }],
+  actions: [{ type: "ignore", recurring_commitment_id: null, category_id: null }],
   created_at: "2026-07-30T12:00:00Z",
   updated_at: "2026-07-30T12:00:00Z",
 };
@@ -64,7 +64,7 @@ const reconcileRule: AutomationRule = {
   is_active: true,
   logic_operator: "and",
   conditions: [{ field: "amount", operator: "within_percent", value: "10" }],
-  actions: [{ type: "reconcile", recurring_commitment_id: commitmentId }],
+  actions: [{ type: "reconcile", recurring_commitment_id: commitmentId, category_id: null }],
   created_at: "2026-07-30T12:00:00Z",
   updated_at: "2026-07-30T12:00:00Z",
 };
@@ -119,7 +119,7 @@ describe("AutomationRulesPage", () => {
         is_active: true,
         logic_operator: "or",
         conditions: [{ field: "description", operator: "contains", value: "taxa" }],
-        actions: [{ type: "ignore", recurring_commitment_id: null }],
+        actions: [{ type: "ignore", recurring_commitment_id: null, category_id: null }],
         apply_retroactively: false,
       }),
     );
@@ -136,7 +136,8 @@ describe("AutomationRulesPage", () => {
     renderPage();
     await user.click(await screen.findByRole("button", { name: "Nova automação" }));
     await user.type(screen.getByLabelText("Nome da automação"), "Concilia aluguel");
-    await user.click(screen.getByText("Conciliar recorrência"));
+    await user.click(screen.getByRole("checkbox", { name: "Ignorar transação" }));
+    await user.click(screen.getByRole("checkbox", { name: "Conciliar recorrência" }));
 
     await user.type(screen.getByLabelText("Nome"), "Aluguel");
     await user.type(screen.getByLabelText("Valor"), "1500");
@@ -160,7 +161,7 @@ describe("AutomationRulesPage", () => {
       expect(automationRulesApi.createAutomationRule).toHaveBeenCalledWith(
         expect.objectContaining({
           name: "Concilia aluguel",
-          actions: [{ type: "reconcile", recurring_commitment_id: commitmentId }],
+          actions: [{ type: "reconcile", recurring_commitment_id: commitmentId, category_id: null }],
         }),
       ),
     );
@@ -177,7 +178,7 @@ describe("AutomationRulesPage", () => {
     await user.click(await screen.findByRole("button", { name: "Editar" }));
     const nameField = await screen.findByLabelText("Nome da automação");
     expect(nameField).toHaveValue(rule.name);
-    expect(screen.getByRole("radio", { name: "Ignorar transação" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Ignorar transação" })).toBeDisabled();
     await user.clear(nameField);
     await user.type(nameField, "Renomeada");
     await user.click(screen.getByRole("button", { name: "Salvar" }));

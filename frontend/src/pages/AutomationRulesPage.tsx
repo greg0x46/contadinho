@@ -3,7 +3,7 @@ import { PageContainer } from "@ant-design/pro-layout";
 import { Alert, Button } from "antd";
 import { useState } from "react";
 
-import type { AutomationRule, RetroactiveApplyResult } from "../api/contracts";
+import type { AutomationAction, AutomationRule, RetroactiveApplyResult } from "../api/contracts";
 import {
   AutomationEntry,
   AutomationEntryForm,
@@ -19,9 +19,12 @@ function errorMessage(error: unknown): string {
 }
 
 function retroactiveMessage(result: RetroactiveApplyResult): string {
-  return result.ignored > 0
-    ? `${result.matched} transação(ões) encontrada(s), ${result.ignored} ignorada(s) agora.`
-    : `${result.matched} transação(ões) encontrada(s), nenhuma alterada (já ignoradas ou com decisão manual).`;
+  const changes: string[] = [];
+  if (result.ignored > 0) changes.push(`${result.ignored} ignorada(s)`);
+  if (result.categorized > 0) changes.push(`${result.categorized} categorizada(s)`);
+  return changes.length > 0
+    ? `${result.matched} transação(ões) encontrada(s), ${changes.join(", ")} agora.`
+    : `${result.matched} transação(ões) encontrada(s), nenhuma alterada (já processadas ou com decisão manual).`;
 }
 
 export function AutomationRulesPage() {
@@ -43,7 +46,7 @@ export function AutomationRulesPage() {
   };
 
   const openEditRule = (rule: AutomationRule) => {
-    const targetId = rule.actions[0]?.recurring_commitment_id ?? null;
+    const targetId = rule.actions.find((action) => action.type === "reconcile")?.recurring_commitment_id ?? null;
     const linkedCommitment = targetId
       ? commitments.commitments.find((commitment) => commitment.id === targetId) ?? null
       : null;
@@ -60,40 +63,34 @@ export function AutomationRulesPage() {
     try {
       const editingRuleId = editingEntry?.rule.id ?? null;
 
-      if (payload.action === "ignore") {
-        const write = {
-          name: payload.name,
-          is_active: payload.isActive,
-          logic_operator: payload.logicOperator,
-          conditions: payload.conditions,
-          actions: [{ type: "ignore" as const, recurring_commitment_id: null }],
-          apply_retroactively: payload.applyRetroactively,
-        };
-        const result = editingRuleId
-          ? await automationRules.updateRule({ ruleId: editingRuleId, write })
-          : await automationRules.createRule(write);
-        setLastResult(result.retroactive_apply);
-        setFormOpen(false);
-        return;
+      const actions: AutomationAction[] = [];
+      if (payload.actionTypes.includes("ignore")) {
+        actions.push({ type: "ignore", recurring_commitment_id: null, category_id: null });
       }
-
-      const commitmentId =
-        payload.commitmentMode === "existing" && payload.existingCommitmentId
-          ? (
-              await commitments.updateCommitment({
-                commitmentId: payload.existingCommitmentId,
-                write: payload.commitment,
-              })
-            ).id
-          : (await commitments.createCommitment(payload.commitment)).id;
+      if (payload.actionTypes.includes("set_category") && payload.categoryId) {
+        actions.push({ type: "set_category", recurring_commitment_id: null, category_id: payload.categoryId });
+      }
+      if (payload.actionTypes.includes("reconcile") && payload.reconcile) {
+        const { reconcile } = payload;
+        const commitmentId =
+          reconcile.commitmentMode === "existing" && reconcile.existingCommitmentId
+            ? (
+                await commitments.updateCommitment({
+                  commitmentId: reconcile.existingCommitmentId,
+                  write: reconcile.commitment,
+                })
+              ).id
+            : (await commitments.createCommitment(reconcile.commitment)).id;
+        actions.push({ type: "reconcile", recurring_commitment_id: commitmentId, category_id: null });
+      }
 
       const write = {
         name: payload.name,
         is_active: payload.isActive,
         logic_operator: payload.logicOperator,
         conditions: payload.conditions,
-        actions: [{ type: "reconcile" as const, recurring_commitment_id: commitmentId }],
-        apply_retroactively: false,
+        actions,
+        apply_retroactively: payload.applyRetroactively,
       };
       const result = editingRuleId
         ? await automationRules.updateRule({ ruleId: editingRuleId, write })
@@ -182,6 +179,7 @@ export function AutomationRulesPage() {
       <AutomationEntryList
         rules={automationRules.rules}
         commitments={commitments.commitments}
+        categories={categories.categories}
         isLoading={automationRules.isLoading || commitments.isLoading}
         togglingRuleId={togglingRuleId}
         onEditRule={openEditRule}
