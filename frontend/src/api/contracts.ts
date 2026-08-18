@@ -568,7 +568,7 @@ export function parseTransactionInclusionResult(value: unknown): TransactionIncl
 // rejects them otherwise.
 export const ruleConditionFields = ["description", "card", "account", "amount", "day_of_month"] as const;
 export type RuleConditionField = (typeof ruleConditionFields)[number];
-export const ruleConditionOperators = ["contains", "equals", "within_percent", "near_day"] as const;
+export const ruleConditionOperators = ["contains", "equals", "within_percent", "day_range"] as const;
 export type RuleConditionOperator = (typeof ruleConditionOperators)[number];
 export const ruleLogicOperators = ["and", "or"] as const;
 export type RuleLogicOperator = (typeof ruleLogicOperators)[number];
@@ -588,7 +588,7 @@ const ruleConditionFieldOperators: Record<RuleConditionField, readonly RuleCondi
   card: ["contains", "equals"],
   account: ["contains", "equals"],
   amount: ["within_percent"],
-  day_of_month: ["near_day"],
+  day_of_month: ["day_range"],
 };
 
 function parseRuleCondition(value: unknown, allowReconcileFields: boolean): RuleCondition {
@@ -612,12 +612,13 @@ function parseRuleCondition(value: unknown, allowReconcileFields: boolean): Rule
 export type AutomationLogicOperator = RuleLogicOperator;
 export const automationLogicOperators = ruleLogicOperators;
 
-export const automationActionTypes = ["ignore", "reconcile"] as const;
+export const automationActionTypes = ["ignore", "reconcile", "set_category"] as const;
 export type AutomationActionType = (typeof automationActionTypes)[number];
 
 export interface AutomationAction {
   type: AutomationActionType;
   recurring_commitment_id: string | null;
+  category_id: string | null;
 }
 
 export interface AutomationRule {
@@ -643,6 +644,7 @@ export interface AutomationRuleWrite {
 export interface RetroactiveApplyResult {
   matched: number;
   ignored: number;
+  categorized: number;
 }
 
 export interface AutomationRuleWriteResult {
@@ -678,18 +680,29 @@ export function parseAutomationRuleConditionOptions(
 }
 
 function parseAutomationAction(value: unknown): AutomationAction {
-  const action = requiredRecord(value, ["type", "recurring_commitment_id"], "Ação inválida.");
+  const action = requiredRecord(
+    value,
+    ["type", "recurring_commitment_id", "category_id"],
+    "Ação inválida.",
+  );
   const type = action.type as AutomationActionType;
   const commitmentID = action.recurring_commitment_id;
+  const categoryID = action.category_id;
   if (
     !automationActionTypes.includes(type) ||
     !(commitmentID === null || (typeof commitmentID === "string" && isUuid(commitmentID))) ||
-    (type === "ignore" && commitmentID !== null) ||
-    (type === "reconcile" && commitmentID === null)
+    !(categoryID === null || (typeof categoryID === "string" && isUuid(categoryID))) ||
+    (type === "ignore" && (commitmentID !== null || categoryID !== null)) ||
+    (type === "reconcile" && (commitmentID === null || categoryID !== null)) ||
+    (type === "set_category" && (categoryID === null || commitmentID !== null))
   ) {
     throw new TypeError("Ação inválida.");
   }
-  return { type, recurring_commitment_id: commitmentID as string | null };
+  return {
+    type,
+    recurring_commitment_id: commitmentID as string | null,
+    category_id: categoryID as string | null,
+  };
 }
 
 export function parseAutomationRule(value: unknown): AutomationRule {
@@ -708,14 +721,14 @@ export function parseAutomationRule(value: unknown): AutomationRule {
     !Array.isArray(rule.conditions) ||
     rule.conditions.length === 0 ||
     !Array.isArray(rule.actions) ||
-    rule.actions.length !== 1 ||
+    rule.actions.length === 0 ||
     !isValidDate(rule.created_at) ||
     !isValidDate(rule.updated_at)
   ) {
     throw new TypeError("Regra de automação inválida.");
   }
   const actions = rule.actions.map(parseAutomationAction);
-  const hasReconcileAction = actions[0].type === "reconcile";
+  const hasReconcileAction = actions.some((action) => action.type === "reconcile");
   return {
     id: rule.id,
     name: rule.name,
@@ -736,11 +749,15 @@ export function parseAutomationRuleList(value: unknown): AutomationRule[] {
 }
 
 function parseRetroactiveApplyResult(value: unknown): RetroactiveApplyResult {
-  const result = requiredRecord(value, ["matched", "ignored"], "Resultado retroativo inválido.");
-  if (!isCount(result.matched) || !isCount(result.ignored)) {
+  const result = requiredRecord(
+    value,
+    ["matched", "ignored", "categorized"],
+    "Resultado retroativo inválido.",
+  );
+  if (!isCount(result.matched) || !isCount(result.ignored) || !isCount(result.categorized)) {
     throw new TypeError("Resultado retroativo inválido.");
   }
-  return { matched: result.matched, ignored: result.ignored };
+  return { matched: result.matched, ignored: result.ignored, categorized: result.categorized };
 }
 
 export function parseAutomationRuleWriteResult(value: unknown): AutomationRuleWriteResult {

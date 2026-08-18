@@ -8,7 +8,6 @@ import {
   Flex,
   Input,
   InputNumber,
-  Radio,
   Segmented,
   Select,
   Switch,
@@ -45,6 +44,7 @@ const dateFormat = "YYYY-MM-DD";
 const actionOptions: { value: AutomationActionType; label: string }[] = [
   { value: "ignore", label: "Ignorar transação" },
   { value: "reconcile", label: "Conciliar recorrência" },
+  { value: "set_category", label: "Aplicar categoria" },
 ];
 
 export type AutomationEntry = {
@@ -52,25 +52,20 @@ export type AutomationEntry = {
   linkedCommitment: RecurringCommitment | null;
 };
 
-export type AutomationEntrySubmitPayload =
-  | {
-      action: "ignore";
-      name: string;
-      isActive: boolean;
-      logicOperator: RuleLogicOperator;
-      conditions: RuleCondition[];
-      applyRetroactively: boolean;
-    }
-  | {
-      action: "reconcile";
-      name: string;
-      isActive: boolean;
-      logicOperator: RuleLogicOperator;
-      conditions: RuleCondition[];
-      commitmentMode: "new" | "existing";
-      existingCommitmentId: string | null;
-      commitment: RecurringCommitmentWrite;
-    };
+export type AutomationEntrySubmitPayload = {
+  name: string;
+  isActive: boolean;
+  logicOperator: RuleLogicOperator;
+  conditions: RuleCondition[];
+  actionTypes: AutomationActionType[];
+  applyRetroactively: boolean;
+  categoryId: string | null;
+  reconcile: {
+    commitmentMode: "new" | "existing";
+    existingCommitmentId: string | null;
+    commitment: RecurringCommitmentWrite;
+  } | null;
+};
 
 const ruleLogicOptions = (Object.keys(ruleLogicOperatorLabel) as RuleLogicOperator[]).map((value) => ({
   value,
@@ -103,17 +98,17 @@ const blankIgnoreConditions: RuleCondition[] = [{ field: "description", operator
 // text condition colliding (same "Valor" accessible name) with the "Dados
 // da recorrência" section's own Valor field once that section renders.
 const blankReconcileConditions: RuleCondition[] = [
-  { field: "amount", operator: "within_percent", value: "10" },
-  { field: "day_of_month", operator: "near_day", value: "3" },
+  { field: "amount", operator: "within_percent", value: "0:10" },
+  { field: "day_of_month", operator: "day_range", value: "1:10" },
 ];
 
-function blankConditionsFor(action: AutomationActionType): RuleCondition[] {
-  return (action === "reconcile" ? blankReconcileConditions : blankIgnoreConditions).map((condition) => ({
-    ...condition,
-  }));
+function blankConditionsFor(actionTypes: AutomationActionType[]): RuleCondition[] {
+  return (actionTypes.includes("reconcile") ? blankReconcileConditions : blankIgnoreConditions).map(
+    (condition) => ({ ...condition }),
+  );
 }
 
-function ruleDraftFrom(rule: AutomationRule | null, action: AutomationActionType): RuleDraft {
+function ruleDraftFrom(rule: AutomationRule | null, actionTypes: AutomationActionType[]): RuleDraft {
   return rule
     ? {
         name: rule.name,
@@ -121,7 +116,7 @@ function ruleDraftFrom(rule: AutomationRule | null, action: AutomationActionType
         logicOperator: rule.logic_operator,
         conditions: rule.conditions.map((condition) => ({ ...condition })),
       }
-    : { name: "", isActive: true, logicOperator: "or", conditions: blankConditionsFor(action) };
+    : { name: "", isActive: true, logicOperator: "or", conditions: blankConditionsFor(actionTypes) };
 }
 
 type CommitmentDraft = {
@@ -195,16 +190,21 @@ export function AutomationEntryForm({
   onCancel: () => void;
 }) {
   const isEditing = entry !== null;
-  const initialAction: AutomationActionType = entry?.rule.actions[0]?.type ?? "ignore";
+  const initialActionTypes: AutomationActionType[] = entry
+    ? entry.rule.actions.map((action) => action.type)
+    : ["ignore"];
+  const initialCategoryId =
+    entry?.rule.actions.find((action) => action.type === "set_category")?.category_id ?? null;
 
-  const [action, setAction] = useState<AutomationActionType>(initialAction);
+  const [actionTypes, setActionTypes] = useState<AutomationActionType[]>(initialActionTypes);
+  const [categoryId, setCategoryId] = useState<string | null>(initialCategoryId);
   const [commitmentMode, setCommitmentMode] = useState<"new" | "existing">(
     entry?.linkedCommitment ? "existing" : "new",
   );
   const [selectedCommitmentId, setSelectedCommitmentId] = useState<string | null>(
     entry?.linkedCommitment?.id ?? null,
   );
-  const [ruleDraft, setRuleDraft] = useState<RuleDraft>(() => ruleDraftFrom(entry?.rule ?? null, initialAction));
+  const [ruleDraft, setRuleDraft] = useState<RuleDraft>(() => ruleDraftFrom(entry?.rule ?? null, initialActionTypes));
   const [commitmentDraft, setCommitmentDraft] = useState<CommitmentDraft>(() =>
     commitmentDraftFrom(entry?.linkedCommitment ?? null),
   );
@@ -213,10 +213,11 @@ export function AutomationEntryForm({
 
   useEffect(() => {
     if (open) {
-      setAction(initialAction);
+      setActionTypes(initialActionTypes);
+      setCategoryId(initialCategoryId);
       setCommitmentMode(entry?.linkedCommitment ? "existing" : "new");
       setSelectedCommitmentId(entry?.linkedCommitment?.id ?? null);
-      setRuleDraft(ruleDraftFrom(entry?.rule ?? null, initialAction));
+      setRuleDraft(ruleDraftFrom(entry?.rule ?? null, initialActionTypes));
       setCommitmentDraft(commitmentDraftFrom(entry?.linkedCommitment ?? null));
       setApplyRetroactively(false);
       setError(null);
@@ -238,15 +239,18 @@ export function AutomationEntryForm({
     }
   };
 
-  const setActionAndReset = (nextAction: AutomationActionType) => {
-    setAction(nextAction);
+  const setActionTypesAndReset = (nextActionTypes: AutomationActionType[]) => {
+    setActionTypes(nextActionTypes);
     if (!isEditing) {
-      setRuleDraft((current) => ({ ...current, conditions: blankConditionsFor(nextAction) }));
+      setRuleDraft((current) => ({ ...current, conditions: blankConditionsFor(nextActionTypes) }));
     }
-    if (nextAction === "ignore") {
+    if (!nextActionTypes.includes("reconcile")) {
       setCommitmentMode("new");
       setSelectedCommitmentId(null);
       setCommitmentDraft(blankCommitmentDraft);
+    }
+    if (!nextActionTypes.includes("set_category")) {
+      setCategoryId(null);
     }
   };
 
@@ -290,23 +294,25 @@ export function AutomationEntryForm({
       field: "amount",
       label: ruleConditionFieldLabel.amount,
       operators: [{ value: "within_percent", label: ruleConditionOperatorLabel.within_percent }],
-      toleranceOperator: "within_percent",
-      toleranceSuffix: "%",
+      pairOperator: "within_percent",
+      pairFirstLabel: "Valor esperado",
+      pairSecondLabel: "Tolerância",
+      pairSecondSuffix: "%",
+      pairMin: 0,
     },
     {
       field: "day_of_month",
       label: ruleConditionFieldLabel.day_of_month,
-      operators: [{ value: "near_day", label: ruleConditionOperatorLabel.near_day }],
-      toleranceOperator: "near_day",
-      toleranceSuffix: "dias",
+      operators: [{ value: "day_range", label: ruleConditionOperatorLabel.day_range }],
+      pairOperator: "day_range",
+      pairFirstLabel: "Do dia",
+      pairSecondLabel: "Até o dia",
+      pairMin: 1,
+      pairMax: 31,
     },
   ];
 
-  // amount/day_of_month conditions only make sense on a reconcile action —
-  // there's no occurrence to compare against when just ignoring new
-  // transactions (see internal/automation's Write.Validate doc comment).
-  const conditionFieldConfigs: ConditionFieldConfig[] =
-    action === "reconcile" ? [...reconcileFieldConfigs, ...baseFieldConfigs] : baseFieldConfigs;
+  const conditionFieldConfigs: ConditionFieldConfig[] = [...reconcileFieldConfigs, ...baseFieldConfigs];
 
   const categoryOptions = categories
     .filter((category) => category.is_active && category.kind !== "transfer")
@@ -325,66 +331,70 @@ export function AutomationEntryForm({
       setError("Preencha o valor de todas as condições.");
       return;
     }
-
-    if (action === "ignore") {
-      setError(null);
-      onSubmit({
-        action: "ignore",
-        name: ruleDraft.name.trim(),
-        isActive: ruleDraft.isActive,
-        logicOperator: ruleDraft.logicOperator,
-        conditions: ruleDraft.conditions.map((condition) => ({ ...condition, value: condition.value.trim() })),
-        applyRetroactively,
-      });
+    if (actionTypes.length === 0) {
+      setError("Selecione ao menos uma ação.");
+      return;
+    }
+    if (actionTypes.includes("set_category") && categoryId === null) {
+      setError("Selecione uma categoria para aplicar.");
       return;
     }
 
-    if (commitmentDraft.name.trim() === "") {
-      setError("Informe um nome para o compromisso.");
-      return;
+    let reconcile: AutomationEntrySubmitPayload["reconcile"] = null;
+    if (actionTypes.includes("reconcile")) {
+      if (commitmentDraft.name.trim() === "") {
+        setError("Informe um nome para o compromisso.");
+        return;
+      }
+      if (commitmentDraft.amount === null || commitmentDraft.amount <= 0) {
+        setError("Informe um valor maior que zero.");
+        return;
+      }
+      if (commitmentDraft.categoryId === null) {
+        setError("Selecione uma categoria.");
+        return;
+      }
+      if (commitmentDraft.dayOfMonth === null) {
+        setError("Informe o dia do mês.");
+        return;
+      }
+      if (commitmentDraft.cadence === "annual" && commitmentDraft.monthOfYear === null) {
+        setError("Informe o mês do ano para uma recorrência anual.");
+        return;
+      }
+      if (commitmentDraft.endDate && commitmentDraft.endDate.isBefore(commitmentDraft.startDate, "day")) {
+        setError("A data de término não pode ser anterior à data de início.");
+        return;
+      }
+      reconcile = {
+        commitmentMode,
+        existingCommitmentId: commitmentMode === "existing" ? selectedCommitmentId : null,
+        commitment: {
+          name: commitmentDraft.name.trim(),
+          kind: commitmentDraft.kind,
+          amount: commitmentDraft.amount.toFixed(2),
+          category_id: commitmentDraft.categoryId,
+          account_id: commitmentDraft.accountId.trim() === "" ? null : commitmentDraft.accountId.trim(),
+          cadence: commitmentDraft.cadence,
+          day_of_month: commitmentDraft.dayOfMonth,
+          month_of_year: commitmentDraft.cadence === "annual" ? commitmentDraft.monthOfYear : null,
+          start_date: commitmentDraft.startDate.format(dateFormat),
+          end_date: commitmentDraft.endDate ? commitmentDraft.endDate.format(dateFormat) : null,
+          is_active: commitmentDraft.isActive,
+        },
+      };
     }
-    if (commitmentDraft.amount === null || commitmentDraft.amount <= 0) {
-      setError("Informe um valor maior que zero.");
-      return;
-    }
-    if (commitmentDraft.categoryId === null) {
-      setError("Selecione uma categoria.");
-      return;
-    }
-    if (commitmentDraft.dayOfMonth === null) {
-      setError("Informe o dia do mês.");
-      return;
-    }
-    if (commitmentDraft.cadence === "annual" && commitmentDraft.monthOfYear === null) {
-      setError("Informe o mês do ano para uma recorrência anual.");
-      return;
-    }
-    if (commitmentDraft.endDate && commitmentDraft.endDate.isBefore(commitmentDraft.startDate, "day")) {
-      setError("A data de término não pode ser anterior à data de início.");
-      return;
-    }
+
     setError(null);
     onSubmit({
-      action: "reconcile",
       name: ruleDraft.name.trim(),
       isActive: ruleDraft.isActive,
       logicOperator: ruleDraft.logicOperator,
       conditions: ruleDraft.conditions.map((condition) => ({ ...condition, value: condition.value.trim() })),
-      commitmentMode,
-      existingCommitmentId: commitmentMode === "existing" ? selectedCommitmentId : null,
-      commitment: {
-        name: commitmentDraft.name.trim(),
-        kind: commitmentDraft.kind,
-        amount: commitmentDraft.amount.toFixed(2),
-        category_id: commitmentDraft.categoryId,
-        account_id: commitmentDraft.accountId.trim() === "" ? null : commitmentDraft.accountId.trim(),
-        cadence: commitmentDraft.cadence,
-        day_of_month: commitmentDraft.dayOfMonth,
-        month_of_year: commitmentDraft.cadence === "annual" ? commitmentDraft.monthOfYear : null,
-        start_date: commitmentDraft.startDate.format(dateFormat),
-        end_date: commitmentDraft.endDate ? commitmentDraft.endDate.format(dateFormat) : null,
-        is_active: commitmentDraft.isActive,
-      },
+      actionTypes,
+      applyRetroactively,
+      categoryId: actionTypes.includes("set_category") ? categoryId : null,
+      reconcile,
     });
   };
 
@@ -448,22 +458,38 @@ export function AutomationEntryForm({
         </Flex>
 
         <div className="filter-field">
-          <label htmlFor="automation-entry-action">Ação</label>
-          <Radio.Group
-            id="automation-entry-action"
-            value={action}
+          <span>Ações</span>
+          <Checkbox.Group
+            aria-label="Ações"
+            value={actionTypes}
             options={actionOptions}
-            optionType="button"
             disabled={isEditing}
-            onChange={(event) => setActionAndReset(event.target.value as AutomationActionType)}
+            onChange={(value) => setActionTypesAndReset(value as AutomationActionType[])}
           />
         </div>
 
-        {action === "ignore" ? (
+        {actionTypes.includes("set_category") && (
+          <div className="filter-field">
+            <label htmlFor="automation-entry-category">Categoria a aplicar</label>
+            <Select
+              id="automation-entry-category"
+              value={categoryId ?? undefined}
+              options={categoryOptions}
+              showSearch
+              optionFilterProp="label"
+              placeholder="Selecione uma categoria"
+              onChange={(value: string) => setCategoryId(value)}
+            />
+          </div>
+        )}
+
+        {(actionTypes.includes("ignore") || actionTypes.includes("set_category")) && (
           <Checkbox checked={applyRetroactively} onChange={(event) => setApplyRetroactively(event.target.checked)}>
             Aplicar agora às transações existentes que casarem com as condições
           </Checkbox>
-        ) : (
+        )}
+
+        {actionTypes.includes("reconcile") && (
           <>
             {!isEditing && (
               <div className="filter-field">

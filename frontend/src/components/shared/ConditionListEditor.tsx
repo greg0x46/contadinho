@@ -8,17 +8,24 @@ import type { RuleCondition, RuleConditionField, RuleConditionOperator } from ".
  * builder (used by AutomationRuleForm and RecurringCommitmentForm — see
  * .specs/relatorio-financeiro/m0-motor-de-regras.md). A field is either:
  * - a literal text-match field (operator select + free/select value), or
- * - a "tolerance" field (amount/day_of_month): the operator is implied by
- *   the field itself, and the only input is a numeric tolerance, since the
- *   reference (expected amount/day) is always the occurrence being
- *   resolved — never something the user types in.
+ * - a "pair" field (amount/day_of_month): the operator is implied by the
+ *   field itself, and the input is two plain numbers packed into
+ *   Condition.Value as "<first>:<second>" — a base value + tolerance for
+ *   amount, a min/max day for day_of_month. Both are typed in full by the
+ *   user; neither depends on the reconcile action's linked commitment for
+ *   its reference (see internal/rules and internal/recurrences/match.go).
  */
 export interface ConditionFieldConfig {
   field: RuleConditionField;
   label: string;
   operators: { value: RuleConditionOperator; label: string }[];
-  toleranceOperator?: RuleConditionOperator;
-  toleranceSuffix?: string;
+  pairOperator?: RuleConditionOperator;
+  pairFirstLabel?: string;
+  pairFirstSuffix?: string;
+  pairSecondLabel?: string;
+  pairSecondSuffix?: string;
+  pairMin?: number;
+  pairMax?: number;
   valueOptions?: (field: RuleConditionField) => { value: string; label: string }[];
   valueOptionsLoading?: boolean;
   valuePlaceholder?: (field: RuleConditionField) => string;
@@ -28,9 +35,14 @@ export interface ConditionFieldConfig {
 function blankConditionFor(config: ConditionFieldConfig): RuleCondition {
   return {
     field: config.field,
-    operator: config.toleranceOperator ?? config.operators[0].value,
+    operator: config.pairOperator ?? config.operators[0].value,
     value: "",
   };
+}
+
+function parsePair(value: string): [string, string] {
+  const [first, second] = value.split(":");
+  return [first ?? "", second ?? ""];
 }
 
 export function ConditionListEditor({
@@ -54,7 +66,11 @@ export function ConditionListEditor({
 
   const changeField = (index: number, field: RuleConditionField) => {
     const config = configFor(field);
-    updateCondition(index, { field, operator: config.toleranceOperator ?? config.operators[0].value, value: "" });
+    updateCondition(index, {
+      field,
+      operator: config.pairOperator ?? config.operators[0].value,
+      value: "",
+    });
   };
 
   const removeCondition = (index: number) => {
@@ -77,16 +93,34 @@ export function ConditionListEditor({
               options={fieldOptions}
               onChange={(value: RuleConditionField) => changeField(index, value)}
             />
-            {config.toleranceOperator ? (
-              <Input
-                aria-label={`Tolerância${config.toleranceSuffix ? ` (${config.toleranceSuffix})` : ""}`}
-                type="number"
-                min={0}
-                value={condition.value}
-                onChange={(event) => updateCondition(index, { value: event.target.value })}
-                placeholder="Tolerância"
-                suffix={config.toleranceSuffix}
-              />
+            {config.pairOperator ? (
+              (() => {
+                const [first, second] = parsePair(condition.value);
+                return (
+                  <>
+                    <Input
+                      aria-label={config.pairFirstLabel ?? "Valor"}
+                      type="number"
+                      min={config.pairMin}
+                      max={config.pairMax}
+                      value={first}
+                      onChange={(event) => updateCondition(index, { value: `${event.target.value}:${second}` })}
+                      placeholder={config.pairFirstLabel ?? "Valor"}
+                      suffix={config.pairFirstSuffix}
+                    />
+                    <Input
+                      aria-label={config.pairSecondLabel ?? "Valor"}
+                      type="number"
+                      min={config.pairMin}
+                      max={config.pairMax}
+                      value={second}
+                      onChange={(event) => updateCondition(index, { value: `${first}:${event.target.value}` })}
+                      placeholder={config.pairSecondLabel ?? "Valor"}
+                      suffix={config.pairSecondSuffix}
+                    />
+                  </>
+                );
+              })()
             ) : (
               <>
                 <Select
