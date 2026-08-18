@@ -35,3 +35,27 @@ export function formatSignedBRL(
 
 export const moneySourceLabel = (source: "account_currency" | "transaction_currency") =>
   source === "account_currency" ? "Valor na moeda da conta" : "Valor original";
+
+// toCents/fromCents let callers sum a handful of BRL decimal strings
+// (e.g. accumulating several MonthSummary rows client-side) without a
+// bignum dependency — same BigInt-cents technique fixedTwo already uses,
+// just exposed for addition instead of only formatting.
+function toCents(value: string): bigint {
+  const negative = value.startsWith("-");
+  const unsigned = negative ? value.slice(1) : value;
+  const [integer = "0", fraction = ""] = unsigned.split(".");
+  const cents = BigInt(`${integer}${fraction.padEnd(2, "0").slice(0, 2)}`);
+  return negative ? -cents : cents;
+}
+
+function fromCents(cents: bigint): string {
+  const negative = cents < 0n;
+  const digits = (negative ? -cents : cents).toString().padStart(3, "0");
+  const whole = digits.slice(0, -2);
+  const decimals = digits.slice(-2);
+  return `${negative ? "-" : ""}${whole}.${decimals}`;
+}
+
+export function sumBRL(values: string[]): string {
+  return fromCents(values.reduce((total, value) => total + toCents(value), 0n));
+}

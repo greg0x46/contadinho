@@ -559,17 +559,66 @@ export function parseTransactionInclusionResult(value: unknown): TransactionIncl
   };
 }
 
-export const automationConditionFields = ["description", "card", "account"] as const;
-export type AutomationConditionField = (typeof automationConditionFields)[number];
-export const automationConditionOperators = ["contains", "equals"] as const;
-export type AutomationConditionOperator = (typeof automationConditionOperators)[number];
-export const automationLogicOperators = ["and", "or"] as const;
-export type AutomationLogicOperator = (typeof automationLogicOperators)[number];
+// RuleCondition is the shared field/operator/value shape both automation
+// rules and recurring commitments compose — see internal/rules (backend)
+// and .specs/relatorio-financeiro/m0-motor-de-regras.md. "amount"/
+// "day_of_month" only make sense where there's an occurrence to compare
+// against — on an AutomationRule that means a "reconcile" action is present
+// (see ruleConditionFieldOperators and AutomationAction below); the backend
+// rejects them otherwise.
+export const ruleConditionFields = ["description", "card", "account", "amount", "day_of_month"] as const;
+export type RuleConditionField = (typeof ruleConditionFields)[number];
+export const ruleConditionOperators = ["contains", "equals", "within_percent", "day_range"] as const;
+export type RuleConditionOperator = (typeof ruleConditionOperators)[number];
+export const ruleLogicOperators = ["and", "or"] as const;
+export type RuleLogicOperator = (typeof ruleLogicOperators)[number];
 
-export interface AutomationRuleCondition {
-  field: AutomationConditionField;
-  operator: AutomationConditionOperator;
+export interface RuleCondition {
+  field: RuleConditionField;
+  operator: RuleConditionOperator;
   value: string;
+}
+
+// ruleConditionFieldOperators pins which operator(s) a field accepts —
+// mirrors internal/automation/model.go's validateCondition. amount/
+// day_of_month are only ever valid on a rule with a reconcile action (see
+// parseRuleCondition's allowReconcileFields parameter).
+const ruleConditionFieldOperators: Record<RuleConditionField, readonly RuleConditionOperator[]> = {
+  description: ["contains", "equals"],
+  card: ["contains", "equals"],
+  account: ["contains", "equals"],
+  amount: ["within_percent"],
+  day_of_month: ["day_range"],
+};
+
+function parseRuleCondition(value: unknown, allowReconcileFields: boolean): RuleCondition {
+  const condition = requiredRecord(value, ["field", "operator", "value"], "Condição inválida.");
+  const field = condition.field as RuleConditionField;
+  const operator = condition.operator as RuleConditionOperator;
+  const isReconcileField = field === "amount" || field === "day_of_month";
+  if (
+    !ruleConditionFields.includes(field) ||
+    !ruleConditionOperators.includes(operator) ||
+    !ruleConditionFieldOperators[field].includes(operator) ||
+    (isReconcileField && !allowReconcileFields) ||
+    typeof condition.value !== "string" ||
+    condition.value === ""
+  ) {
+    throw new TypeError("Condição inválida.");
+  }
+  return { field, operator, value: condition.value };
+}
+
+export type AutomationLogicOperator = RuleLogicOperator;
+export const automationLogicOperators = ruleLogicOperators;
+
+export const automationActionTypes = ["ignore", "reconcile", "set_category"] as const;
+export type AutomationActionType = (typeof automationActionTypes)[number];
+
+export interface AutomationAction {
+  type: AutomationActionType;
+  recurring_commitment_id: string | null;
+  category_id: string | null;
 }
 
 export interface AutomationRule {
@@ -577,7 +626,8 @@ export interface AutomationRule {
   name: string;
   is_active: boolean;
   logic_operator: AutomationLogicOperator;
-  conditions: AutomationRuleCondition[];
+  conditions: RuleCondition[];
+  actions: AutomationAction[];
   created_at: string;
   updated_at: string;
 }
@@ -586,13 +636,15 @@ export interface AutomationRuleWrite {
   name: string;
   is_active: boolean;
   logic_operator: AutomationLogicOperator;
-  conditions: AutomationRuleCondition[];
+  conditions: RuleCondition[];
+  actions: AutomationAction[];
   apply_retroactively: boolean;
 }
 
 export interface RetroactiveApplyResult {
   matched: number;
   ignored: number;
+  categorized: number;
 }
 
 export interface AutomationRuleWriteResult {
@@ -627,27 +679,36 @@ export function parseAutomationRuleConditionOptions(
   };
 }
 
-function parseAutomationRuleCondition(value: unknown): AutomationRuleCondition {
-  const condition = requiredRecord(value, ["field", "operator", "value"], "Condição inválida.");
+function parseAutomationAction(value: unknown): AutomationAction {
+  const action = requiredRecord(
+    value,
+    ["type", "recurring_commitment_id", "category_id"],
+    "Ação inválida.",
+  );
+  const type = action.type as AutomationActionType;
+  const commitmentID = action.recurring_commitment_id;
+  const categoryID = action.category_id;
   if (
-    !automationConditionFields.includes(condition.field as AutomationConditionField) ||
-    !automationConditionOperators.includes(condition.operator as AutomationConditionOperator) ||
-    typeof condition.value !== "string" ||
-    condition.value === ""
+    !automationActionTypes.includes(type) ||
+    !(commitmentID === null || (typeof commitmentID === "string" && isUuid(commitmentID))) ||
+    !(categoryID === null || (typeof categoryID === "string" && isUuid(categoryID))) ||
+    (type === "ignore" && (commitmentID !== null || categoryID !== null)) ||
+    (type === "reconcile" && (commitmentID === null || categoryID !== null)) ||
+    (type === "set_category" && (categoryID === null || commitmentID !== null))
   ) {
-    throw new TypeError("Condição inválida.");
+    throw new TypeError("Ação inválida.");
   }
   return {
-    field: condition.field as AutomationConditionField,
-    operator: condition.operator as AutomationConditionOperator,
-    value: condition.value,
+    type,
+    recurring_commitment_id: commitmentID as string | null,
+    category_id: categoryID as string | null,
   };
 }
 
 export function parseAutomationRule(value: unknown): AutomationRule {
   const rule = requiredRecord(
     value,
-    ["id", "name", "is_active", "logic_operator", "conditions", "created_at", "updated_at"],
+    ["id", "name", "is_active", "logic_operator", "conditions", "actions", "created_at", "updated_at"],
     "Regra de automação inválida.",
   );
   if (
@@ -659,17 +720,22 @@ export function parseAutomationRule(value: unknown): AutomationRule {
     !automationLogicOperators.includes(rule.logic_operator as AutomationLogicOperator) ||
     !Array.isArray(rule.conditions) ||
     rule.conditions.length === 0 ||
+    !Array.isArray(rule.actions) ||
+    rule.actions.length === 0 ||
     !isValidDate(rule.created_at) ||
     !isValidDate(rule.updated_at)
   ) {
     throw new TypeError("Regra de automação inválida.");
   }
+  const actions = rule.actions.map(parseAutomationAction);
+  const hasReconcileAction = actions.some((action) => action.type === "reconcile");
   return {
     id: rule.id,
     name: rule.name,
     is_active: rule.is_active,
     logic_operator: rule.logic_operator as AutomationLogicOperator,
-    conditions: rule.conditions.map(parseAutomationRuleCondition),
+    conditions: rule.conditions.map((c) => parseRuleCondition(c, hasReconcileAction)),
+    actions,
     created_at: rule.created_at,
     updated_at: rule.updated_at,
   };
@@ -683,11 +749,15 @@ export function parseAutomationRuleList(value: unknown): AutomationRule[] {
 }
 
 function parseRetroactiveApplyResult(value: unknown): RetroactiveApplyResult {
-  const result = requiredRecord(value, ["matched", "ignored"], "Resultado retroativo inválido.");
-  if (!isCount(result.matched) || !isCount(result.ignored)) {
+  const result = requiredRecord(
+    value,
+    ["matched", "ignored", "categorized"],
+    "Resultado retroativo inválido.",
+  );
+  if (!isCount(result.matched) || !isCount(result.ignored) || !isCount(result.categorized)) {
     throw new TypeError("Resultado retroativo inválido.");
   }
-  return { matched: result.matched, ignored: result.ignored };
+  return { matched: result.matched, ignored: result.ignored, categorized: result.categorized };
 }
 
 export function parseAutomationRuleWriteResult(value: unknown): AutomationRuleWriteResult {
@@ -701,6 +771,114 @@ export function parseAutomationRuleWriteResult(value: unknown): AutomationRuleWr
     retroactive_apply:
       result.retroactive_apply === null ? null : parseRetroactiveApplyResult(result.retroactive_apply),
   };
+}
+
+export const recurringCommitmentKinds = ["income", "expense"] as const;
+export type RecurringCommitmentKind = (typeof recurringCommitmentKinds)[number];
+export const recurringCommitmentCadences = ["monthly", "annual"] as const;
+export type RecurringCommitmentCadence = (typeof recurringCommitmentCadences)[number];
+
+export interface RecurringCommitment {
+  id: string;
+  name: string;
+  kind: RecurringCommitmentKind;
+  amount: string;
+  category_id: string;
+  account_id: string | null;
+  cadence: RecurringCommitmentCadence;
+  day_of_month: number;
+  month_of_year: number | null;
+  start_date: string;
+  end_date: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RecurringCommitmentWrite {
+  name: string;
+  kind: RecurringCommitmentKind;
+  amount: string;
+  category_id: string;
+  account_id: string | null;
+  cadence: RecurringCommitmentCadence;
+  day_of_month: number;
+  month_of_year: number | null;
+  start_date: string;
+  end_date: string | null;
+  is_active: boolean;
+}
+
+const isDayOfMonth = (value: unknown): value is number =>
+  Number.isInteger(value) && typeof value === "number" && value >= 1 && value <= 31;
+
+const isMonthOfYear = (value: unknown): value is number =>
+  Number.isInteger(value) && typeof value === "number" && value >= 1 && value <= 12;
+
+export function parseRecurringCommitment(value: unknown): RecurringCommitment {
+  const commitment = requiredRecord(
+    value,
+    [
+      "id",
+      "name",
+      "kind",
+      "amount",
+      "category_id",
+      "account_id",
+      "cadence",
+      "day_of_month",
+      "month_of_year",
+      "start_date",
+      "end_date",
+      "is_active",
+      "created_at",
+      "updated_at",
+    ],
+    "Compromisso recorrente inválido.",
+  );
+  if (
+    typeof commitment.id !== "string" ||
+    !isUuid(commitment.id) ||
+    typeof commitment.name !== "string" ||
+    commitment.name === "" ||
+    !recurringCommitmentKinds.includes(commitment.kind as RecurringCommitmentKind) ||
+    typeof commitment.category_id !== "string" ||
+    !isUuid(commitment.category_id) ||
+    !(commitment.account_id === null || typeof commitment.account_id === "string") ||
+    !recurringCommitmentCadences.includes(commitment.cadence as RecurringCommitmentCadence) ||
+    !isDayOfMonth(commitment.day_of_month) ||
+    !(commitment.month_of_year === null || isMonthOfYear(commitment.month_of_year)) ||
+    !dateOnlyPattern.test(commitment.start_date as string) ||
+    !(commitment.end_date === null || dateOnlyPattern.test(commitment.end_date as string)) ||
+    typeof commitment.is_active !== "boolean" ||
+    !isValidDate(commitment.created_at) ||
+    !isValidDate(commitment.updated_at)
+  ) {
+    throw new TypeError("Compromisso recorrente inválido.");
+  }
+  return {
+    id: commitment.id,
+    name: commitment.name,
+    kind: commitment.kind as RecurringCommitmentKind,
+    amount: decimal(commitment.amount),
+    category_id: commitment.category_id,
+    account_id: commitment.account_id as string | null,
+    cadence: commitment.cadence as RecurringCommitmentCadence,
+    day_of_month: commitment.day_of_month,
+    month_of_year: commitment.month_of_year as number | null,
+    start_date: commitment.start_date as string,
+    end_date: commitment.end_date as string | null,
+    is_active: commitment.is_active,
+    created_at: commitment.created_at,
+    updated_at: commitment.updated_at,
+  };
+}
+
+export function parseRecurringCommitmentList(value: unknown): RecurringCommitment[] {
+  if (!Array.isArray(value)) {
+    throw new TypeError("Lista de compromissos recorrentes inválida.");
+  }
+  return value.map(parseRecurringCommitment);
 }
 
 export interface Category {
@@ -1248,7 +1426,7 @@ export function parseEligibleTransactionList(value: unknown): EligibleTransactio
   return value.map(parseEligibleTransaction);
 }
 
-export const scenarioKinds = ["debt_plan", "receivable_plan"] as const;
+export const scenarioKinds = ["debt_plan", "receivable_plan", "standalone"] as const;
 export type ScenarioKind = (typeof scenarioKinds)[number];
 
 export interface Scenario {
@@ -1842,5 +2020,289 @@ export function parseProblem(value: unknown): Problem {
     ...(value.active_sync_run_id === undefined
       ? {}
       : { active_sync_run_id: value.active_sync_run_id }),
+  };
+}
+
+export const certaintyTiers = ["realizado", "confirmado", "projetado", "hipotetico"] as const;
+export type CertaintyTier = (typeof certaintyTiers)[number];
+
+export const timelineSourceKinds = ["real", "recorrente", "plano_pagamento", "cenario"] as const;
+export type TimelineSourceKind = (typeof timelineSourceKinds)[number];
+
+export interface TimelineEntry {
+  date: string;
+  description: string;
+  amount: string;
+  category_id: string | null;
+  category_name: string;
+  tier: CertaintyTier;
+  source: TimelineSourceKind;
+  source_ref_id: string;
+  scenario_id: string | null;
+}
+
+export interface TimelineDayPoint {
+  date: string;
+  balance: string;
+  inflow: string;
+  outflow: string;
+  lowest_tier: CertaintyTier;
+}
+
+export interface TimelineSeries {
+  points: TimelineDayPoint[];
+  entries: TimelineEntry[];
+  starting_balance: string;
+  lowest_balance: TimelineDayPoint;
+  first_negative: string | null;
+}
+
+export interface MonthSummary {
+  month: string;
+  income: string;
+  expense: string;
+  result: string;
+}
+
+export interface CategoryImpact {
+  category_id: string | null;
+  category_name: string;
+  amount: string;
+  percentage: string;
+}
+
+export interface ScenarioImpact {
+  scenario_id: string;
+  scenario_name: string;
+  delta: string;
+}
+
+export interface Comparison2 {
+  current: string;
+  previous: string;
+  delta_percent: string;
+}
+
+export interface MonthAmount {
+  month: string;
+  amount: string;
+}
+
+export interface TimelineResponse {
+  base: TimelineSeries;
+  monthly_breakdown: MonthSummary[];
+  category_breakdown: CategoryImpact[];
+  simulation: TimelineSeries | null;
+  scenario_impacts: ScenarioImpact[];
+  month_over_month: Comparison2 | null;
+  year_over_year: Comparison2 | null;
+  category_evolution: MonthAmount[] | null;
+}
+
+export interface TimelineParams {
+  referenceDate: string;
+  from: string;
+  to: string;
+  accountIds?: string[];
+  categoryIds?: string[];
+  cardNumbers?: string[];
+  scenarioIds?: string[];
+  yearOverYear?: boolean;
+  categoryEvolutionId?: string | null;
+}
+
+function isNullableCategoryId(value: unknown): value is string | null {
+  return value === null || (typeof value === "string" && isUuid(value));
+}
+
+function parseTimelineEntry(value: unknown): TimelineEntry {
+  const entry = requiredRecord(
+    value,
+    [
+      "date",
+      "description",
+      "amount",
+      "category_id",
+      "category_name",
+      "tier",
+      "source",
+      "source_ref_id",
+      "scenario_id",
+    ],
+    "Entrada do relatório inválida.",
+  );
+  if (
+    !dateOnlyPattern.test(entry.date as string) ||
+    typeof entry.description !== "string" ||
+    !isNullableCategoryId(entry.category_id) ||
+    typeof entry.category_name !== "string" ||
+    !certaintyTiers.includes(entry.tier as CertaintyTier) ||
+    !timelineSourceKinds.includes(entry.source as TimelineSourceKind) ||
+    typeof entry.source_ref_id !== "string" ||
+    entry.source_ref_id === "" ||
+    !isNullableCategoryId(entry.scenario_id)
+  ) {
+    throw new TypeError("Entrada do relatório inválida.");
+  }
+  return {
+    date: entry.date as string,
+    description: entry.description,
+    amount: decimal(entry.amount),
+    category_id: entry.category_id as string | null,
+    category_name: entry.category_name,
+    tier: entry.tier as CertaintyTier,
+    source: entry.source as TimelineSourceKind,
+    source_ref_id: entry.source_ref_id,
+    scenario_id: entry.scenario_id as string | null,
+  };
+}
+
+function parseTimelineDayPoint(value: unknown): TimelineDayPoint {
+  const point = requiredRecord(
+    value,
+    ["date", "balance", "inflow", "outflow", "lowest_tier"],
+    "Ponto do relatório inválido.",
+  );
+  if (
+    !dateOnlyPattern.test(point.date as string) ||
+    !certaintyTiers.includes(point.lowest_tier as CertaintyTier)
+  ) {
+    throw new TypeError("Ponto do relatório inválido.");
+  }
+  return {
+    date: point.date as string,
+    balance: decimal(point.balance),
+    inflow: decimal(point.inflow),
+    outflow: decimal(point.outflow),
+    lowest_tier: point.lowest_tier as CertaintyTier,
+  };
+}
+
+function parseTimelineSeries(value: unknown): TimelineSeries {
+  const series = requiredRecord(
+    value,
+    ["points", "entries", "starting_balance", "lowest_balance", "first_negative"],
+    "Série do relatório inválida.",
+  );
+  if (
+    !Array.isArray(series.points) ||
+    !Array.isArray(series.entries) ||
+    !(series.first_negative === null || dateOnlyPattern.test(series.first_negative as string))
+  ) {
+    throw new TypeError("Série do relatório inválida.");
+  }
+  return {
+    points: series.points.map(parseTimelineDayPoint),
+    entries: series.entries.map(parseTimelineEntry),
+    starting_balance: decimal(series.starting_balance),
+    lowest_balance: parseTimelineDayPoint(series.lowest_balance),
+    first_negative: series.first_negative as string | null,
+  };
+}
+
+function parseMonthSummary(value: unknown): MonthSummary {
+  const summary = requiredRecord(value, ["month", "income", "expense", "result"], "Resumo mensal inválido.");
+  if (!dateOnlyPattern.test(summary.month as string)) {
+    throw new TypeError("Resumo mensal inválido.");
+  }
+  return {
+    month: summary.month as string,
+    income: decimal(summary.income),
+    expense: decimal(summary.expense),
+    result: decimal(summary.result),
+  };
+}
+
+function parseCategoryImpact(value: unknown): CategoryImpact {
+  const impact = requiredRecord(
+    value,
+    ["category_id", "category_name", "amount", "percentage"],
+    "Impacto de categoria inválido.",
+  );
+  if (!isNullableCategoryId(impact.category_id) || typeof impact.category_name !== "string") {
+    throw new TypeError("Impacto de categoria inválido.");
+  }
+  return {
+    category_id: impact.category_id as string | null,
+    category_name: impact.category_name,
+    amount: decimal(impact.amount),
+    percentage: decimal(impact.percentage),
+  };
+}
+
+function parseScenarioImpact(value: unknown): ScenarioImpact {
+  const impact = requiredRecord(
+    value,
+    ["scenario_id", "scenario_name", "delta"],
+    "Impacto de cenário inválido.",
+  );
+  if (
+    typeof impact.scenario_id !== "string" ||
+    !isUuid(impact.scenario_id) ||
+    typeof impact.scenario_name !== "string"
+  ) {
+    throw new TypeError("Impacto de cenário inválido.");
+  }
+  return {
+    scenario_id: impact.scenario_id,
+    scenario_name: impact.scenario_name,
+    delta: decimal(impact.delta),
+  };
+}
+
+function parseComparison2(value: unknown): Comparison2 {
+  const comparison = requiredRecord(
+    value,
+    ["current", "previous", "delta_percent"],
+    "Comparação inválida.",
+  );
+  return {
+    current: decimal(comparison.current),
+    previous: decimal(comparison.previous),
+    delta_percent: decimal(comparison.delta_percent),
+  };
+}
+
+function parseMonthAmount(value: unknown): MonthAmount {
+  const item = requiredRecord(value, ["month", "amount"], "Evolução de categoria inválida.");
+  if (!dateOnlyPattern.test(item.month as string)) {
+    throw new TypeError("Evolução de categoria inválida.");
+  }
+  return { month: item.month as string, amount: decimal(item.amount) };
+}
+
+export function parseTimelineResponse(value: unknown): TimelineResponse {
+  const response = requiredRecord(
+    value,
+    [
+      "base",
+      "monthly_breakdown",
+      "category_breakdown",
+      "simulation",
+      "scenario_impacts",
+      "month_over_month",
+      "year_over_year",
+      "category_evolution",
+    ],
+    "Resposta do relatório financeiro inválida.",
+  );
+  if (
+    !Array.isArray(response.monthly_breakdown) ||
+    !Array.isArray(response.category_breakdown) ||
+    !Array.isArray(response.scenario_impacts) ||
+    !(response.category_evolution === null || Array.isArray(response.category_evolution))
+  ) {
+    throw new TypeError("Resposta do relatório financeiro inválida.");
+  }
+  return {
+    base: parseTimelineSeries(response.base),
+    monthly_breakdown: response.monthly_breakdown.map(parseMonthSummary),
+    category_breakdown: response.category_breakdown.map(parseCategoryImpact),
+    simulation: response.simulation === null ? null : parseTimelineSeries(response.simulation),
+    scenario_impacts: response.scenario_impacts.map(parseScenarioImpact),
+    month_over_month: response.month_over_month === null ? null : parseComparison2(response.month_over_month),
+    year_over_year: response.year_over_year === null ? null : parseComparison2(response.year_over_year),
+    category_evolution:
+      response.category_evolution === null ? null : (response.category_evolution as unknown[]).map(parseMonthAmount),
   };
 }

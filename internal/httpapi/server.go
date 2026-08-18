@@ -84,6 +84,8 @@ func NewServer(db *sql.DB, frontend fs.FS, session *settings.Session) http.Handl
 
 	mux.HandleFunc("GET /api/payables/{id}/scenarios", handleListPayableScenarios(db))
 	mux.HandleFunc("POST /api/payables/{id}/scenarios", handleCreatePayableScenario(db))
+	mux.HandleFunc("GET /api/scenarios", handleListScenarios(db))
+	mux.HandleFunc("POST /api/scenarios", handleCreateStandaloneScenario(db))
 	mux.HandleFunc("GET /api/scenarios/{id}", handleGetScenario(db))
 	mux.HandleFunc("DELETE /api/scenarios/{id}", handleDeleteScenario(db))
 	mux.HandleFunc("POST /api/scenarios/{id}/generate-installments", handleGenerateInstallments(db))
@@ -93,6 +95,14 @@ func NewServer(db *sql.DB, frontend fs.FS, session *settings.Session) http.Handl
 	mux.HandleFunc("DELETE /api/scenarios/{id}/transactions/{transactionId}", handleDeleteScenarioTransaction(db))
 	mux.HandleFunc("POST /api/scenarios/{id}/transactions/{transactionId}/realizations", handleCreateRealization(db))
 	mux.HandleFunc("DELETE /api/scenarios/{id}/transactions/{transactionId}/realizations/{realizationId}", handleDeleteRealization(db))
+
+	mux.HandleFunc("GET /api/timeline", handleGetTimeline(db))
+
+	mux.HandleFunc("GET /api/recurring-commitments", handleListRecurringCommitments(db))
+	mux.HandleFunc("POST /api/recurring-commitments", handleCreateRecurringCommitment(db))
+	mux.HandleFunc("PUT /api/recurring-commitments/{id}", handleUpdateRecurringCommitment(db))
+	mux.HandleFunc("PATCH /api/recurring-commitments/{id}", handleSetRecurringCommitmentActive(db))
+	mux.HandleFunc("DELETE /api/recurring-commitments/{id}", handleDeleteRecurringCommitment(db))
 
 	mux.Handle("/", spaHandler(frontend))
 

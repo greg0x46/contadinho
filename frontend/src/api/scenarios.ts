@@ -87,6 +87,28 @@ export function createPayableScenario(
   );
 }
 
+export function listStandaloneScenarios(signal?: AbortSignal): Promise<Scenario[]> {
+  return send(
+    "/api/scenarios?kind=standalone",
+    { method: "GET", headers: { Accept: "application/json" }, signal },
+    200,
+    parseScenarioList,
+  );
+}
+
+export function createStandaloneScenario(write: ScenarioCreate): Promise<ScenarioDetail> {
+  return send(
+    "/api/scenarios",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(write),
+    },
+    201,
+    parseScenarioDetail,
+  );
+}
+
 export function getScenario(scenarioId: string, signal?: AbortSignal): Promise<ScenarioDetail> {
   return send(
     `/api/scenarios/${encodeURIComponent(scenarioId)}`,

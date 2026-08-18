@@ -1,10 +1,16 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactElement } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Category } from "../../api/contracts";
 import { transactionResult } from "../../test/transactionFixtures";
 import { TransactionDetailDrawer } from "./TransactionDetailDrawer";
+
+function renderWithRouter(ui: ReactElement) {
+  return render(<MemoryRouter>{ui}</MemoryRouter>);
+}
 
 const activeCategories: Category[] = [
   {
@@ -33,7 +39,7 @@ describe("TransactionDetailDrawer", () => {
   it("assigns a category manually and shows the provider suggestion separately", async () => {
     const user = userEvent.setup();
     const onCategory = vi.fn();
-    render(
+    renderWithRouter(
       <TransactionDetailDrawer
         item={transactionResult.items[0]!}
         categories={activeCategories}
@@ -52,7 +58,7 @@ describe("TransactionDetailDrawer", () => {
   });
 
   it("warns when the vigente category is inactive without blocking display", () => {
-    render(
+    renderWithRouter(
       <TransactionDetailDrawer
         item={{
           ...transactionResult.items[0]!,
@@ -70,7 +76,7 @@ describe("TransactionDetailDrawer", () => {
 
   it("renders the unclassified totalization exclusion reason", async () => {
     const user = userEvent.setup();
-    render(
+    renderWithRouter(
       <TransactionDetailDrawer
         item={{
           ...transactionResult.items[0]!,
@@ -85,7 +91,7 @@ describe("TransactionDetailDrawer", () => {
   });
 
   it("shows Sem categoria as a placeholder when no internal category is assigned", () => {
-    render(
+    renderWithRouter(
       <TransactionDetailDrawer
         item={{ ...transactionResult.items[0]!, internal_category: null }}
         categories={activeCategories}
@@ -97,7 +103,7 @@ describe("TransactionDetailDrawer", () => {
   });
 
   it("does not show a Cartão row when the transaction has no card info", () => {
-    render(
+    renderWithRouter(
       <TransactionDetailDrawer
         item={{ ...transactionResult.items[0]!, card: null }}
         categories={activeCategories}
@@ -108,7 +114,7 @@ describe("TransactionDetailDrawer", () => {
   });
 
   it("shows the masked card number when present", () => {
-    render(
+    renderWithRouter(
       <TransactionDetailDrawer
         item={{
           ...transactionResult.items[0]!,
@@ -124,7 +130,7 @@ describe("TransactionDetailDrawer", () => {
   });
 
   it("shows the installment badge when the purchase is parcelada", () => {
-    render(
+    renderWithRouter(
       <TransactionDetailDrawer
         item={{
           ...transactionResult.items[0]!,

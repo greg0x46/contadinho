@@ -1,7 +1,10 @@
 import {
   ApiOutlined,
   BankOutlined,
+  BarChartOutlined,
+  BulbOutlined,
   HomeOutlined,
+  RedoOutlined,
   RiseOutlined,
   SettingOutlined,
   TagsOutlined,
@@ -28,11 +31,14 @@ export function App() {
         route={{
           routes: [
             { path: "/", name: "Home", icon: <HomeOutlined /> },
+            { path: "/relatorio-financeiro", name: "Relatório financeiro", icon: <BarChartOutlined /> },
             { path: "/open-banking", name: "Open Banking", icon: <ApiOutlined /> },
             { path: "/contas-e-cartoes", name: "Contas e cartões", icon: <BankOutlined /> },
             { path: "/transacoes", name: "Transações", icon: <TransactionOutlined /> },
             { path: "/automacoes", name: "Automações", icon: <ThunderboltOutlined /> },
             { path: "/pendencias", name: "Pendências", icon: <WalletOutlined /> },
+            { path: "/recorrencias", name: "Recorrências", icon: <RedoOutlined /> },
+            { path: "/cenarios", name: "Cenários", icon: <BulbOutlined /> },
             { path: "/investimentos", name: "Investimentos", icon: <RiseOutlined /> },
             { path: "/categorias", name: "Categorias", icon: <TagsOutlined /> },
             { path: "/configuracoes", name: "Configurações", icon: <SettingOutlined /> },
