@@ -10,6 +10,7 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"os"
 
 	"contadinho-go/internal/automation"
 	"contadinho-go/internal/db"
@@ -22,7 +23,11 @@ import (
 )
 
 func main() {
-	dbPath := flag.String("db", "contadinho.db", "path to the SQLite database file, or a postgres://... / postgresql://... DSN to use Postgres instead")
+	defaultDB := "contadinho.db"
+	if envDB := os.Getenv("CONTADINHO_DB"); envDB != "" {
+		defaultDB = envDB
+	}
+	dbPath := flag.String("db", defaultDB, "path to the SQLite database file, or a postgres://... / postgresql://... DSN to use Postgres instead (defaults to $CONTADINHO_DB if set)")
 	addr := flag.String("addr", "localhost:4200", "address to listen on")
 	flag.Parse()
 

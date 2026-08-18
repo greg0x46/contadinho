@@ -303,6 +303,7 @@ func TestAutomationRuleLifecycleOverHTTP(t *testing.T) {
 	body := map[string]any{
 		"name": "Ignorar transferências", "is_active": true, "logic_operator": "and",
 		"conditions":          []map[string]string{{"field": "description", "operator": "contains", "value": "transferencia"}},
+		"actions":             []map[string]any{{"type": "ignore"}},
 		"apply_retroactively": true,
 	}
 	resp := doJSON(t, http.MethodPost, srv.URL+"/api/automation-rules", body)
@@ -363,11 +364,95 @@ func TestAutomationRuleLifecycleOverHTTP(t *testing.T) {
 
 func TestCreateAutomationRuleRejectsEmptyConditions(t *testing.T) {
 	srv, _ := newTestServer(t)
-	body := map[string]any{"name": "Regra vazia", "is_active": true, "logic_operator": "and", "conditions": []map[string]string{}}
+	body := map[string]any{
+		"name": "Regra vazia", "is_active": true, "logic_operator": "and",
+		"conditions": []map[string]string{}, "actions": []map[string]any{{"type": "ignore"}},
+	}
 	resp := doJSON(t, http.MethodPost, srv.URL+"/api/automation-rules", body)
 	resp.Body.Close()
 	if resp.StatusCode != 422 {
 		t.Errorf("status = %d, want 422", resp.StatusCode)
+	}
+}
+
+func createRecurringCommitmentForAutomation(t *testing.T, srv *httptest.Server) string {
+	t.Helper()
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/categories", map[string]any{
+		"name": "Aluguel", "kind": "expense", "icon": "home", "color": "#495057",
+	})
+	var category map[string]any
+	decodeJSON(t, resp, &category)
+	categoryID := category["id"].(string)
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/recurring-commitments", map[string]any{
+		"name": "Aluguel", "kind": "expense", "amount": "1500.00",
+		"category_id": categoryID, "cadence": "monthly", "day_of_month": 5, "start_date": "2026-01-01",
+		"is_active": true,
+	})
+	var commitment map[string]any
+	decodeJSON(t, resp, &commitment)
+	return commitment["id"].(string)
+}
+
+func TestCreateAutomationRuleWithReconcileActionLinksCommitment(t *testing.T) {
+	srv, _ := newTestServer(t)
+	commitmentID := createRecurringCommitmentForAutomation(t, srv)
+
+	body := map[string]any{
+		"name": "Concilia aluguel", "is_active": true, "logic_operator": "and",
+		"conditions": []map[string]string{{"field": "amount", "operator": "within_percent", "value": "10"}},
+		"actions":    []map[string]any{{"type": "reconcile", "recurring_commitment_id": commitmentID}},
+	}
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/automation-rules", body)
+	if resp.StatusCode != 201 {
+		t.Fatalf("create status = %d, want 201", resp.StatusCode)
+	}
+	var created map[string]any
+	decodeJSON(t, resp, &created)
+	rule := created["rule"].(map[string]any)
+	actions := rule["actions"].([]any)
+	if len(actions) != 1 {
+		t.Fatalf("actions = %+v, want 1", actions)
+	}
+	action := actions[0].(map[string]any)
+	if action["type"] != "reconcile" || action["recurring_commitment_id"] != commitmentID {
+		t.Errorf("action = %+v", action)
+	}
+}
+
+func TestCreateAutomationRuleReconcileActionRejectsUnknownCommitment(t *testing.T) {
+	srv, _ := newTestServer(t)
+	body := map[string]any{
+		"name": "Concilia inexistente", "is_active": true, "logic_operator": "and",
+		"conditions": []map[string]string{{"field": "amount", "operator": "within_percent", "value": "10"}},
+		"actions":    []map[string]any{{"type": "reconcile", "recurring_commitment_id": "does-not-exist"}},
+	}
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/automation-rules", body)
+	resp.Body.Close()
+	if resp.StatusCode != 422 {
+		t.Errorf("status = %d, want 422", resp.StatusCode)
+	}
+}
+
+func TestDeleteRecurringCommitmentLinkedToRuleReturns409(t *testing.T) {
+	srv, _ := newTestServer(t)
+	commitmentID := createRecurringCommitmentForAutomation(t, srv)
+
+	body := map[string]any{
+		"name": "Concilia aluguel", "is_active": true, "logic_operator": "and",
+		"conditions": []map[string]string{{"field": "amount", "operator": "within_percent", "value": "10"}},
+		"actions":    []map[string]any{{"type": "reconcile", "recurring_commitment_id": commitmentID}},
+	}
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/automation-rules", body)
+	if resp.StatusCode != 201 {
+		t.Fatalf("create rule status = %d, want 201", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp = doJSON(t, http.MethodDelete, srv.URL+"/api/recurring-commitments/"+commitmentID, nil)
+	resp.Body.Close()
+	if resp.StatusCode != 409 {
+		t.Errorf("delete status = %d, want 409", resp.StatusCode)
 	}
 }
 

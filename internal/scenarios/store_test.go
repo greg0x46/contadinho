@@ -103,6 +103,67 @@ func TestDebtPlanScenarioRequiresPayableID(t *testing.T) {
 	}
 }
 
+func TestStandaloneScenarioRejectsPayableID(t *testing.T) {
+	conn := newTestDB(t)
+	d := newDebt(t, conn)
+	if _, err := scenarios.CreateScenario(context.Background(), conn, scenarios.KindStandalone, "Viagem", &d.ID); err == nil {
+		t.Error("CreateScenario(standalone) with a payable_id should fail the CHECK constraint")
+	}
+}
+
+func TestListStandaloneScenarios(t *testing.T) {
+	conn := newTestDB(t)
+	ctx := context.Background()
+	d := newDebt(t, conn)
+	if _, err := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID); err != nil {
+		t.Fatalf("CreateScenario(debt_plan): %v", err)
+	}
+	standalone, err := scenarios.CreateScenario(ctx, conn, scenarios.KindStandalone, "Viagem", nil)
+	if err != nil {
+		t.Fatalf("CreateScenario(standalone): %v", err)
+	}
+
+	list, err := scenarios.ListStandaloneScenarios(ctx, conn)
+	if err != nil {
+		t.Fatalf("ListStandaloneScenarios: %v", err)
+	}
+	if len(list) != 1 || list[0].ID != standalone.ID {
+		t.Errorf("ListStandaloneScenarios() = %+v, want only %+v", list, standalone)
+	}
+}
+
+func TestListScenariosByIDs(t *testing.T) {
+	conn := newTestDB(t)
+	ctx := context.Background()
+	a, err := scenarios.CreateScenario(ctx, conn, scenarios.KindStandalone, "Viagem", nil)
+	if err != nil {
+		t.Fatalf("CreateScenario: %v", err)
+	}
+	b, err := scenarios.CreateScenario(ctx, conn, scenarios.KindStandalone, "Novo emprego", nil)
+	if err != nil {
+		t.Fatalf("CreateScenario: %v", err)
+	}
+	if _, err := scenarios.CreateScenario(ctx, conn, scenarios.KindStandalone, "Não incluído", nil); err != nil {
+		t.Fatalf("CreateScenario: %v", err)
+	}
+
+	list, err := scenarios.ListScenariosByIDs(ctx, conn, []string{a.ID, b.ID})
+	if err != nil {
+		t.Fatalf("ListScenariosByIDs: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("ListScenariosByIDs() = %+v, want 2 scenarios", list)
+	}
+
+	empty, err := scenarios.ListScenariosByIDs(ctx, conn, nil)
+	if err != nil {
+		t.Fatalf("ListScenariosByIDs(nil): %v", err)
+	}
+	if len(empty) != 0 {
+		t.Errorf("ListScenariosByIDs(nil) = %+v, want empty", empty)
+	}
+}
+
 func TestCreateGetUpdateDeleteScenarioTransaction(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()

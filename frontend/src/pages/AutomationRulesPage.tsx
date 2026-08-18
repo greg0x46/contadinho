@@ -3,58 +3,108 @@ import { PageContainer } from "@ant-design/pro-layout";
 import { Alert, Button } from "antd";
 import { useState } from "react";
 
-import type { AutomationRule, AutomationRuleWrite, RetroactiveApplyResult } from "../api/contracts";
-import { AutomationRuleForm } from "../components/automationRules/AutomationRuleForm";
-import { AutomationRuleList } from "../components/automationRules/AutomationRuleList";
+import type { AutomationAction, AutomationRule, RetroactiveApplyResult } from "../api/contracts";
+import {
+  AutomationEntry,
+  AutomationEntryForm,
+  AutomationEntrySubmitPayload,
+} from "../components/automationRules/AutomationEntryForm";
+import { AutomationEntryList } from "../components/automationRules/AutomationEntryList";
 import { useAutomationRules } from "../hooks/useAutomationRules";
+import { useCategories } from "../hooks/useCategories";
+import { useRecurringCommitments } from "../hooks/useRecurringCommitments";
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Não foi possível salvar a regra.";
+  return error instanceof Error ? error.message : "Não foi possível salvar a automação.";
 }
 
 function retroactiveMessage(result: RetroactiveApplyResult): string {
-  return result.ignored > 0
-    ? `${result.matched} transação(ões) encontrada(s), ${result.ignored} ignorada(s) agora.`
-    : `${result.matched} transação(ões) encontrada(s), nenhuma alterada (já ignoradas ou com decisão manual).`;
+  const changes: string[] = [];
+  if (result.ignored > 0) changes.push(`${result.ignored} ignorada(s)`);
+  if (result.categorized > 0) changes.push(`${result.categorized} categorizada(s)`);
+  return changes.length > 0
+    ? `${result.matched} transação(ões) encontrada(s), ${changes.join(", ")} agora.`
+    : `${result.matched} transação(ões) encontrada(s), nenhuma alterada (já processadas ou com decisão manual).`;
 }
 
 export function AutomationRulesPage() {
   const automationRules = useAutomationRules();
+  const commitments = useRecurringCommitments();
+  const categories = useCategories();
   const [formOpen, setFormOpen] = useState(false);
-  const [editingRule, setEditingRule] = useState<AutomationRule | null>(null);
+  const [editingEntry, setEditingEntry] = useState<AutomationEntry | null>(null);
   const [togglingRuleId, setTogglingRuleId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<RetroactiveApplyResult | null>(null);
 
   const openCreate = () => {
-    setEditingRule(null);
+    setEditingEntry(null);
     setSaveError(null);
     setFormOpen(true);
   };
 
-  const openEdit = (rule: AutomationRule) => {
-    setEditingRule(rule);
+  const openEditRule = (rule: AutomationRule) => {
+    const targetId = rule.actions.find((action) => action.type === "reconcile")?.recurring_commitment_id ?? null;
+    const linkedCommitment = targetId
+      ? commitments.commitments.find((commitment) => commitment.id === targetId) ?? null
+      : null;
+    setEditingEntry({ rule, linkedCommitment });
     setSaveError(null);
     setFormOpen(true);
   };
 
   const closeForm = () => setFormOpen(false);
 
-  const submit = async (write: AutomationRuleWrite) => {
+  const submit = async (payload: AutomationEntrySubmitPayload) => {
     setSaveError(null);
+    setSaving(true);
     try {
-      const result = editingRule
-        ? await automationRules.updateRule({ ruleId: editingRule.id, write })
+      const editingRuleId = editingEntry?.rule.id ?? null;
+
+      const actions: AutomationAction[] = [];
+      if (payload.actionTypes.includes("ignore")) {
+        actions.push({ type: "ignore", recurring_commitment_id: null, category_id: null });
+      }
+      if (payload.actionTypes.includes("set_category") && payload.categoryId) {
+        actions.push({ type: "set_category", recurring_commitment_id: null, category_id: payload.categoryId });
+      }
+      if (payload.actionTypes.includes("reconcile") && payload.reconcile) {
+        const { reconcile } = payload;
+        const commitmentId =
+          reconcile.commitmentMode === "existing" && reconcile.existingCommitmentId
+            ? (
+                await commitments.updateCommitment({
+                  commitmentId: reconcile.existingCommitmentId,
+                  write: reconcile.commitment,
+                })
+              ).id
+            : (await commitments.createCommitment(reconcile.commitment)).id;
+        actions.push({ type: "reconcile", recurring_commitment_id: commitmentId, category_id: null });
+      }
+
+      const write = {
+        name: payload.name,
+        is_active: payload.isActive,
+        logic_operator: payload.logicOperator,
+        conditions: payload.conditions,
+        actions,
+        apply_retroactively: payload.applyRetroactively,
+      };
+      const result = editingRuleId
+        ? await automationRules.updateRule({ ruleId: editingRuleId, write })
         : await automationRules.createRule(write);
       setLastResult(result.retroactive_apply);
       setFormOpen(false);
     } catch (error) {
       setSaveError(errorMessage(error));
+    } finally {
+      setSaving(false);
     }
   };
 
-  const toggle = async (rule: AutomationRule, isActive: boolean) => {
+  const toggleRule = async (rule: AutomationRule, isActive: boolean) => {
     setActionError(null);
     setTogglingRuleId(rule.id);
     try {
@@ -66,7 +116,7 @@ export function AutomationRulesPage() {
     }
   };
 
-  const remove = async (rule: AutomationRule) => {
+  const removeRule = async (rule: AutomationRule) => {
     setActionError(null);
     try {
       await automationRules.deleteRule(rule.id);
@@ -75,14 +125,16 @@ export function AutomationRulesPage() {
     }
   };
 
+  const loadError = automationRules.error ?? commitments.error;
+
   return (
     <PageContainer
       title="Automações"
-      subTitle="Regras que ignoram transações automaticamente"
-      content="Crie regras no estilo de filtros de e-mail para ignorar transações recorrentes sem revisar cada sincronização."
+      subTitle="Regras que ignoram transações e automações de conciliação de recorrências, automaticamente"
+      content="Crie automações no estilo de filtros de e-mail: ignore transações recorrentes sem revisar cada sincronização, ou concilie compromissos recorrentes (salário, aluguel, assinaturas) com as transações reais."
       extra={[
-        <Button key="new-rule" type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={openCreate}>
-          Nova regra
+        <Button key="new-entry" type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={openCreate}>
+          Nova automação
         </Button>,
       ]}
     >
@@ -106,29 +158,43 @@ export function AutomationRulesPage() {
           style={{ marginBottom: 16 }}
         />
       )}
-      {automationRules.error && (
+      {loadError && (
         <Alert
           type="error"
           showIcon
-          message="Não foi possível carregar as regras de automação"
-          description={<Button onClick={() => automationRules.refetch()}>Tentar novamente</Button>}
+          message="Não foi possível carregar as automações"
+          description={
+            <Button
+              onClick={() => {
+                automationRules.refetch();
+                commitments.refetch();
+              }}
+            >
+              Tentar novamente
+            </Button>
+          }
           style={{ marginBottom: 16 }}
         />
       )}
-      <AutomationRuleList
+      <AutomationEntryList
         rules={automationRules.rules}
-        isLoading={automationRules.isLoading}
+        commitments={commitments.commitments}
+        categories={categories.categories}
+        isLoading={automationRules.isLoading || commitments.isLoading}
         togglingRuleId={togglingRuleId}
-        onEdit={openEdit}
-        onToggle={toggle}
-        onDelete={remove}
+        onEditRule={openEditRule}
+        onToggleRule={toggleRule}
+        onDeleteRule={removeRule}
       />
-      <AutomationRuleForm
+      <AutomationEntryForm
         open={formOpen}
-        rule={editingRule}
+        entry={editingEntry}
         conditionOptions={automationRules.conditionOptions}
         conditionOptionsLoading={automationRules.areConditionOptionsLoading}
-        submitting={automationRules.isSaving}
+        categories={categories.categories}
+        commitments={commitments.commitments}
+        commitmentsLoading={commitments.isLoading}
+        submitting={saving}
         submitError={saveError}
         onSubmit={submit}
         onCancel={closeForm}

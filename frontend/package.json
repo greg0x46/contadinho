@@ -23,7 +23,8 @@
     "antd": "^5.29.3",
     "react": "19.2.0",
     "react-dom": "19.2.0",
-    "react-router-dom": "7.18.2"
+    "react-router-dom": "7.18.2",
+    "recharts": "^3.10.1"
   },
   "devDependencies": {
     "@eslint/js": "9.39.1",
@@ -42,7 +43,13 @@
     "jsdom": "27.2.0",
     "typescript": "5.9.3",
     "typescript-eslint": "8.46.4",
-    "vite": "7.2.2",
-    "vitest": "4.0.8"
+    "vite": "7.3.6",
+    "vitest": "4.1.10"
+  },
+  "overrides": {
+    "path-to-regexp": "^8.4.2",
+    "brace-expansion": "^2.1.4",
+    "js-yaml": "^4.3.1",
+    "nanoid": "^3.3.18"
   }
 }

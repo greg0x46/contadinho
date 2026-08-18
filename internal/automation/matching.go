@@ -1,98 +1,58 @@
 // Package automation ports app/automation_rules/matching.py and
 // app/automation_rules/service.py: the catalog of user-defined rules, and
 // matching+applying them (on a newly-synced transaction, and retroactively
-// across every existing one) to ignore transactions automatically.
+// across every existing one) to act on transactions automatically.
+//
+// The condition-matching primitives below are aliases of internal/rules —
+// see .specs/relatorio-financeiro/m0-motor-de-regras.md. A rule whose only
+// action is "ignore" only ever populates the description/card/account
+// fields of MatchCandidate and only ever writes contains/equals conditions.
+// The amount field (within_percent) and day_of_month field (day_range) are
+// only meaningful — and only validated as allowed, see Write.Validate — on a
+// rule with a "reconcile" action, whose conditions internal/recurrences uses
+// to resolve that commitment's occurrences against real transactions at read
+// time. Both carry their own reference value/tolerance directly in
+// Condition.Value ("<reference>:<tolerance>" and "<min>:<max>" respectively)
+// — independent of the linked commitment's own amount/day_of_month, so the
+// same condition applies unchanged across every occurrence.
 package automation
 
-import "strings"
+import "contadinho-go/internal/rules"
 
-type ConditionField string
+type ConditionField = rules.ConditionField
 
 const (
-	FieldDescription ConditionField = "description"
-	FieldCard        ConditionField = "card"
-	FieldAccount     ConditionField = "account"
+	FieldDescription = rules.FieldDescription
+	FieldCard        = rules.FieldCard
+	FieldAccount     = rules.FieldAccount
+	FieldAmount      = rules.FieldAmount
+	FieldDayOfMonth  = rules.FieldDayOfMonth
 )
 
-type ConditionOperator string
+type ConditionOperator = rules.ConditionOperator
 
 const (
-	OperatorContains ConditionOperator = "contains"
-	OperatorEquals   ConditionOperator = "equals"
+	OperatorContains      = rules.OperatorContains
+	OperatorEquals        = rules.OperatorEquals
+	OperatorWithinPercent = rules.OperatorWithinPercent
+	OperatorDayRange      = rules.OperatorDayRange
 )
 
-type LogicOperator string
+type LogicOperator = rules.LogicOperator
 
 const (
-	LogicAnd LogicOperator = "and"
-	LogicOr  LogicOperator = "or"
+	LogicAnd = rules.LogicAnd
+	LogicOr  = rules.LogicOr
 )
 
 // Condition is one field/operator/value test within a Rule.
-type Condition struct {
-	Field    ConditionField
-	Operator ConditionOperator
-	Value    string
-}
+type Condition = rules.Condition
 
 // MatchCandidate mirrors MatchCandidate: the transaction/account fields
 // rules can test against.
-type MatchCandidate struct {
-	Description        *string
-	CardNumber         *string
-	AccountName        *string
-	AccountInstitution *string
-}
+type MatchCandidate = rules.MatchCandidate
 
-// normalize mirrors _normalize (strip + casefold). Go's strings.ToLower is a
-// practical stand-in for Python's casefold: both make ASCII (and the vast
-// majority of real-world) text case-insensitively comparable; casefold's
-// extra Unicode special-casing (e.g. German ß) is not worth a dependency for
-// matching bank transaction descriptions and account names.
-func normalize(s string) string {
-	return strings.ToLower(strings.TrimSpace(s))
-}
-
-func textMatches(candidateValue *string, operator ConditionOperator, value string) bool {
-	if candidateValue == nil {
-		return false
-	}
-	nc, nv := normalize(*candidateValue), normalize(value)
-	if operator == OperatorEquals {
-		return nc == nv
-	}
-	return strings.Contains(nc, nv)
-}
-
-func conditionMatches(candidate MatchCandidate, condition Condition) bool {
-	switch condition.Field {
-	case FieldDescription:
-		return textMatches(candidate.Description, condition.Operator, condition.Value)
-	case FieldCard:
-		return textMatches(candidate.CardNumber, condition.Operator, condition.Value)
-	default: // FieldAccount
-		return textMatches(candidate.AccountName, condition.Operator, condition.Value) ||
-			textMatches(candidate.AccountInstitution, condition.Operator, condition.Value)
-	}
-}
-
-// Matches mirrors matches: an empty conditions slice never occurs in
-// practice (the schema and the write-side validation both require at least
-// one), but "and" over zero conditions is vacuously true and "or" is false,
-// matching Python's all()/any() on an empty generator.
+// Matches mirrors matches, delegating to the shared engine.
 func Matches(candidate MatchCandidate, conditions []Condition, logic LogicOperator) bool {
-	if logic == LogicAnd {
-		for _, c := range conditions {
-			if !conditionMatches(candidate, c) {
-				return false
-			}
-		}
-		return true
-	}
-	for _, c := range conditions {
-		if conditionMatches(candidate, c) {
-			return true
-		}
-	}
-	return false
+	return rules.Matches(candidate, conditions, logic)
 }

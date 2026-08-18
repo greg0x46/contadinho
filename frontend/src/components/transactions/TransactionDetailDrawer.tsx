@@ -1,7 +1,9 @@
 import { Alert, Button, Collapse, Descriptions, Drawer, Grid, Select, Tag } from "antd";
 import { useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 
 import type { Category, TransactionInclusionState, TransactionItem } from "../../api/contracts";
+import type { RecurringCommitmentDraft } from "../recurringCommitments/RecurringCommitmentForm";
 import {
   categoryKindLabel,
   internalCategoryOriginLabel,
@@ -29,6 +31,21 @@ function dateTime(value: string | null): string {
     dateStyle: "long",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function recurringCommitmentPrefill(item: TransactionItem): Partial<RecurringCommitmentDraft> | null {
+  if (!item.effective_money || item.effective_money.currency_code !== "BRL" || !item.occurred_at) {
+    return null;
+  }
+  const amount = Math.abs(Number(item.effective_money.value));
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return {
+    name: item.description ?? "",
+    kind: item.classification === "inflow" ? "income" : "expense",
+    amount,
+    categoryId: item.internal_category?.id ?? null,
+    dayOfMonth: new Date(item.occurred_at).getDate(),
+  };
 }
 
 function installmentLabel(card: TransactionItem["card"]): string | null {
@@ -84,6 +101,8 @@ export function TransactionDetailDrawer({
   const screens = Grid.useBreakpoint();
   const reason = item?.totals_eligibility.reason;
   const options = useMemo(() => categoryOptions(categories, item), [categories, item]);
+  const navigate = useNavigate();
+  const prefill = item ? recurringCommitmentPrefill(item) : null;
 
   return (
     <Drawer
@@ -209,6 +228,15 @@ export function TransactionDetailDrawer({
             >
               {item.inclusion.state === "ignored" ? "Restaurar" : "Ignorar"}
             </Button>
+            {prefill && (
+              <Button
+                onClick={() =>
+                  navigate("/recorrencias", { state: { prefill } })
+                }
+              >
+                Criar recorrência a partir desta transação
+              </Button>
+            )}
           </div>
 
           <Collapse
