@@ -1,5 +1,4 @@
 import { PieChartOutlined } from "@ant-design/icons";
-import { Card } from "antd";
 import { Link } from "react-router-dom";
 
 import type { CategorySpendingItem, SpendingByCategory } from "../../api/contracts";
@@ -7,8 +6,8 @@ import { currentMonthFilters } from "../../hooks/useTransactions";
 import { useSpendingByCategory } from "../../hooks/useSpendingByCategory";
 import { renderCategoryIcon } from "../../presentation/categoryLabels";
 import { formatBRL } from "../../presentation/money";
-import { LoadingState, UnavailableState } from "../AsyncState";
 import { filtersToSearchParams } from "../filters/filterUrl";
+import { SummaryCard } from "../shared/SummaryCard";
 
 const MAX_VISIBLE_CATEGORIES = 5;
 // Neutral fallback for buckets with no single stable category color: the
@@ -114,23 +113,18 @@ export function SpendingByCategoryCard() {
   });
 
   return (
-    <Card
-      className="dashboard-widget"
-      title={
-        <span className="dashboard-widget-title">
-          <PieChartOutlined aria-hidden="true" />
-          Gastos por categoria
-        </span>
-      }
+    <SummaryCard
+      icon={<PieChartOutlined aria-hidden="true" />}
+      title="Gastos por categoria"
       extra={<Link to={`/transacoes?${params.toString()}`}>Ver transações</Link>}
+      isLoading={isLoading}
+      error={error}
+      hasData={Boolean(spending)}
+      loadingLabel="Carregando gastos por categoria…"
+      errorLabel="Não foi possível carregar os gastos por categoria."
+      onRetry={refetch}
     >
-      {isLoading && <LoadingState>Carregando gastos por categoria…</LoadingState>}
-      {!isLoading && (error || !spending) && (
-        <UnavailableState onRetry={refetch}>
-          Não foi possível carregar os gastos por categoria.
-        </UnavailableState>
-      )}
-      {!isLoading && !error && spending && <SpendingByCategoryBreakdown spending={spending} />}
-    </Card>
+      {spending && <SpendingByCategoryBreakdown spending={spending} />}
+    </SummaryCard>
   );
 }

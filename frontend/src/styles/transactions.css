@@ -18,14 +18,15 @@
 
 .transactions-header h1 {
   margin: 0;
-  color: #172b4d;
+  color: var(--color-text-primary);
   font-size: clamp(1.5rem, 2vw, 2rem);
+  font-weight: 600;
   line-height: 1.2;
 }
 
 .transactions-header p {
   margin: 0.25rem 0 0;
-  color: #6b778c;
+  color: var(--color-text-secondary);
 }
 
 .configurable-filters {
@@ -39,7 +40,7 @@
   align-items: end;
   gap: 0.625rem;
   padding: 0.75rem;
-  border: 1px solid #e5e9f0;
+  border: 1px solid var(--color-border-secondary);
   border-radius: 10px;
   background: #fff;
   box-shadow: 0 1px 2px rgb(9 30 66 / 5%);
@@ -158,7 +159,7 @@
 }
 
 .summary-card {
-  border-color: #e5e9f0;
+  border-color: var(--color-border-secondary);
   box-shadow: 0 1px 2px rgb(9 30 66 / 5%);
 }
 
@@ -167,11 +168,11 @@
   min-width: 0;
   align-items: center;
   gap: 0.5rem;
-  color: #6b778c;
+  color: var(--color-text-secondary);
 }
 
 .summary-card strong {
-  color: #172b4d;
+  color: var(--color-text-primary);
   font-size: clamp(1rem, 1.5vw, 1.25rem);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
@@ -179,11 +180,23 @@
 }
 
 .summary-inflow .summary-label .anticon {
-  color: #1f7a4c;
+  color: var(--color-success);
 }
 
 .summary-outflow .summary-label .anticon {
-  color: #b42318;
+  color: var(--color-error);
+}
+
+/* "Saldo do período" is the derived total of the other two cards — give it
+   a touch more visual weight so it reads as the headline of the group,
+   not a third equal figure. */
+.summary-balance {
+  border-color: var(--color-primary);
+}
+
+.summary-balance strong {
+  font-size: clamp(1.125rem, 1.75vw, 1.375rem);
+  font-weight: 600;
 }
 
 .transaction-list-controls {
@@ -196,11 +209,11 @@
 
 .transaction-list-controls > strong {
   margin-right: auto;
-  color: #172b4d;
+  color: var(--color-text-primary);
 }
 
 .transaction-list-controls label {
-  color: #6b778c;
+  color: var(--color-text-secondary);
   font-size: 0.875rem;
 }
 
@@ -229,12 +242,12 @@
 
 .transaction-group-header h2 {
   margin: 0;
-  color: #172b4d;
+  color: var(--color-text-primary);
   font-size: 0.95rem;
 }
 
 .transaction-group-header small {
-  color: #6b778c;
+  color: var(--color-text-secondary);
 }
 
 .transaction-group-header dl {
@@ -251,13 +264,13 @@
 }
 
 .transaction-group-header dt {
-  color: #6b778c;
+  color: var(--color-text-secondary);
   font-size: 0.75rem;
 }
 
 .transaction-group-header dd {
   margin: 0;
-  color: #172b4d;
+  color: var(--color-text-primary);
   font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
@@ -265,14 +278,14 @@
 
 .transaction-list {
   overflow: hidden;
-  border: 1px solid #e5e9f0;
+  border: 1px solid var(--color-border-secondary);
   border-top: 0;
   border-radius: 0 0 10px 10px;
   background: #fff;
 }
 
 .transaction-group-flat .transaction-list {
-  border-top: 1px solid #e5e9f0;
+  border-top: 1px solid var(--color-border-secondary);
   border-radius: 10px;
 }
 
@@ -305,7 +318,7 @@
 .transaction-inclusion-action:focus-visible {
   position: relative;
   z-index: 1;
-  outline: 3px solid #f2a900;
+  outline: 3px solid var(--color-warning);
   outline-offset: -3px;
 }
 
@@ -364,7 +377,7 @@
 
 .transaction-row small {
   overflow: hidden;
-  color: #6b778c;
+  color: var(--color-text-secondary);
   font-size: 0.78rem;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -372,7 +385,7 @@
 
 .transaction-identity strong {
   overflow: hidden;
-  color: #172b4d;
+  color: var(--color-text-primary);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -390,14 +403,14 @@
   overflow: hidden;
   border-color: transparent;
   color: #fff;
-  background: #6b778c;
+  background: var(--color-text-secondary);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .transaction-amount {
-  color: #172b4d;
+  color: var(--color-text-primary);
   font-size: 0.95rem;
   font-variant-numeric: tabular-nums;
   text-align: right;
@@ -418,7 +431,7 @@
   justify-content: space-between;
   gap: 1rem;
   margin-top: 1rem;
-  color: #6b778c;
+  color: var(--color-text-secondary);
   font-size: 0.875rem;
 }
 
@@ -472,7 +485,7 @@
 
 .transaction-detail .ant-descriptions-title {
   overflow: visible;
-  color: #6b778c;
+  color: var(--color-text-secondary);
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.03em;
@@ -481,7 +494,7 @@
 
 .transaction-category-origin {
   margin-top: 0.25rem;
-  color: #6b778c;
+  color: var(--color-text-secondary);
   font-size: 0.8125rem;
 }
 

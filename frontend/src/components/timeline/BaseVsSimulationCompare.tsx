@@ -2,6 +2,7 @@ import { Card, Flex, Statistic } from "antd";
 
 import type { TimelineSeries } from "../../api/contracts";
 import { formatBRL, sumBRL } from "../../presentation/money";
+import { colors } from "../../theme/tokens";
 
 function finalBalance(series: TimelineSeries): string {
   if (series.points.length === 0) return series.starting_balance;
@@ -31,7 +32,7 @@ export function BaseVsSimulationCompare({
         <Statistic
           title="Impacto combinado"
           value={formatBRL(impact)}
-          valueStyle={{ color: impact.startsWith("-") ? "#e34948" : "#008300" }}
+          valueStyle={{ color: impact.startsWith("-") ? colors.error : colors.success }}
         />
       </Flex>
     </Card>

@@ -3,6 +3,7 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 import type { NetWorthSnapshot } from "../../api/contracts";
 import { formatBRL } from "../../presentation/money";
 import { monthlyEvolutionColor } from "../../presentation/timelineLabels";
+import { colors } from "../../theme/tokens";
 
 type ChartPoint = { date: string; netWorth: number };
 
@@ -38,7 +39,7 @@ export function NetWorthChart({ snapshots }: { snapshots: NetWorthSnapshot[] }) 
       <ResponsiveContainer width="100%" height={320}>
         <LineChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="date" tickLine={false} axisLine={{ stroke: "#d9d9d9" }} />
+          <XAxis dataKey="date" tickLine={false} axisLine={{ stroke: colors.border }} />
           <YAxis tickLine={false} axisLine={false} width={0} />
           <Tooltip content={<TooltipContent />} />
           <Line

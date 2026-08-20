@@ -15,6 +15,7 @@ import {
 import type { TimelineSeries } from "../../api/contracts";
 import { formatBRL } from "../../presentation/money";
 import { monthlyEvolutionColor } from "../../presentation/timelineLabels";
+import { colors } from "../../theme/tokens";
 
 function formatDate(value: string): string {
   const [year, month, day] = value.split("-");
@@ -76,12 +77,12 @@ export function ProjectionTimeline({
       <ResponsiveContainer width="100%" height={280}>
         <LineChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="date" tickFormatter={formatDate} tickLine={false} axisLine={{ stroke: "#d9d9d9" }} />
+          <XAxis dataKey="date" tickFormatter={formatDate} tickLine={false} axisLine={{ stroke: colors.border }} />
           <YAxis tickLine={false} axisLine={false} width={0} />
           <Tooltip content={<TooltipContent />} />
           {simulation && <Legend />}
           {todayPoint && (
-            <ReferenceLine x={todayPoint.date} stroke="#8c8c8c" strokeDasharray="4 4" label="Hoje" />
+            <ReferenceLine x={todayPoint.date} stroke={colors.textSecondary} strokeDasharray="4 4" label="Hoje" />
           )}
           <ReferenceDot
             x={activeSeries.lowest_balance.date}

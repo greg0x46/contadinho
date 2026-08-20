@@ -2,6 +2,14 @@ import { Card, Flex, Statistic } from "antd";
 
 import type { MonthSummary } from "../../api/contracts";
 import { formatBRL, sumBRL } from "../../presentation/money";
+import { colors } from "../../theme/tokens";
+
+function resultValueStyle(result: string): { color: string; fontWeight: number } {
+  return {
+    color: result.startsWith("-") ? colors.error : colors.success,
+    fontWeight: 600,
+  };
+}
 
 function sumSummaries(summaries: MonthSummary[]): { income: string; expense: string; result: string } {
   return {
@@ -36,7 +44,11 @@ export function SummaryCards({
             <Statistic title="Despesas" value={formatBRL(month.expense)} />
           </Card>
           <Card size="small">
-            <Statistic title="Resultado" value={formatBRL(month.result)} />
+            <Statistic
+              title="Resultado"
+              value={formatBRL(month.result)}
+              valueStyle={resultValueStyle(month.result)}
+            />
           </Card>
         </Flex>
       </div>
@@ -50,7 +62,11 @@ export function SummaryCards({
             <Statistic title="Despesas" value={formatBRL(accumulated.expense)} />
           </Card>
           <Card size="small">
-            <Statistic title="Resultado" value={formatBRL(accumulated.result)} />
+            <Statistic
+              title="Resultado"
+              value={formatBRL(accumulated.result)}
+              valueStyle={resultValueStyle(accumulated.result)}
+            />
           </Card>
         </Flex>
       </div>

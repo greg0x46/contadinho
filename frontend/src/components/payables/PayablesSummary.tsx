@@ -1,8 +1,7 @@
-import { Card } from "antd";
-
 import type { Payable, PayableKind } from "../../api/contracts";
 import { payableVocabulary } from "../../presentation/payableLabels";
 import { formatBRL } from "../../presentation/money";
+import { WidgetCard } from "../shared/WidgetCard";
 
 function sum(values: string[]): number {
   return values.reduce((total, value) => total + Number(value), 0);
@@ -15,16 +14,7 @@ export function PayablesSummary({ kind, payables }: { kind: PayableKind; payable
   const remainingTotal = sum(open.map((payable) => payable.remaining_amount));
 
   return (
-    <Card
-      className="dashboard-widget"
-      style={{ marginBottom: 16 }}
-      title={
-        <span className="dashboard-widget-title">
-          {vocab.icon}
-          {vocab.summaryTitle}
-        </span>
-      }
-    >
+    <WidgetCard icon={vocab.icon} title={vocab.summaryTitle} style={{ marginBottom: 16 }}>
       <div className="debts-summary-body">
         <div className="debts-summary-figure">
           <p className="dashboard-hero-figure">{formatBRL(remainingTotal.toFixed(2))}</p>
@@ -41,6 +31,6 @@ export function PayablesSummary({ kind, payables }: { kind: PayableKind; payable
           </div>
         </div>
       </div>
-    </Card>
+    </WidgetCard>
   );
 }

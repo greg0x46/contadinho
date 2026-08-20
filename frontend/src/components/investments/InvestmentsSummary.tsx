@@ -1,9 +1,9 @@
 import { RiseOutlined } from "@ant-design/icons";
-import { Card } from "antd";
 
 import type { Investment } from "../../api/contracts";
 import { investmentYield } from "../../presentation/investmentLabels";
 import { formatBRL } from "../../presentation/money";
+import { WidgetCard } from "../shared/WidgetCard";
 
 function sum(values: string[]): number {
   return values.reduce((total, value) => total + Number(value), 0);
@@ -15,15 +15,10 @@ export function InvestmentsSummary({ investments }: { investments: Investment[] 
   const yieldTotal = sum(yields.map((y) => y.value));
 
   return (
-    <Card
-      className="dashboard-widget"
+    <WidgetCard
+      icon={<RiseOutlined aria-hidden="true" />}
+      title="Resumo dos investimentos"
       style={{ marginBottom: 16 }}
-      title={
-        <span className="dashboard-widget-title">
-          <RiseOutlined aria-hidden="true" />
-          Resumo dos investimentos
-        </span>
-      }
     >
       <div className="debts-summary-body">
         <div className="debts-summary-figure">
@@ -43,6 +38,6 @@ export function InvestmentsSummary({ investments }: { investments: Investment[] 
           )}
         </div>
       </div>
-    </Card>
+    </WidgetCard>
   );
 }

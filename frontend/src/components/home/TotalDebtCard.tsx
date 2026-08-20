@@ -1,11 +1,10 @@
 import { WalletOutlined } from "@ant-design/icons";
-import { Card } from "antd";
 import { Link } from "react-router-dom";
 
 import type { PayableTotalOwed } from "../../api/contracts";
 import { useDebtTotalOwed } from "../../hooks/useDebtTotalOwed";
 import { formatBRL } from "../../presentation/money";
-import { LoadingState, UnavailableState } from "../AsyncState";
+import { SummaryCard } from "../shared/SummaryCard";
 
 function TotalDebtBreakdown({ total }: { total: PayableTotalOwed }) {
   const remaining = Number(total.remaining_debts_total);
@@ -58,23 +57,18 @@ export function TotalDebtCard() {
   const { total, isLoading, error, refetch } = useDebtTotalOwed();
 
   return (
-    <Card
-      className="dashboard-widget"
-      title={
-        <span className="dashboard-widget-title">
-          <WalletOutlined aria-hidden="true" />
-          Dívida total
-        </span>
-      }
+    <SummaryCard
+      icon={<WalletOutlined aria-hidden="true" />}
+      title="Dívida total"
       extra={<Link to="/pendencias?kind=debt">Ver dívidas</Link>}
+      isLoading={isLoading}
+      error={error}
+      hasData={Boolean(total)}
+      loadingLabel="Carregando total de dívida…"
+      errorLabel="Não foi possível carregar o total de dívida."
+      onRetry={refetch}
     >
-      {isLoading && <LoadingState>Carregando total de dívida…</LoadingState>}
-      {!isLoading && (error || !total) && (
-        <UnavailableState onRetry={refetch}>
-          Não foi possível carregar o total de dívida.
-        </UnavailableState>
-      )}
-      {!isLoading && !error && total && <TotalDebtBreakdown total={total} />}
-    </Card>
+      {total && <TotalDebtBreakdown total={total} />}
+    </SummaryCard>
   );
 }
