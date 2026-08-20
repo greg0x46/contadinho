@@ -1,0 +1,370 @@
+package networth
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"sort"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
+
+	"contadinho-go/internal/db"
+	"contadinho-go/internal/money"
+	"contadinho-go/internal/payables"
+)
+
+// Backfill reconstructs and stores net_worth_snapshots for every past day in
+// [earliestCashTransactionDay, yesterday] that has no row yet — the full
+// depth of available transaction history, not an arbitrary cap. It is safe
+// to call on every request: days that already have a row (written by
+// Snapshot, an earlier Backfill run, or anything else) are left untouched —
+// the per-day INSERT below only ever fires for a captured_at gap, and even
+// then uses ON CONFLICT DO NOTHING as a second guard rather than overwriting
+// a real Compute-derived snapshot with a reconstructed approximation.
+//
+// Only three of Breakdown's four categories can be reconstructed for a past
+// day:
+//
+//   - CashBalance: today's non-CREDIT account balances, walked backward by
+//     reversing each eligible transaction's effect in turn (same
+//     eligibility/inclusion rules the rest of the app uses — an ignored
+//     transaction is never reversed, matching how it never entered the
+//     balance's story to begin with as far as this app is concerned).
+//   - CreditCardBalance: payables.CreditCardTransactionTotalAt, which
+//     already accepts an arbitrary reference date — reused as-is per bill
+//     cycle, so it naturally reports 0 for a day before any known bill
+//     closing.
+//   - PayablesDebt: the same Links-based sum Compute uses, except a link is
+//     only counted once its transaction's occurred_at is on or before the
+//     day in question — a debt payment made next week hasn't happened yet
+//     as of a backfilled day last week.
+//
+// InvestmentBalance is NOT reconstructed and is always 0 on a backfilled
+// row. financial_investments.balance is a synced snapshot with no dated
+// history, and the only other number available — net contributions — nets
+// out to a residual gain/loss that was never observed at any specific past
+// date (see internal/httpapi's contributionInfo). Any of "hold today's
+// value flat", "use net-contributed as an approximation", or "reconstruct"
+// would fabricate a number this app has no way to actually know, so
+// backfilled points simply omit investments from both InvestmentBalance and
+// TotalAssets rather than present a guess as fact. SnapshotRow.IsBackfilled
+// is what lets the frontend flag this to the user instead of silently
+// showing a lower total on past days.
+func Backfill(ctx context.Context, q Querier, today time.Time) error {
+	todayDay := formatDate(today)
+	todayBoundary, err := time.Parse(dateLayout, todayDay)
+	if err != nil {
+		return err
+	}
+
+	earliest, ok, err := earliestCashTransactionDay(ctx, q)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		// No non-CREDIT transaction has ever been recorded, so cash — the
+		// one category every backfilled day requires — can't be
+		// reconstructed for any day at all.
+		return nil
+	}
+
+	windowStart := earliest
+	yesterday := todayBoundary.AddDate(0, 0, -1)
+	if windowStart.After(yesterday) {
+		return nil
+	}
+
+	existing, err := existingCapturedDays(ctx, q, windowStart, yesterday)
+	if err != nil {
+		return err
+	}
+
+	currentCash, err := cashBalance(ctx, q)
+	if err != nil {
+		return err
+	}
+	deltas, err := cashDeltasDescending(ctx, q)
+	if err != nil {
+		return err
+	}
+
+	idx := 0
+	runningDelta := decimal.Zero
+	for d := yesterday; !d.Before(windowStart); d = d.AddDate(0, 0, -1) {
+		dayEnd := d.AddDate(0, 0, 1)
+		for idx < len(deltas) && !deltas[idx].occurredAt.Before(dayEnd) {
+			runningDelta = runningDelta.Add(deltas[idx].delta)
+			idx++
+		}
+
+		key := formatDate(d)
+		if existing[key] {
+			continue
+		}
+
+		cash := currentCash.Sub(runningDelta)
+		creditCard, err := creditCardBalanceAsOf(ctx, q, d)
+		if err != nil {
+			return err
+		}
+		debt, err := payablesRemainingTotalAsOf(ctx, q, payables.KindDebt, dayEnd)
+		if err != nil {
+			return err
+		}
+
+		breakdown := Breakdown{CashBalance: cash, CreditCardBalance: creditCard, PayablesDebt: debt}.TotalsFor()
+		if err := insertBackfillSnapshot(ctx, q, key, breakdown); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// existingCapturedDays returns the set of captured_at values (YYYY-MM-DD)
+// already stored in [from, to], so Backfill can skip them without an
+// INSERT round trip per day.
+func existingCapturedDays(ctx context.Context, q Querier, from, to time.Time) (map[string]bool, error) {
+	rows, err := q.QueryContext(ctx, `SELECT captured_at FROM net_worth_snapshots WHERE captured_at >= ? AND captured_at <= ?`,
+		formatDate(from), formatDate(to))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]bool)
+	for rows.Next() {
+		var capturedAt string
+		if err := rows.Scan(&capturedAt); err != nil {
+			return nil, err
+		}
+		result[capturedAt] = true
+	}
+	return result, rows.Err()
+}
+
+func insertBackfillSnapshot(ctx context.Context, q Querier, capturedAt string, breakdown Breakdown) error {
+	now := db.FormatTime(time.Now())
+	_, err := q.ExecContext(ctx, `
+		INSERT INTO net_worth_snapshots (
+			id, captured_at, total_assets, total_liabilities, net_worth,
+			cash_balance, investment_balance, credit_card_balance, payables_debt,
+			is_backfilled, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+		ON CONFLICT (captured_at) DO NOTHING`,
+		uuid.NewString(), capturedAt,
+		money.CanonicalDecimal(breakdown.TotalAssets), money.CanonicalDecimal(breakdown.TotalLiabilities), money.CanonicalDecimal(breakdown.NetWorth),
+		money.CanonicalDecimal(breakdown.CashBalance), money.CanonicalDecimal(breakdown.InvestmentBalance), money.CanonicalDecimal(breakdown.CreditCardBalance),
+		money.CanonicalDecimal(breakdown.PayablesDebt),
+		now, now,
+	)
+	return err
+}
+
+// cashTransactionDelta is one non-CREDIT-account transaction's effect on
+// cash balance, sign-normalized so a positive delta always means "balance
+// went up" — the opposite convention from consideredCardTransactionTotal's
+// debt indicator, since cash is an asset and card balance is a liability.
+type cashTransactionDelta struct {
+	occurredAt time.Time
+	delta      decimal.Decimal
+}
+
+// cashDeltasDescending loads every non-CREDIT-account transaction's real
+// balance effect, newest first — the order Backfill's single backward walk
+// over calendar days needs to accumulate "everything that happened after
+// day D" without re-querying per day.
+//
+// This deliberately reverses every transaction with a usable amount,
+// including ones the user has marked "ignored". Ignored only means "don't
+// count this toward income/expense totals" (e.g. a transfer to an
+// untracked account) — it still moved real money through the bank account,
+// so today's real financial_accounts.balance already reflects it and a
+// past day's reconstructed balance must reverse it out too, or every day
+// before an ignored transaction ends up off by its full amount.
+func cashDeltasDescending(ctx context.Context, q Querier) ([]cashTransactionDelta, error) {
+	rows, err := q.QueryContext(ctx, `
+		SELECT ft.amount, ft.amount_in_account_currency, ft.currency_code, fa.currency_code,
+		       ft.occurred_at, ft.provider_status, ft.movement_type
+		FROM financial_transactions ft
+		JOIN financial_accounts fa ON fa.id = ft.account_id
+		WHERE (fa.account_type IS NULL OR fa.account_type != 'CREDIT')`)
+	if err != nil {
+		return nil, fmt.Errorf("query cash transactions: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]cashTransactionDelta, 0)
+	for rows.Next() {
+		var amountRaw, amountInAccountCurrencyRaw, currencyCodeRaw, accountCurrencyRaw sql.NullString
+		var occurredAtRaw, providerStatusRaw, movementTypeRaw sql.NullString
+		if err := rows.Scan(
+			&amountRaw, &amountInAccountCurrencyRaw, &currencyCodeRaw, &accountCurrencyRaw,
+			&occurredAtRaw, &providerStatusRaw, &movementTypeRaw,
+		); err != nil {
+			return nil, err
+		}
+		if !occurredAtRaw.Valid {
+			// No occurred_at means there's no day to attribute this
+			// transaction's effect to — it can never be reversed out of a
+			// specific backfilled day, so it's left in every day's balance
+			// (equivalent to treating it as having always already happened).
+			continue
+		}
+		occurredAt, err := db.ParseTime(occurredAtRaw.String)
+		if err != nil {
+			return nil, err
+		}
+		amount, err := decimalFromNullString(amountRaw)
+		if err != nil {
+			return nil, err
+		}
+		amountInAccountCurrency, err := decimalFromNullString(amountInAccountCurrencyRaw)
+		if err != nil {
+			return nil, err
+		}
+		var currencyCode, accountCurrency, providerStatus, movementType *string
+		if currencyCodeRaw.Valid {
+			currencyCode = &currencyCodeRaw.String
+		}
+		if accountCurrencyRaw.Valid {
+			accountCurrency = &accountCurrencyRaw.String
+		}
+		if providerStatusRaw.Valid {
+			providerStatus = &providerStatusRaw.String
+		}
+		if movementTypeRaw.Valid {
+			movementType = &movementTypeRaw.String
+		}
+
+		classification := money.Classify(movementType)
+		effective := money.SelectEffectiveMoney(amountInAccountCurrency, accountCurrency, amount, currencyCode)
+		included, _ := money.Eligibility(classification, providerStatus, effective, money.Considered)
+		if !included || effective == nil {
+			continue
+		}
+
+		delta := effective.Value.Abs()
+		if classification == money.Outflow {
+			delta = delta.Neg()
+		}
+		result = append(result, cashTransactionDelta{occurredAt: occurredAt, delta: delta})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].occurredAt.After(result[j].occurredAt) })
+	return result, nil
+}
+
+func decimalFromNullString(value sql.NullString) (*decimal.Decimal, error) {
+	if !value.Valid {
+		return nil, nil
+	}
+	amount, err := decimal.NewFromString(value.String)
+	if err != nil {
+		return nil, fmt.Errorf("parse decimal %q: %w", value.String, err)
+	}
+	return &amount, nil
+}
+
+// earliestCashTransactionDay returns the calendar day (UTC, matching
+// formatDate) of the oldest non-CREDIT-account transaction on record,
+// regardless of its eligibility — this is a proxy for "how far back do we
+// actually have transaction coverage", which an ineligible (e.g. ignored)
+// transaction still answers just as well as an eligible one. ok is false
+// when there is no such transaction at all.
+func earliestCashTransactionDay(ctx context.Context, q Querier) (day time.Time, ok bool, err error) {
+	var raw sql.NullString
+	err = q.QueryRowContext(ctx, `
+		SELECT MIN(ft.occurred_at)
+		FROM financial_transactions ft
+		JOIN financial_accounts fa ON fa.id = ft.account_id
+		WHERE (fa.account_type IS NULL OR fa.account_type != 'CREDIT') AND ft.occurred_at IS NOT NULL`).Scan(&raw)
+	if err != nil || !raw.Valid {
+		return time.Time{}, false, err
+	}
+	earliest, err := db.ParseTime(raw.String)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	dayString := formatDate(earliest)
+	dayBoundary, err := time.Parse(dateLayout, dayString)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return dayBoundary, true, nil
+}
+
+// creditCardBalanceAsOf mirrors creditCardBalance but for a past day,
+// reusing payables.CreditCardTransactionTotalAt's arbitrary-reference-date
+// support. The reference time is local noon on day — as opposed to a UTC
+// midnight boundary — because the cycle math keys off time.Local calendar
+// days (see CreditCardTransactionTotalAt); noon keeps the same calendar
+// date in virtually every timezone.
+func creditCardBalanceAsOf(ctx context.Context, q Querier, day time.Time) (decimal.Decimal, error) {
+	loc := time.Local
+	reference := time.Date(day.Year(), day.Month(), day.Day(), 12, 0, 0, 0, loc)
+	return payables.CreditCardTransactionTotalAt(ctx, q, "BRL", reference, loc)
+}
+
+// payablesRemainingTotalAsOf mirrors payablesRemainingTotal but for a past
+// day: a link only counts toward settled_amount once its transaction's
+// occurred_at is strictly before dayEnd (the boundary right after the
+// backfilled day), so a payment made after that day hasn't happened yet as
+// of that day. starting_settled_amount is always included — it's a
+// pre-app-tracking baseline with no date of its own, same as Compute treats
+// it for "today". A payable created on or after dayEnd is skipped entirely
+// — it didn't exist yet as of the backfilled day, so it can't have been a
+// liability then, regardless of how far its links or starting-settled
+// baseline could otherwise be back-projected.
+func payablesRemainingTotalAsOf(ctx context.Context, q Querier, kind payables.Kind, dayEnd time.Time) (decimal.Decimal, error) {
+	list, err := payables.List(ctx, q, &kind)
+	if err != nil {
+		return decimal.Decimal{}, err
+	}
+	total := decimal.Zero
+	for _, p := range list {
+		if !p.CreatedAt.Before(dayEnd) {
+			continue
+		}
+		links, err := payables.Links(ctx, q, p.ID)
+		if err != nil {
+			return decimal.Decimal{}, err
+		}
+		amounts := make([]decimal.Decimal, 0, len(links))
+		for _, l := range links {
+			occurredAt, err := transactionOccurredAt(ctx, q, l.TransactionID)
+			if err != nil {
+				return decimal.Decimal{}, err
+			}
+			if occurredAt == nil || !occurredAt.Before(dayEnd) {
+				continue
+			}
+			amt, err := payables.LinkEffectiveAmount(ctx, q, l.TransactionID)
+			if err != nil {
+				return decimal.Decimal{}, err
+			}
+			amounts = append(amounts, amt)
+		}
+		settled := payables.SettledAmount(p.StartingSettledAmount, amounts)
+		total = total.Add(payables.RemainingAmount(p.TotalAmount, settled))
+	}
+	return total, nil
+}
+
+// transactionOccurredAt returns nil (not an error) when transactionID has no
+// financial_transactions row — matching payables.effectiveMoneyFor's own
+// treatment of a missing transaction as "no data" rather than a failure.
+func transactionOccurredAt(ctx context.Context, q Querier, transactionID string) (*time.Time, error) {
+	var raw sql.NullString
+	err := q.QueryRowContext(ctx, `SELECT occurred_at FROM financial_transactions WHERE id = ?`, transactionID).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return db.ParseNullTime(raw)
+}

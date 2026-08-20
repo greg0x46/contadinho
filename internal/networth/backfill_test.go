@@ -1,0 +1,248 @@
+package networth_test
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"contadinho-go/internal/db"
+	"contadinho-go/internal/networth"
+	"contadinho-go/internal/payables"
+	"contadinho-go/internal/transactions"
+)
+
+func (f *fixture) setIgnored(transactionID string) {
+	f.t.Helper()
+	if _, err := transactions.SetInclusion(context.Background(), f.conn, transactionID, "ignored", transactions.InclusionOriginManual, nil, nil, nil); err != nil {
+		f.t.Fatalf("SetInclusion: %v", err)
+	}
+}
+
+func snapshotFor(t *testing.T, f *fixture, day time.Time) (networth.SnapshotRow, bool) {
+	t.Helper()
+	rows, err := networth.List(context.Background(), f.conn, day, day)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(rows) == 0 {
+		return networth.SnapshotRow{}, false
+	}
+	return rows[0], true
+}
+
+// TestBackfillReconstructsCashWalkingEligibleTransactionsBackward proves the
+// core cash reconstruction: today's balance minus every real transaction's
+// effect, walked backward day by day — including a transaction the user
+// marked "ignored", since ignored only means "excluded from income/expense
+// totals" and the money still moved through the real, synced account
+// balance that today's figure starts from.
+func TestBackfillReconstructsCashWalkingEligibleTransactionsBackward(t *testing.T) {
+	f := newFixture(t)
+	accountID := f.addAccount("", "1000.00")
+
+	today := time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC)
+	twoDaysAgo := today.AddDate(0, 0, -2)
+	oneDayAgo := today.AddDate(0, 0, -1)
+
+	f.addCardTransaction(accountID, twoDaysAgo, "-100.00", "DEBIT") // outflow: balance was 100 lower before this happened
+	f.addCardTransaction(accountID, oneDayAgo, "50.00", "CREDIT")   // inflow: balance was 50 lower before this happened
+
+	ignoredID := f.addCardTransaction(accountID, oneDayAgo, "9999.00", "DEBIT")
+	f.setIgnored(ignoredID) // excluded from totals, but still reversed here — it really happened
+
+	if err := networth.Backfill(context.Background(), f.conn, today); err != nil {
+		t.Fatalf("Backfill: %v", err)
+	}
+
+	snapOneDayAgo, ok := snapshotFor(t, f, oneDayAgo)
+	if !ok {
+		t.Fatalf("no snapshot for oneDayAgo")
+	}
+	assertDecimalEqual(t, "oneDayAgo.CashBalance", snapOneDayAgo.Breakdown.CashBalance, "1000")
+	if !snapOneDayAgo.IsBackfilled {
+		t.Errorf("oneDayAgo.IsBackfilled = false, want true")
+	}
+
+	snapTwoDaysAgo, ok := snapshotFor(t, f, twoDaysAgo)
+	if !ok {
+		t.Fatalf("no snapshot for twoDaysAgo")
+	}
+	assertDecimalEqual(t, "twoDaysAgo.CashBalance", snapTwoDaysAgo.Breakdown.CashBalance, "10949")
+
+	// Investments are never reconstructed — see Backfill's doc comment.
+	assertDecimalEqual(t, "twoDaysAgo.InvestmentBalance", snapTwoDaysAgo.Breakdown.InvestmentBalance, "0")
+	assertDecimalEqual(t, "twoDaysAgo.TotalAssets", snapTwoDaysAgo.Breakdown.TotalAssets, "10949")
+}
+
+// TestBackfillSkipsDaysBeforeTheEarliestKnownTransaction proves Backfill
+// never invents a day it has no transaction coverage for: with a single
+// cash transaction three days back, only that day and days after it (up to
+// yesterday) get a snapshot.
+func TestBackfillSkipsDaysBeforeTheEarliestKnownTransaction(t *testing.T) {
+	f := newFixture(t)
+	accountID := f.addAccount("", "500.00")
+
+	today := time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC)
+	threeDaysAgo := today.AddDate(0, 0, -3)
+	f.addCardTransaction(accountID, threeDaysAgo, "10.00", "CREDIT")
+
+	if err := networth.Backfill(context.Background(), f.conn, today); err != nil {
+		t.Fatalf("Backfill: %v", err)
+	}
+
+	if _, ok := snapshotFor(t, f, threeDaysAgo.AddDate(0, 0, -1)); ok {
+		t.Errorf("found a snapshot for a day before the earliest known transaction, want none")
+	}
+	if _, ok := snapshotFor(t, f, threeDaysAgo); !ok {
+		t.Errorf("no snapshot for the earliest known transaction's own day")
+	}
+	if _, ok := snapshotFor(t, f, today.AddDate(0, 0, -1)); !ok {
+		t.Errorf("no snapshot for yesterday")
+	}
+}
+
+// TestBackfillGoesBackFurtherThanNinetyDays proves there is no arbitrary cap
+// on how far Backfill reconstructs: it goes as deep as real transaction
+// history allows, per the user's explicit request to backfill everything
+// available rather than stop at a fixed window.
+func TestBackfillGoesBackFurtherThanNinetyDays(t *testing.T) {
+	f := newFixture(t)
+	accountID := f.addAccount("", "1000.00")
+
+	today := time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC)
+	farBack := today.AddDate(0, 0, -200)
+	f.addCardTransaction(accountID, farBack, "10.00", "CREDIT")
+
+	if err := networth.Backfill(context.Background(), f.conn, today); err != nil {
+		t.Fatalf("Backfill: %v", err)
+	}
+
+	if _, ok := snapshotFor(t, f, farBack); !ok {
+		t.Errorf("no snapshot for a day 200 days back, want the full transaction history reconstructed")
+	}
+}
+
+// TestBackfillWithNoTransactionsAtAllProducesNoSnapshots covers the "account
+// connected too recently to reconstruct anything" case: no non-CREDIT
+// transaction ever recorded means cash can't be reconstructed for any past
+// day, so Backfill must be a complete no-op rather than invent a flat series.
+func TestBackfillWithNoTransactionsAtAllProducesNoSnapshots(t *testing.T) {
+	f := newFixture(t)
+	f.addAccount("", "1000.00")
+
+	today := time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC)
+	if err := networth.Backfill(context.Background(), f.conn, today); err != nil {
+		t.Fatalf("Backfill: %v", err)
+	}
+
+	rows, err := networth.List(context.Background(), f.conn, today.AddDate(0, 0, -90), today)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("len(rows) = %d, want 0", len(rows))
+	}
+}
+
+// TestBackfillNeverOverwritesAnExistingSnapshot proves point 1 of the plan:
+// a day already computed live (via Snapshot) keeps its own numbers, even if
+// Backfill's reconstruction would have produced something different.
+func TestBackfillNeverOverwritesAnExistingSnapshot(t *testing.T) {
+	f := newFixture(t)
+	accountID := f.addAccount("", "1000.00")
+
+	today := time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC)
+	yesterday := today.AddDate(0, 0, -1)
+	f.addCardTransaction(accountID, yesterday, "10.00", "CREDIT")
+
+	now := db.FormatTime(time.Now())
+	f.exec(`INSERT INTO net_worth_snapshots (
+			id, captured_at, total_assets, total_liabilities, net_worth,
+			cash_balance, investment_balance, credit_card_balance, payables_debt,
+			is_backfilled, created_at, updated_at
+		) VALUES (?, ?, '1', '0', '1', '1', '0', '0', '0', 0, ?, ?)`,
+		"existing-row-id", yesterday.Format("2006-01-02"), now, now)
+
+	if err := networth.Backfill(context.Background(), f.conn, today); err != nil {
+		t.Fatalf("Backfill: %v", err)
+	}
+
+	snap, ok := snapshotFor(t, f, yesterday)
+	if !ok {
+		t.Fatalf("no snapshot for yesterday")
+	}
+	assertDecimalEqual(t, "yesterday.CashBalance", snap.Breakdown.CashBalance, "1")
+	if snap.IsBackfilled {
+		t.Errorf("IsBackfilled = true, want the pre-existing live row untouched")
+	}
+}
+
+// TestBackfillReconstructsCreditCardDebtFromBillCycle reuses
+// payables.CreditCardTransactionTotalAt's arbitrary-reference-date support:
+// a card debit assigned to a past bill counts toward that day's
+// CreditCardBalance the same way it counts toward today's.
+func TestBackfillReconstructsCreditCardDebtFromBillCycle(t *testing.T) {
+	f := newFixture(t)
+	loc := time.Local
+	today := time.Date(2024, 6, 15, 0, 0, 0, 0, loc)
+	targetDay := time.Date(2024, 6, 5, 0, 0, 0, 0, loc)
+	lastClosing := time.Date(2024, 6, 2, 0, 0, 0, 0, loc)
+	nextClosing := time.Date(2024, 7, 2, 0, 0, 0, 0, loc)
+	earliestCash := time.Date(2024, 5, 1, 0, 0, 0, 0, loc)
+
+	cashAccountID := f.addAccount("", "1000.00")
+	f.addCardTransaction(cashAccountID, earliestCash, "1.00", "CREDIT") // only to satisfy the cash-history gate
+
+	cardAccountID := f.addAccount("CREDIT", "0.00")
+	txID := f.addCardTransaction(cardAccountID, targetDay, "-100.00", "DEBIT")
+	f.addBill(cardAccountID, "bill-history", lastClosing, "")
+	f.addBill(cardAccountID, "bill-current", nextClosing, txID)
+
+	if err := networth.Backfill(context.Background(), f.conn, today); err != nil {
+		t.Fatalf("Backfill: %v", err)
+	}
+
+	snap, ok := snapshotFor(t, f, targetDay)
+	if !ok {
+		t.Fatalf("no snapshot for targetDay")
+	}
+	assertDecimalEqual(t, "targetDay.CreditCardBalance", snap.Breakdown.CreditCardBalance, "100")
+}
+
+// TestBackfillReconstructsPayablesDebtFromLinkedTransactionDate proves a
+// debt's remaining amount as of a past day only reflects links whose
+// transaction had already occurred by then — a payment made the next day
+// hasn't happened yet as of the day before.
+func TestBackfillReconstructsPayablesDebtFromLinkedTransactionDate(t *testing.T) {
+	f := newFixture(t)
+	today := time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC)
+	earliestCash := today.AddDate(0, 0, -10)
+	paymentDay := today.AddDate(0, 0, -5)
+	dayBeforePayment := paymentDay.AddDate(0, 0, -1)
+
+	cashAccountID := f.addAccount("", "1000.00")
+	f.addCardTransaction(cashAccountID, earliestCash, "1.00", "CREDIT") // satisfies the cash-history gate
+
+	payableID := f.addPayable(payables.KindDebt, "300.00", "300.00")
+	f.backdatePayable(payableID, earliestCash)
+	paymentTxID := f.addCardTransaction(cashAccountID, paymentDay, "-150.00", "DEBIT")
+	if result, err := payables.CreateLink(context.Background(), f.conn, payables.KindDebt, payableID, paymentTxID); err != nil || result.Status != payables.StatusCreated {
+		t.Fatalf("CreateLink: result=%+v err=%v", result, err)
+	}
+
+	if err := networth.Backfill(context.Background(), f.conn, today); err != nil {
+		t.Fatalf("Backfill: %v", err)
+	}
+
+	before, ok := snapshotFor(t, f, dayBeforePayment)
+	if !ok {
+		t.Fatalf("no snapshot for dayBeforePayment")
+	}
+	assertDecimalEqual(t, "dayBeforePayment.PayablesDebt", before.Breakdown.PayablesDebt, "300")
+
+	onPaymentDay, ok := snapshotFor(t, f, paymentDay)
+	if !ok {
+		t.Fatalf("no snapshot for paymentDay")
+	}
+	assertDecimalEqual(t, "paymentDay.PayablesDebt", onPaymentDay.Breakdown.PayablesDebt, "150")
+}

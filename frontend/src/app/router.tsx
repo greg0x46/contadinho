@@ -81,6 +81,11 @@ const FinancialReportPage = lazy(() =>
     default: module.FinancialReportPage,
   })),
 );
+const NetWorthPage = lazy(() =>
+  import("../pages/NetWorthPage").then((module) => ({
+    default: module.NetWorthPage,
+  })),
+);
 
 export function AppRouter() {
   return (
@@ -106,6 +111,7 @@ export function AppRouter() {
             <Route path="recorrencias" element={<RecurringCommitmentsPage />} />
             <Route path="cenarios" element={<ScenariosPage />} />
             <Route path="relatorio-financeiro" element={<FinancialReportPage />} />
+            <Route path="patrimonio-liquido" element={<NetWorthPage />} />
             <Route path="investimentos" element={<InvestmentsPage />} />
             <Route path="investimentos/:id" element={<InvestmentDetailPage />} />
             <Route path="categorias" element={<CategoriesPage />} />
