@@ -3,6 +3,7 @@ import {
   BankOutlined,
   BarChartOutlined,
   BulbOutlined,
+  FundOutlined,
   HomeOutlined,
   RedoOutlined,
   RiseOutlined,
@@ -32,6 +33,7 @@ export function App() {
           routes: [
             { path: "/", name: "Home", icon: <HomeOutlined /> },
             { path: "/relatorio-financeiro", name: "Relatório financeiro", icon: <BarChartOutlined /> },
+            { path: "/patrimonio-liquido", name: "Patrimônio líquido", icon: <FundOutlined /> },
             { path: "/open-banking", name: "Open Banking", icon: <ApiOutlined /> },
             { path: "/contas-e-cartoes", name: "Contas e cartões", icon: <BankOutlined /> },
             { path: "/transacoes", name: "Transações", icon: <TransactionOutlined /> },

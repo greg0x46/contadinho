@@ -98,6 +98,8 @@ func NewServer(db *sql.DB, frontend fs.FS, session *settings.Session) http.Handl
 
 	mux.HandleFunc("GET /api/timeline", handleGetTimeline(db))
 
+	mux.HandleFunc("GET /api/net-worth", handleGetNetWorth(db))
+
 	mux.HandleFunc("GET /api/recurring-commitments", handleListRecurringCommitments(db))
 	mux.HandleFunc("POST /api/recurring-commitments", handleCreateRecurringCommitment(db))
 	mux.HandleFunc("PUT /api/recurring-commitments/{id}", handleUpdateRecurringCommitment(db))
