@@ -18,6 +18,7 @@ import { SummaryCards } from "../components/timeline/SummaryCards";
 import { TimeNavigator } from "../components/timeline/TimeNavigator";
 import { formatBRL } from "../presentation/money";
 import { useTimeline } from "../hooks/useTimeline";
+import { colors } from "../theme/tokens";
 
 const dateFormat = "YYYY-MM-DD";
 
@@ -36,7 +37,7 @@ function ComparisonStatistic({
         title={title}
         value={formatBRL(comparison.current)}
         suffix={
-          <span style={{ fontSize: 12, color: isUp ? "#008300" : "#e34948" }}>
+          <span style={{ fontSize: 12, color: isUp ? colors.success : colors.error }}>
             {isUp ? "↑" : "↓"} {comparison.delta_percent.replace("-", "")}%
           </span>
         }

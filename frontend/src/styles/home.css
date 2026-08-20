@@ -14,7 +14,7 @@
 .dashboard-hero-figure {
   margin: 0;
   overflow: hidden;
-  color: #172b4d;
+  color: var(--color-text-primary);
   font-size: clamp(1.75rem, 13cqi, 3rem);
   font-weight: 600;
   font-variant-numeric: proportional-nums;
@@ -61,20 +61,20 @@
 
 .dashboard-legend-label {
   flex: 1;
-  color: #6b778c;
+  color: var(--color-text-secondary);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
 .dashboard-legend strong {
-  color: #172b4d;
+  color: var(--color-text-primary);
   font-variant-numeric: tabular-nums;
 }
 
 .dashboard-empty {
   margin: 0;
-  color: #6b778c;
+  color: var(--color-text-secondary);
 }
 
 .total-debt-body {
@@ -85,7 +85,7 @@
 }
 
 .total-debt-meter-remaining {
-  background: #2a78d6;
+  background: var(--color-primary);
 }
 
 .total-debt-meter-future {
@@ -93,7 +93,7 @@
 }
 
 .total-debt-swatch-remaining {
-  background: #2a78d6;
+  background: var(--color-primary);
 }
 
 .total-debt-swatch-future {
@@ -109,7 +109,7 @@
 
 .spending-by-category-subtitle {
   margin: 0;
-  color: #6b778c;
+  color: var(--color-text-secondary);
   font-size: 0.8125rem;
   text-transform: capitalize;
 }

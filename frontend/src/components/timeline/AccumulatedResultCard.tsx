@@ -4,6 +4,7 @@ import { Card } from "antd";
 import type { MonthSummary } from "../../api/contracts";
 import { formatBRL, sumBRL } from "../../presentation/money";
 import { monthlyEvolutionColor } from "../../presentation/timelineLabels";
+import { colors } from "../../theme/tokens";
 
 const monthNames = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
@@ -38,7 +39,7 @@ export function AccumulatedResultCard({ summaries }: { summaries: MonthSummary[]
       <ResponsiveContainer width="100%" height={220}>
         <LineChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="month" tickLine={false} axisLine={{ stroke: "#d9d9d9" }} />
+          <XAxis dataKey="month" tickLine={false} axisLine={{ stroke: colors.border }} />
           <YAxis tickLine={false} axisLine={false} width={0} />
           <Tooltip content={<TooltipContent />} />
           <Line

@@ -8,6 +8,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 
 import { createAppQueryClient } from "./app/queryClient";
 import { AppRouter } from "./app/router";
+import { theme } from "./theme/tokens";
 import "antd/dist/reset.css";
 import "./styles/global.css";
 import "./styles/sync-runs.css";
@@ -28,7 +29,7 @@ const queryClient = createAppQueryClient();
 
 createRoot(root).render(
   <StrictMode>
-    <ConfigProvider locale={ptBR}>
+    <ConfigProvider locale={ptBR} theme={theme}>
       <QueryClientProvider client={queryClient}>
         <AppRouter />
       </QueryClientProvider>

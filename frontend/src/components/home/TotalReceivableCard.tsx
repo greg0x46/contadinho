@@ -1,32 +1,26 @@
 import { DollarOutlined } from "@ant-design/icons";
-import { Card } from "antd";
 import { Link } from "react-router-dom";
 
 import { useReceivableTotalToReceive } from "../../hooks/useReceivableTotalToReceive";
 import { formatBRL } from "../../presentation/money";
-import { LoadingState, UnavailableState } from "../AsyncState";
+import { SummaryCard } from "../shared/SummaryCard";
 
 export function TotalReceivableCard() {
   const { total, isLoading, error, refetch } = useReceivableTotalToReceive();
 
   return (
-    <Card
-      className="dashboard-widget"
-      title={
-        <span className="dashboard-widget-title">
-          <DollarOutlined aria-hidden="true" />
-          Total a receber
-        </span>
-      }
+    <SummaryCard
+      icon={<DollarOutlined aria-hidden="true" />}
+      title="Total a receber"
       extra={<Link to="/pendencias?kind=receivable">Ver contas a receber</Link>}
+      isLoading={isLoading}
+      error={error}
+      hasData={Boolean(total)}
+      loadingLabel="Carregando total a receber…"
+      errorLabel="Não foi possível carregar o total a receber."
+      onRetry={refetch}
     >
-      {isLoading && <LoadingState>Carregando total a receber…</LoadingState>}
-      {!isLoading && (error || !total) && (
-        <UnavailableState onRetry={refetch}>
-          Não foi possível carregar o total a receber.
-        </UnavailableState>
-      )}
-      {!isLoading && !error && total && (
+      {total && (
         <div className="total-debt-body">
           <p className="dashboard-hero-figure">{formatBRL(total.total_to_receive)}</p>
           {Number(total.total_to_receive) <= 0 && (
@@ -34,6 +28,6 @@ export function TotalReceivableCard() {
           )}
         </div>
       )}
-    </Card>
+    </SummaryCard>
   );
 }

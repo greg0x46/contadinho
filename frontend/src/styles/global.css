@@ -1,8 +1,20 @@
 :root {
+  /* Mirrors src/theme/tokens.ts — CSS can't import the TS module, so this
+     is the CSS-side copy of the same palette. Keep the two in sync. */
+  --color-text-primary: #172b4d;
+  --color-text-secondary: #6b778c;
+  --color-primary: #2a78d6;
+  --color-success: #1baf7a;
+  --color-error: #e34948;
+  --color-warning: #f2a900;
+  --color-border: #d9d9d9;
+  --color-border-secondary: #e5e9f0;
+  --color-bg-layout: #f5f7fa;
+
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
-  color: #172b4d;
-  background: #f5f7fa;
+  color: var(--color-text-primary);
+  background: var(--color-bg-layout);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -25,7 +37,7 @@ body {
 }
 
 :focus-visible {
-  outline: 3px solid #f2a900;
+  outline: 3px solid var(--color-warning);
   outline-offset: 3px;
 }
 
@@ -38,7 +50,7 @@ body {
   transform: translateY(-200%);
   border-radius: 0.5rem;
   color: #fff;
-  background: #172b4d;
+  background: var(--color-text-primary);
 }
 
 .skip-link:focus {
@@ -52,6 +64,24 @@ body {
 #conteudo-principal,
 .ant-pro-layout-content {
   min-height: calc(100vh - 56px);
+}
+
+/* PageContainer's PageHeader packs title + subtitle into one nowrap flex
+   row sized by the surrounding chrome, so on narrow viewports the page
+   title itself — the single most important element on the screen — gets
+   ellipsized (e.g. "Contas e cartões" becomes "Contas e car..."). Let
+   both wrap and stack instead of truncating. */
+@media (max-width: 48rem) {
+  .ant-page-header-heading-title,
+  .ant-page-header-heading-sub-title {
+    overflow: visible;
+    white-space: normal;
+    text-overflow: clip;
+  }
+
+  .ant-page-header-heading-left {
+    flex-wrap: wrap;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -84,7 +114,7 @@ body {
 }
 
 .category-color-swatch[aria-checked="true"] {
-  border-color: #172b4d;
+  border-color: var(--color-text-primary);
 }
 
 @media (prefers-color-scheme: dark) {

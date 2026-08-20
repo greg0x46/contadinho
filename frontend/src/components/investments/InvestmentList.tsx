@@ -6,6 +6,7 @@ import { Tag, Tooltip, Typography } from "antd";
 import type { Investment } from "../../api/contracts";
 import { investmentTypeLabel, investmentYield } from "../../presentation/investmentLabels";
 import { formatBRL } from "../../presentation/money";
+import { colors } from "../../theme/tokens";
 
 function YieldCell({ investment }: { investment: Investment }) {
   const estimate = investmentYield(investment);
@@ -21,7 +22,7 @@ function YieldCell({ investment }: { investment: Investment }) {
           : "Calculado a partir do histórico de aplicações e resgates"
       }
     >
-      <span style={{ color: negative ? "#f5222d" : "#1baf7a", fontVariantNumeric: "tabular-nums" }}>
+      <span style={{ color: negative ? colors.error : colors.success, fontVariantNumeric: "tabular-nums" }}>
         {formatBRL(estimate.value)}
       </span>
     </Tooltip>

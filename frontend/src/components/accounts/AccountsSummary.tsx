@@ -1,8 +1,8 @@
 import { WalletOutlined } from "@ant-design/icons";
-import { Card } from "antd";
 
 import type { Account } from "../../api/contracts";
 import { formatBRL } from "../../presentation/money";
+import { WidgetCard } from "../shared/WidgetCard";
 
 // Totals cover BRL accounts only: mixing currencies into one figure would be
 // wrong, and the same restriction already applies to the credit-card total on
@@ -19,15 +19,10 @@ export function AccountsSummary({ accounts }: { accounts: Account[] }) {
   const credit = accounts.filter((account) => account.account_type === "CREDIT");
 
   return (
-    <Card
-      className="dashboard-widget"
+    <WidgetCard
+      icon={<WalletOutlined aria-hidden="true" />}
+      title="Resumo das contas"
       style={{ marginBottom: 16 }}
-      title={
-        <span className="dashboard-widget-title">
-          <WalletOutlined aria-hidden="true" />
-          Resumo das contas
-        </span>
-      }
     >
       <div className="debts-summary-body">
         <div className="debts-summary-figure">
@@ -57,6 +52,6 @@ export function AccountsSummary({ accounts }: { accounts: Account[] }) {
           </div>
         </div>
       </div>
-    </Card>
+    </WidgetCard>
   );
 }
