@@ -1,0 +1,33 @@
+# Automação
+
+> Referência viva deste contexto — o que existe e funciona hoje. Mantenha
+> atualizado ao mudar a feature. Motor de domínio por trás: Automação,
+> construída sobre o motor de regras (seções 2 e 3 de
+> `.specs/motores-de-dominio.md`).
+
+## O que é
+
+Regras baseadas em condições que categorizam ou ignoram transações
+automaticamente e podem ser aplicadas retroativamente às já existentes.
+Também é o ponto de ligação entre uma regra e a reconciliação de um
+compromisso recorrente (ver contexto de Recorrências).
+
+## Backend
+
+`internal/automation` — `Rule`/`Action`/`Condition`, matching via
+`internal/rules` (núcleo combinável de matching, puro e sem estado —
+`Condition`/`Operator`/`LogicOperator`/`Matches`), aplicação (`apply.go`)
+com ações `ignore`, `set_category`, `reconcile`. A ação `reconcile` liga a
+regra a um `recurrences.RecurringCommitment` sem afetar a transação
+diretamente — regras reconcile-only são puladas pelo fluxo normal de
+aplicação (`isReconcileOnlyRule`).
+
+## Rotas HTTP
+
+`GET/POST /api/automation-rules`,
+`PUT/PATCH/DELETE /api/automation-rules/{id}`,
+`GET /api/automation-rules/condition-options`.
+
+## Frontend
+
+`/automacoes`.
