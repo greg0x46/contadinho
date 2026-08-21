@@ -13,6 +13,19 @@ Ele roda como um único binário Go com o frontend React embutido dentro dele
 — não há servidor de frontend separado, proxy reverso ou container para
 rodar em produção. Os dados ficam em um único arquivo SQLite local.
 
+## Documentação de domínio e contribuindo
+
+Contribuições, features novas e refactors são bem-vindos. Antes de mexer em
+uma área do domínio, veja [`.specs/README.md`](.specs/README.md) — o hub de
+navegação da pasta `.specs/`, com a arquitetura de domínio
+(`motores-de-dominio.md`), o estado atual de cada feature
+(`contextos/<contexto>/reference.md`) e o racional histórico das decisões
+de design. Ao concluir uma feature nova ou alterar uma existente,
+atualize o `reference.md` do contexto correspondente (e esta seção
+"Funcionalidades" abaixo, se for relevante o bastante) no mesmo PR — specs
+desatualizados atrapalham o próximo colaborador tanto quanto código
+desatualizado.
+
 ## Por que um binário único
 
 Rodar o Contadinho não exige instalar ou configurar nada além do próprio
@@ -48,11 +61,23 @@ binário:
 - **Regras de automação** — regras baseadas em condições que categorizam
   novas transações automaticamente e podem ser aplicadas retroativamente às
   já existentes.
-- **Dívidas** — acompanhe uma dívida (empréstimo, compra parcelada) e
-  vincule as transações que a quitam, com regras de elegibilidade para
-  quais transações podem ser vinculadas.
+- **Pendências (dívidas e recebíveis)** — acompanhe um total real (dívida,
+  compra parcelada, recebível) e vincule as transações que o quitam, com
+  regras de elegibilidade para quais transações podem ser vinculadas.
 - **Categorias** — um catálogo de categorias definido pelo usuário, com
   histórico de categorização.
+- **Recorrências** — cadastre compromissos de fluxo de caixa conhecidos de
+  antemão (salário, aluguel, assinaturas), reconciliados contra as
+  transações reais que os quitam via regra de automação.
+- **Cenários** — projeções hipotéticas autoradas pelo usuário ("e se eu
+  viajar", "e se eu trocar de emprego"), ou o plano de parcelas de uma
+  dívida/recebível — nunca contaminam totais reais a menos que
+  explicitamente incluídos numa consulta.
+- **Relatório financeiro** — navegação temporal única (Realizado → Hoje →
+  Projeção Base → Simulação): quanto você terá numa data futura, qual seu
+  menor saldo até lá, e como cenários hipotéticos mudam essa resposta.
+- **Patrimônio líquido** — snapshots e histórico de patrimônio (ativos −
+  passivos) ao longo do tempo.
 - **Segredos criptografados em repouso** — as credenciais da Pluggy e
   outras configurações sensíveis ficam armazenadas no SQLite criptografadas
   com AES-256-GCM, usando uma chave derivada (Argon2id) de uma senha
@@ -154,8 +179,10 @@ cd frontend
 npm run lint
 npm run typecheck
 npm test
-npm run test:e2e   # Playwright; requer o app rodando
 ```
+
+`npm run test:e2e` (Playwright) está declarado no `package.json` mas ainda
+não tem `playwright.config.*` nem testes — scaffolded, não implementado.
 
 ## Open Finance & Pluggy
 
@@ -186,12 +213,22 @@ internal/
   pluggy/             cliente da API da Pluggy e mapeamento de dados
   syncsvc/             orquestração das execuções de sincronização
   worker/              loop de polling de sincronização em segundo plano
-  transactions/         consulta de transações e estado de inclusão
-  categories/            catálogo de categorias e categorização
-  automation/              motor de regras de automação
-  debts/                     acompanhamento de dívidas e vínculo de transações
-  settings/                    armazenamento de configurações criptografadas, autenticação, sessões
-  httpapi/                       handlers HTTP e roteamento
-  webui/                          embute o frontend compilado
+  money/                primitivas de domínio compartilhadas (classificação, valor efetivo)
+  transactions/           consulta de transações e estado de inclusão
+  categories/              catálogo de categorias e categorização
+  rules/                     núcleo de matching combinável (condições/operadores)
+  automation/                 motor de regras de automação, sobre internal/rules
+  recurrences/                   compromissos recorrentes, reconciliados via automation
+  payables/                        dívidas/recebíveis e vínculo de transações que os quitam
+  scenarios/                         projeções hipotéticas e planos de pagamento
+  timeline/                            funde lançamentos + recorrências + cenários numa série única
+  networth/                              snapshots de patrimônio líquido
+  settings/                                armazenamento de configurações criptografadas, autenticação, sessões
+  httpapi/                                   handlers HTTP e roteamento
+  webui/                                       embute o frontend compilado
 frontend/            SPA React/TypeScript (Vite)
 ```
+
+Para o que cada um faz hoje (rotas, páginas, estado de implementação), ver
+[`.specs/README.md`](.specs/README.md) e os `reference.md` de cada
+contexto em `.specs/contextos/`.
