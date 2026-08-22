@@ -7,9 +7,10 @@ cd "$(dirname "$0")"
 
 (cd frontend && npm install && npm run build)
 
-rm -rf internal/webui/dist/*
+rm -rf internal/webui/dist
+mkdir -p internal/webui/dist
 cp -r frontend/dist/* internal/webui/dist/
 
-go build -o contadinho ./cmd/contadinho
+go build -tags embedded_frontend -o contadinho ./cmd/contadinho
 
 echo "build ok: ./contadinho"

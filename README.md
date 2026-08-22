@@ -112,9 +112,7 @@ binário:
 ### Rodar a build de produção (binário único)
 
 ```sh
-cd frontend && npm install && npm run build && cd ..
-cp -r frontend/dist/* internal/webui/dist/   # embute a build mais recente
-go build -o contadinho ./cmd/contadinho
+./build.sh
 ./contadinho
 ```
 

@@ -1,18 +1,12 @@
-// Package webui embeds the React/Vite frontend's production build (copied
-// from ~/code/contadinho/frontend/dist) into the Go binary, so the server
-// needs no separate static-file deployment step.
+// Package webui exposes the React/Vite frontend filesystem. Production builds
+// embed the generated assets into the Go binary, while ordinary development
+// builds use the small fallback page until ./build.sh has been run.
 package webui
 
-import (
-	"embed"
-	"io/fs"
-)
-
-//go:embed dist
-var distFS embed.FS
+import "io/fs"
 
 // DistFS returns the embedded build rooted at dist/index.html, ready to be
 // served with http.FileServerFS.
 func DistFS() (fs.FS, error) {
-	return fs.Sub(distFS, "dist")
+	return embeddedDistFS()
 }
