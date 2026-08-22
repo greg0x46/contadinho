@@ -19,9 +19,15 @@ const (
 // Action is one automation_rule_actions row. A rule may carry more than one
 // Action (e.g. set_category + reconcile together).
 type Action struct {
-	ID                    string
-	Type                  ActionType
-	RecurringCommitmentID *string // set iff Type == ActionReconcile
+	ID   string
+	Type ActionType
+	// ScenarioID is the canonical target for reconcile actions. It must
+	// reference a Scenario of kind recurring.
+	ScenarioID *string
+	// RecurringCommitmentID is retained while the legacy API is alive. New
+	// rows may leave it nil; reads expose it when an old commitment mapping
+	// exists so old clients can keep working.
+	RecurringCommitmentID *string
 	CategoryID            *string // set iff Type == ActionSetCategory
 }
 
@@ -30,6 +36,7 @@ type Action struct {
 // conditions are written).
 type ActionWrite struct {
 	Type                  ActionType
+	ScenarioID            *string
 	RecurringCommitmentID *string
 	CategoryID            *string
 }

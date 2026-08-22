@@ -1,13 +1,19 @@
 import {
   parseProblem,
+  parsePlannedTransactionList,
   parseScenarioDetail,
   parseScenarioList,
+  parseScenario,
+  parseScenarioRealization,
   parseScenarioTransaction,
   type GenerateInstallmentsWrite,
   type Problem,
+  type PlannedTransaction,
   type ReadjustWrite,
   type RealizationWrite,
   type Scenario,
+  type ScenarioKind,
+  type ScenarioRealization,
   type ScenarioCreate,
   type ScenarioDetail,
   type ScenarioTransaction,
@@ -93,6 +99,85 @@ export function listStandaloneScenarios(signal?: AbortSignal): Promise<Scenario[
     { method: "GET", headers: { Accept: "application/json" }, signal },
     200,
     parseScenarioList,
+  );
+}
+
+export function listScenarios(
+  filters: { kind?: ScenarioKind; isActive?: boolean } = {},
+  signal?: AbortSignal,
+): Promise<Scenario[]> {
+  const params = new URLSearchParams();
+  if (filters.kind) params.set("kind", filters.kind);
+  if (filters.isActive !== undefined) params.set("is_active", String(filters.isActive));
+  const query = params.toString();
+  return send(
+    `/api/scenarios${query === "" ? "" : `?${query}`}`,
+    { method: "GET", headers: { Accept: "application/json" }, signal },
+    200,
+    parseScenarioList,
+  );
+}
+
+export function setScenarioActive(scenarioId: string, isActive: boolean): Promise<Scenario> {
+  return send(
+    `/api/scenarios/${encodeURIComponent(scenarioId)}`,
+    {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ is_active: isActive }),
+    },
+    200,
+    parseScenario,
+  );
+}
+
+export function listScenarioPlannedTransactions(
+  scenarioId: string,
+  from?: string,
+  to?: string,
+  signal?: AbortSignal,
+): Promise<PlannedTransaction[]> {
+  const params = new URLSearchParams();
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  const query = params.toString();
+  return send(
+    `/api/scenarios/${encodeURIComponent(scenarioId)}/planned-transactions${query === "" ? "" : `?${query}`}`,
+    { method: "GET", headers: { Accept: "application/json" }, signal },
+    200,
+    parsePlannedTransactionList,
+  );
+}
+
+export interface PlannedRealizationWrite {
+  state?: "linked" | "detached";
+  transaction_id?: string | null;
+  allocated_amount?: number;
+}
+
+export function realizePlannedTransaction(
+  scenarioId: string,
+  eventKey: string,
+  write: PlannedRealizationWrite,
+): Promise<ScenarioRealization> {
+  return send(
+    `/api/scenarios/${encodeURIComponent(scenarioId)}/planned-transactions/${encodeURIComponent(eventKey)}/realization`,
+    {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(write),
+    },
+    200,
+    parseScenarioRealization,
+  );
+}
+
+export function deletePlannedTransactionRealization(scenarioId: string, eventKey: string): Promise<void> {
+  return send(
+    `/api/scenarios/${encodeURIComponent(scenarioId)}/planned-transactions/${encodeURIComponent(eventKey)}/realization`,
+    { method: "DELETE" },
+    204,
+    null,
   );
 }
 

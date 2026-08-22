@@ -14,32 +14,32 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// Kind is the scenario's flavor: a payment plan attached to a
-// payables.Payable of KindDebt, or the mirror-image collection plan
-// attached to one of KindReceivable — or, since M2 of
-// .specs/contextos/relatorio-financeiro/reference.md, a free-standing
-// "what if" scenario (KindStandalone) with no payable at all, e.g.
-// "viagem" or "novo emprego".
+// Kind is the scenario's flavor. Recurring cash flows are scenarios too; the
+// recurring schedule lives in scenario_recurring_schedules rather than on
+// this row.
 type Kind string
 
 const (
 	KindDebtPlan       Kind = "debt_plan"
 	KindReceivablePlan Kind = "receivable_plan"
 	KindStandalone     Kind = "standalone"
+	KindRecurring      Kind = "recurring"
 )
 
-// Scenario mirrors the scenarios table. PayableID is required for
-// KindDebtPlan/KindReceivablePlan and must be nil for KindStandalone —
-// enforced by the schema's CHECK constraint — and for the two payable-backed
-// kinds, the payable's own Kind must agree with Kind, validated at the HTTP
-// layer (a cross-table CHECK isn't available in SQLite).
+// Scenario mirrors the scenarios table. IsActive controls inclusion in the
+// default projection read. IsAccountingSource marks the one payable-backed
+// scenario whose real settlements define the payable's official Settled
+// amount; simulation scenarios may point at the same payable without that
+// flag.
 type Scenario struct {
-	ID        string
-	Kind      Kind
-	Name      string
-	PayableID *string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID                 string
+	Kind               Kind
+	Name               string
+	PayableID          *string
+	IsActive           bool
+	IsAccountingSource bool
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 // ScenarioTransaction mirrors the scenario_transactions table: a single
