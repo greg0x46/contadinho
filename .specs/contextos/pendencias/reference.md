@@ -23,9 +23,31 @@ R$10.000 até dezembro"), descrita como direção em
 ## Backend
 
 `internal/payables` — total/quitado/restante sempre recomputados na
-leitura a partir de `payable_transaction_links`, nunca persistidos. Inclui
-elegibilidade de vínculo (`eligibility.go`, hoje deriva a direção de fluxo
-aceita a partir do `Kind` debt/receivable) e helpers de dívida de cartão.
+leitura a partir de `payable_transaction_links`, nunca persistidos.
+`summary.go` é o único lugar onde essa recomputação vive: `Summarize`/
+`SummarizeAsOf` (um payable), `SummarizeAll` (um conjunto, em duas queries
+— é o que a listagem HTTP usa) e `RemainingTotal`/`RemainingTotalAsOf`/
+`RemainingTotalsAsOf` (agregados). Antes a mesma sequência estava
+reimplementada em quatro lugares, dois deles na camada HTTP. A matemática
+pura (settled/remaining/status) é interna ao pacote: `Summarize` é a única
+porta de entrada, para ninguém remontar as peças por fora.
+
+`Summary` carrega os próprios vínculos (`Links []LinkSummary`, com valor
+efetivo e os campos de exibição da transação) em vez de só uma contagem —
+a tela de detalhe formata o que essa passagem já carregou, sem recarregar
+cada vínculo e cada transação atrás dele. Sob `SummarizeAsOf` a lista traz
+exatamente os vínculos que contavam naquele dia, então todo campo do
+`Summary` descreve o mesmo momento.
+
+Inclui também elegibilidade de vínculo (`eligibility.go`, hoje deriva a
+direção de fluxo aceita a partir do `Kind` debt/receivable).
+
+Os helpers de dívida/vencimento de cartão **saíram daqui** para
+`internal/transactions` (motor de Lançamentos) — ver contexto de
+Transações. A soma "dívida de payables + fatura do cartão" do widget
+"Dívida total" não voltou para cá: ela junta dois motores e é composta no
+handler (`handlePayableTotalOwed`), porque nenhum dos dois é dono do
+número — e é ali também que a moeda BRL fica fixada.
 
 ## Rotas HTTP
 

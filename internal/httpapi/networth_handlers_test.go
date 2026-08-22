@@ -40,7 +40,7 @@ func TestGetNetWorthComputesBreakdownFromLiveData(t *testing.T) {
 
 	// The CREDIT account's raw provider balance (300.00) is deliberately
 	// irrelevant — net worth's credit_card_balance comes from
-	// payables.CreditCardTransactionTotal's current bill-cycle transaction
+	// transactions.CreditCardTransactionTotal's current bill-cycle transaction
 	// total (0, since no financial_bills rows exist here), the same figure
 	// the homepage's "Dívida total" widget uses. See internal/networth's
 	// TestComputeCreditCardMatchesCurrentBillCycleTransactions for the

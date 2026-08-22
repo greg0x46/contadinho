@@ -1,6 +1,6 @@
 // Package scenarios implements hypothetical, user-authored projections
 // layered on top of real data — see
-// .specs/plano-pagamento-e-cenarios-projecao.md. A Scenario groups a set of
+// .specs/contextos/cenarios/reference.md. A Scenario groups a set of
 // ScenarioTransaction "planned installments" attached to a
 // payables.Payable. Nothing here changes how internal/payables computes
 // settled/remaining amounts — a scenario is a read-layer projection, never
@@ -17,8 +17,9 @@ import (
 // Kind is the scenario's flavor: a payment plan attached to a
 // payables.Payable of KindDebt, or the mirror-image collection plan
 // attached to one of KindReceivable — or, since M2 of
-// .specs/relatorio-financeiro.md, a free-standing "what if" scenario
-// (KindStandalone) with no payable at all, e.g. "viagem" or "novo emprego".
+// .specs/contextos/relatorio-financeiro/reference.md, a free-standing
+// "what if" scenario (KindStandalone) with no payable at all, e.g.
+// "viagem" or "novo emprego".
 type Kind string
 
 const (
@@ -95,5 +96,32 @@ func (s ScenarioTransaction) Status(today time.Time, realizedTotal decimal.Decim
 		return StatusPaga
 	default: // realizedTotal > s.Amount
 		return StatusPagaAMais
+	}
+}
+
+// SignedAmount applies a plan's cash-flow direction to a planned amount:
+// a debt plan's installment is money leaving (negated), a receivable plan's
+// is money arriving (kept as authored). A standalone scenario's amount is
+// already authored with its own sign and is returned untouched.
+//
+// This is what lets a caller project a plan installment onto a cash-flow
+// timeline without consulting the backing payables.Payable: Scenario.Kind
+// is set from the payable's Kind at creation and the two never diverge, so
+// the direction is derivable from the scenario alone.
+//
+// Note: this negates rather than forcing a sign, preserving the behavior
+// this rule had while it lived in internal/timeline. A plan installment
+// stored with a negative Amount (nothing rejects one today) therefore reads
+// as an inflow on a debt plan — recorded as open note 5 in
+// .specs/motores-de-dominio.md rather than "fixed" here, since deciding it
+// either way changes real totals.
+func SignedAmount(kind Kind, amount decimal.Decimal) decimal.Decimal {
+	switch kind {
+	case KindDebtPlan:
+		return amount.Neg()
+	default:
+		// KindReceivablePlan is already an inflow; KindStandalone carries
+		// its own sign.
+		return amount
 	}
 }

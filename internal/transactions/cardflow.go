@@ -1,4 +1,4 @@
-package payables
+package transactions
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"contadinho-go/internal/dates"
 	"contadinho-go/internal/db"
 )
 
@@ -48,7 +49,7 @@ func FetchCardDueDates(ctx context.Context, q Querier) (CardDueDates, error) {
 		if err != nil {
 			return CardDueDates{}, fmt.Errorf("parse bill due_date %q: %w", dueDateRaw, err)
 		}
-		due := dayOnly(parsed)
+		due := dates.Day(parsed)
 		result.byAccount[accountID] = append(result.byAccount[accountID], due)
 		// Pluggy's billId is the external id; the internal id is kept too so
 		// locally-created/test data can be matched the same way.
@@ -64,10 +65,6 @@ func FetchCardDueDates(ctx context.Context, q Querier) (CardDueDates, error) {
 		})
 	}
 	return result, nil
-}
-
-func dayOnly(t time.Time) time.Time {
-	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 // cardTransactionMetadata is the subset of Pluggy's credit_card_metadata
@@ -107,7 +104,7 @@ func (d CardDueDates) ProjectedEntryDate(accountID string, occurredAt time.Time,
 			}
 		}
 	}
-	return d.inferredDueDateOnOrAfter(accountID, dayOnly(occurredAt))
+	return d.inferredDueDateOnOrAfter(accountID, dates.Day(occurredAt))
 }
 
 // dueDateForMonth finds a known due date falling in the given "YYYY-MM"
@@ -144,16 +141,12 @@ func (d CardDueDates) inferredDueDateOnOrAfter(accountID string, after time.Time
 	for due.Before(after) {
 		nextMonth := time.Date(due.Year(), due.Month()+1, 1, 0, 0, 0, 0, time.UTC)
 		d := day
-		if maxDay := daysInMonthUTC(nextMonth.Year(), nextMonth.Month()); d > maxDay {
+		if maxDay := dates.DaysInMonth(nextMonth.Year(), nextMonth.Month()); d > maxDay {
 			d = maxDay
 		}
 		due = time.Date(nextMonth.Year(), nextMonth.Month(), d, 0, 0, 0, 0, time.UTC)
 	}
 	return due
-}
-
-func daysInMonthUTC(year int, month time.Month) int {
-	return time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
 }
 
 // CreditAccountIDs returns the set of financial_accounts.id whose
@@ -184,13 +177,8 @@ func CardMetadataByTransaction(ctx context.Context, q Querier, transactionIDs []
 	if len(transactionIDs) == 0 {
 		return result, nil
 	}
-	placeholders := make([]string, len(transactionIDs))
-	args := make([]any, len(transactionIDs))
-	for i, id := range transactionIDs {
-		placeholders[i] = "?"
-		args[i] = id
-	}
-	query := `SELECT id, credit_card_metadata FROM financial_transactions WHERE id IN (` + joinPlaceholders(placeholders) + `)`
+	in, args := db.InClause(transactionIDs)
+	query := `SELECT id, credit_card_metadata FROM financial_transactions WHERE id IN (` + in + `)`
 	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query credit card metadata: %w", err)
@@ -208,12 +196,4 @@ func CardMetadataByTransaction(ctx context.Context, q Querier, transactionIDs []
 		}
 	}
 	return result, rows.Err()
-}
-
-func joinPlaceholders(placeholders []string) string {
-	out := placeholders[0]
-	for _, p := range placeholders[1:] {
-		out += "," + p
-	}
-	return out
 }

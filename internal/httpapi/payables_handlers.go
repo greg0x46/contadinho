@@ -11,6 +11,7 @@ import (
 
 	"contadinho-go/internal/money"
 	"contadinho-go/internal/payables"
+	"contadinho-go/internal/transactions"
 )
 
 type payableDTO struct {
@@ -31,36 +32,32 @@ func payableUnavailableProblem(w http.ResponseWriter) {
 	writeProblem(w, 503, "payables-unavailable", "Pendências temporariamente indisponíveis", "Tente novamente em instantes.")
 }
 
-// summarizePayable mirrors _to_response's math: settled/remaining/status
-// are always recomputed from the payable's links, never read off a stored
-// column.
-func summarizePayable(ctx context.Context, conn *sql.DB, p payables.Payable) (payableDTO, []payables.Link, error) {
-	links, err := payables.Links(ctx, conn, p.ID)
-	if err != nil {
-		return payableDTO{}, nil, err
-	}
-	amounts := make([]decimal.Decimal, len(links))
-	for i, l := range links {
-		amt, err := payables.LinkEffectiveAmount(ctx, conn, l.TransactionID)
-		if err != nil {
-			return payableDTO{}, nil, err
-		}
-		amounts[i] = amt
-	}
-	settled := payables.SettledAmount(p.StartingSettledAmount, amounts)
-	remaining := payables.RemainingAmount(p.TotalAmount, settled)
-	status := payables.StatusFor(remaining)
+// payableToDTO formats a payable plus its engine-derived Summary. The
+// derivation itself belongs to the engine (payables.Summarize) — this layer
+// only formats it.
+func payableToDTO(p payables.Payable, summary payables.Summary) payableDTO {
 	return payableDTO{
 		ID: p.ID, Kind: string(p.Kind), Name: p.Name,
 		TotalAmount:           money.CanonicalDecimal(p.TotalAmount),
 		StartingSettledAmount: money.CanonicalDecimal(p.StartingSettledAmount),
-		SettledAmount:         money.CanonicalDecimal(settled),
-		RemainingAmount:       money.CanonicalDecimal(remaining),
-		Status:                string(status),
-		LinkCount:             len(links),
+		SettledAmount:         money.CanonicalDecimal(summary.Settled),
+		RemainingAmount:       money.CanonicalDecimal(summary.Remaining),
+		Status:                string(summary.Status),
+		LinkCount:             len(summary.Links),
 		CreatedAt:             p.CreatedAt,
 		UpdatedAt:             p.UpdatedAt,
-	}, links, nil
+	}
+}
+
+// summarizePayable derives and formats in one step — for the handlers that
+// need only the DTO. handleGetPayable keeps the Summary instead, because it
+// also renders the links it carries.
+func summarizePayable(ctx context.Context, conn *sql.DB, p payables.Payable) (payableDTO, error) {
+	summary, err := payables.Summarize(ctx, conn, p)
+	if err != nil {
+		return payableDTO{}, err
+	}
+	return payableToDTO(p, summary), nil
 }
 
 // parseKindFilter reads an optional ?kind= query param, defaulting to nil
@@ -99,14 +96,16 @@ func handleListPayables(conn *sql.DB) http.HandlerFunc {
 			payableUnavailableProblem(w)
 			return
 		}
+		// One derivation for the whole page, not one per row: SummarizeAll
+		// costs two queries no matter how many payables came back.
+		summaries, err := payables.SummarizeAll(r.Context(), conn, list)
+		if err != nil {
+			payableUnavailableProblem(w)
+			return
+		}
 		dtos := make([]payableDTO, len(list))
 		for i, p := range list {
-			dto, _, err := summarizePayable(r.Context(), conn, p)
-			if err != nil {
-				payableUnavailableProblem(w)
-				return
-			}
-			dtos[i] = dto
+			dtos[i] = payableToDTO(p, summaries[p.ID])
 		}
 		writeJSON(w, http.StatusOK, dtos)
 	}
@@ -126,43 +125,29 @@ type payableTotalOwedDTO struct {
 // handlePayableTotalToReceive since the credit-card bill-cycle folding-in
 // below has no receivable counterpart — see handlePayableTotalToReceive's
 // doc comment.
+//
+// The two halves come from two different engines and are added up here
+// rather than inside either of them: neither Payables nor Lançamentos owns
+// this figure, it is this widget's composition. BRL is fixed because the
+// payables half only ever counts BRL links (see payables' package doc), so
+// any other code would sum one currency's card bill against another's
+// debts.
 func handlePayableTotalOwed(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		kind := payables.KindDebt
-		list, err := payables.List(ctx, conn, &kind)
+		remainingDebts, err := payables.RemainingTotal(r.Context(), conn, payables.KindDebt)
 		if err != nil {
 			payableUnavailableProblem(w)
 			return
 		}
-		remainingTotal := decimal.Zero
-		for _, p := range list {
-			dto, _, err := summarizePayable(ctx, conn, p)
-			if err != nil {
-				payableUnavailableProblem(w)
-				return
-			}
-			if dto.Status != string(payables.StatusOpen) {
-				continue
-			}
-			remaining, err := decimal.NewFromString(dto.RemainingAmount)
-			if err != nil {
-				payableUnavailableProblem(w)
-				return
-			}
-			remainingTotal = remainingTotal.Add(remaining)
-		}
-
-		futureInstallmentsTotal, err := payables.CreditCardTransactionTotal(ctx, conn, "BRL")
+		cardBill, err := transactions.CreditCardTransactionTotal(r.Context(), conn, "BRL")
 		if err != nil {
 			payableUnavailableProblem(w)
 			return
 		}
-
 		writeJSON(w, http.StatusOK, payableTotalOwedDTO{
-			RemainingDebtsTotal:     money.CanonicalDecimal(remainingTotal),
-			FutureInstallmentsTotal: money.CanonicalDecimal(futureInstallmentsTotal),
-			TotalOwed:               money.CanonicalDecimal(remainingTotal.Add(futureInstallmentsTotal)),
+			RemainingDebtsTotal:     money.CanonicalDecimal(remainingDebts),
+			FutureInstallmentsTotal: money.CanonicalDecimal(cardBill),
+			TotalOwed:               money.CanonicalDecimal(remainingDebts.Add(cardBill)),
 			CurrencyCode:            "BRL",
 		})
 	}
@@ -181,33 +166,14 @@ type payableTotalToReceiveDTO struct {
 // transactions the way future credit-card installments are.
 func handlePayableTotalToReceive(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		kind := payables.KindReceivable
-		list, err := payables.List(ctx, conn, &kind)
+		total, err := payables.RemainingTotal(r.Context(), conn, payables.KindReceivable)
 		if err != nil {
 			payableUnavailableProblem(w)
 			return
 		}
-		remainingTotal := decimal.Zero
-		for _, p := range list {
-			dto, _, err := summarizePayable(ctx, conn, p)
-			if err != nil {
-				payableUnavailableProblem(w)
-				return
-			}
-			if dto.Status != string(payables.StatusOpen) {
-				continue
-			}
-			remaining, err := decimal.NewFromString(dto.RemainingAmount)
-			if err != nil {
-				payableUnavailableProblem(w)
-				return
-			}
-			remainingTotal = remainingTotal.Add(remaining)
-		}
 		writeJSON(w, http.StatusOK, payableTotalToReceiveDTO{
-			RemainingReceivablesTotal: money.CanonicalDecimal(remainingTotal),
-			TotalToReceive:            money.CanonicalDecimal(remainingTotal),
+			RemainingReceivablesTotal: money.CanonicalDecimal(total),
+			TotalToReceive:            money.CanonicalDecimal(total),
 			CurrencyCode:              "BRL",
 		})
 	}
@@ -249,7 +215,7 @@ func handleCreatePayable(conn *sql.DB) http.HandlerFunc {
 			payableUnavailableProblem(w)
 			return
 		}
-		dto, _, err := summarizePayable(r.Context(), conn, p)
+		dto, err := summarizePayable(r.Context(), conn, p)
 		if err != nil {
 			payableUnavailableProblem(w)
 			return
@@ -333,29 +299,25 @@ func handleGetPayable(conn *sql.DB) http.HandlerFunc {
 			payableUnavailableProblem(w)
 			return
 		}
-		dto, links, err := summarizePayable(r.Context(), conn, p)
+		// The one Summarize pass already loaded every link and the
+		// transaction behind it, so the detail view formats what it carries
+		// rather than reloading the same rows per link.
+		summary, err := payables.Summarize(r.Context(), conn, p)
 		if err != nil {
 			payableUnavailableProblem(w)
 			return
 		}
-		linkDTOs := make([]linkedTransactionDTO, len(links))
-		for i, l := range links {
-			summary, err := payables.TransactionSummaryFor(r.Context(), conn, l.TransactionID)
-			if err != nil {
-				payableUnavailableProblem(w)
-				return
-			}
-			current, err := payables.LinkEffectiveAmount(r.Context(), conn, l.TransactionID)
-			if err != nil {
-				payableUnavailableProblem(w)
-				return
-			}
+		linkDTOs := make([]linkedTransactionDTO, len(summary.Links))
+		for i, ls := range summary.Links {
 			linkDTOs[i] = linkedTransactionDTO{
-				ID: l.ID, TransactionID: l.TransactionID, OccurredAt: summary.OccurredAt, Description: summary.Description,
-				LinkedAmount: money.CanonicalDecimal(l.LinkedAmount), CurrentAmount: money.CanonicalDecimal(current), LinkedAt: l.LinkedAt,
+				ID: ls.Link.ID, TransactionID: ls.Link.TransactionID,
+				OccurredAt: ls.Transaction.OccurredAt, Description: ls.Transaction.Description,
+				LinkedAmount:  money.CanonicalDecimal(ls.Link.LinkedAmount),
+				CurrentAmount: money.CanonicalDecimal(ls.EffectiveAmount),
+				LinkedAt:      ls.Link.LinkedAt,
 			}
 		}
-		writeJSON(w, http.StatusOK, payableDetailDTO{payableDTO: dto, Links: linkDTOs})
+		writeJSON(w, http.StatusOK, payableDetailDTO{payableDTO: payableToDTO(p, summary), Links: linkDTOs})
 	}
 }
 
@@ -385,7 +347,7 @@ func handleUpdatePayable(conn *sql.DB) http.HandlerFunc {
 			payableUnavailableProblem(w)
 			return
 		}
-		dto, _, err := summarizePayable(r.Context(), conn, p)
+		dto, err := summarizePayable(r.Context(), conn, p)
 		if err != nil {
 			payableUnavailableProblem(w)
 			return

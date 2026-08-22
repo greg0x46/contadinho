@@ -1,4 +1,4 @@
-package payables
+package transactions
 
 import (
 	"testing"

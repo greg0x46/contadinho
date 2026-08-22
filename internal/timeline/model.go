@@ -1,14 +1,24 @@
 // Package timeline builds the single financial timeline series every layer
 // of the "Relatório Financeiro" (cards, chart, drill-down) consumes — see
-// .specs/relatorio-financeiro.md and
-// .specs/relatorio-financeiro/m3-historico-e-situacao-atual.md. Nothing
-// downstream recomputes totals locally: BuildSeries is the one place that
-// merges sources into Entries, so reconciliation across presentation
-// layers is guaranteed by construction rather than by convention.
+// .specs/contextos/relatorio-financeiro/reference.md and
+// .specs/motores-de-dominio.md section 6. Nothing downstream recomputes
+// totals locally: BuildSeries is the one place that merges sources into
+// Entries, so reconciliation across presentation layers is guaranteed by
+// construction rather than by convention.
 //
-// M3 only produces TierRealizado/SourceReal entries (real transactions).
-// M4 adds Confirmado/Projetado (recurring commitments, payable plans); M5
-// adds Hipotético (standalone scenarios).
+// The three sources and the tiers they produce:
+//
+//   - real transactions — Realizado, or Confirmado for a credit-card
+//     purchase re-dated to its bill's due date;
+//   - scenarios — Confirmado for a payable plan's installment (a real
+//     debt/receivable with a planned date), Hipotético for a standalone
+//     "what if" the caller explicitly selected;
+//   - recurring commitments — Projetado, and only for occurrences that no
+//     real transaction has reconciled; a reconciled one is already in the
+//     series as its real transaction.
+//
+// This package knows nothing of payables: a plan's link to one stays
+// encapsulated in scenarios (Scenario.PayableID/Kind).
 package timeline
 
 import (

@@ -1,11 +1,13 @@
-package payables_test
+// This file is an internal test (package payables, not payables_test): it
+// exercises the pure settled/remaining/status math directly, and that math
+// is unexported so nothing outside the package assembles it by hand instead
+// of going through Summarize.
+package payables
 
 import (
 	"testing"
 
 	"github.com/shopspring/decimal"
-
-	"contadinho-go/internal/payables"
 )
 
 func dec(t *testing.T, s string) decimal.Decimal {
@@ -18,45 +20,45 @@ func dec(t *testing.T, s string) decimal.Decimal {
 }
 
 func TestSettledAmountSumsStartingPlusLinks(t *testing.T) {
-	got := payables.SettledAmount(dec(t, "100.00"), []decimal.Decimal{dec(t, "50.00"), dec(t, "25.00")})
+	got := settledAmount(dec(t, "100.00"), []decimal.Decimal{dec(t, "50.00"), dec(t, "25.00")})
 	if !got.Equal(dec(t, "175.00")) {
-		t.Errorf("SettledAmount = %s, want 175.00", got)
+		t.Errorf("settledAmount = %s, want 175.00", got)
 	}
 }
 
 func TestSettledAmountWithNoLinks(t *testing.T) {
-	got := payables.SettledAmount(dec(t, "100.00"), nil)
+	got := settledAmount(dec(t, "100.00"), nil)
 	if !got.Equal(dec(t, "100.00")) {
-		t.Errorf("SettledAmount = %s, want 100.00", got)
+		t.Errorf("settledAmount = %s, want 100.00", got)
 	}
 }
 
 func TestRemainingAmountClampedToZero(t *testing.T) {
-	got := payables.RemainingAmount(dec(t, "100.00"), dec(t, "150.00"))
+	got := remainingAmount(dec(t, "100.00"), dec(t, "150.00"))
 	if !got.IsZero() {
-		t.Errorf("RemainingAmount = %s, want 0 (overpaid clamps to zero)", got)
+		t.Errorf("remainingAmount = %s, want 0 (overpaid clamps to zero)", got)
 	}
 }
 
 func TestRemainingAmountClampedToTotal(t *testing.T) {
-	got := payables.RemainingAmount(dec(t, "100.00"), dec(t, "-10.00"))
+	got := remainingAmount(dec(t, "100.00"), dec(t, "-10.00"))
 	if !got.Equal(dec(t, "100.00")) {
-		t.Errorf("RemainingAmount = %s, want 100.00 (negative settled clamps to total)", got)
+		t.Errorf("remainingAmount = %s, want 100.00 (negative settled clamps to total)", got)
 	}
 }
 
 func TestRemainingAmountNormalCase(t *testing.T) {
-	got := payables.RemainingAmount(dec(t, "1000.00"), dec(t, "400.00"))
+	got := remainingAmount(dec(t, "1000.00"), dec(t, "400.00"))
 	if !got.Equal(dec(t, "600.00")) {
-		t.Errorf("RemainingAmount = %s, want 600.00", got)
+		t.Errorf("remainingAmount = %s, want 600.00", got)
 	}
 }
 
 func TestStatusForSettledOnlyWhenExactlyZeroRemaining(t *testing.T) {
-	if payables.StatusFor(dec(t, "0")) != payables.StatusSettled {
+	if statusFor(dec(t, "0")) != StatusSettled {
 		t.Error("zero remaining should be settled")
 	}
-	if payables.StatusFor(dec(t, "0.01")) != payables.StatusOpen {
+	if statusFor(dec(t, "0.01")) != StatusOpen {
 		t.Error("any positive remaining should be open")
 	}
 }

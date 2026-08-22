@@ -84,8 +84,8 @@ func (f *fixture) addInvestment(balance string) string {
 }
 
 // addCardTransaction inserts a financial_transactions row on accountID,
-// shaped for payables.CreditCardTransactionTotal's cycle math (occurred_at,
-// movement_type, POSTED status — all it filters on).
+// shaped for transactions.CreditCardTransactionTotal's cycle math
+// (occurred_at, movement_type, POSTED status — all it filters on).
 func (f *fixture) addCardTransaction(accountID string, occurredAt time.Time, amount, movementType string) string {
 	f.t.Helper()
 	id := uuid.NewString()
@@ -102,7 +102,7 @@ func (f *fixture) addCardTransaction(accountID string, occurredAt time.Time, amo
 // addBill inserts a financial_bills row and — when billExternalID is set —
 // tags transactionID's credit_card_metadata with it, mirroring
 // internal/httpapi/server_test.go's insertBillForTransaction fixture used to
-// test payables.CreditCardTransactionTotal's HTTP-facing twin
+// test transactions.CreditCardTransactionTotal's HTTP-facing twin
 // (handlePayableTotalOwed).
 func (f *fixture) addBill(accountID, billExternalID string, closingDate time.Time, transactionID string) {
 	f.t.Helper()
@@ -182,7 +182,7 @@ func TestComputeSumsCashInvestmentsAndPayables(t *testing.T) {
 
 // TestComputeCreditCardIgnoresRawAccountBalance guards the bug the homepage
 // mismatch surfaced: CreditCardBalance must come from
-// payables.CreditCardTransactionTotal's bill-cycle transaction total, not
+// transactions.CreditCardTransactionTotal's bill-cycle transaction total, not
 // financial_accounts.balance. Without any financial_bills rows there is no
 // reliable cycle, so the correct answer is 0 even though the account's raw
 // provider balance is nonzero.
@@ -199,7 +199,7 @@ func TestComputeCreditCardIgnoresRawAccountBalance(t *testing.T) {
 
 // TestComputeCreditCardMatchesCurrentBillCycleTransactions proves
 // CreditCardBalance agrees with the same math the homepage's "Dívida
-// total" widget uses (payables.CreditCardTransactionTotal): a historical
+// total" widget uses (transactions.CreditCardTransactionTotal): a historical
 // closing plus the next (current-cycle) closing bound a window, and only
 // the debit transaction assigned to the current-cycle bill counts.
 func TestComputeCreditCardMatchesCurrentBillCycleTransactions(t *testing.T) {

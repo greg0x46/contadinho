@@ -47,7 +47,7 @@ type Payable struct {
 // Link mirrors PayableTransactionLink's persisted fields. LinkedAmount is a
 // snapshot taken when the link was created (shown to the user as
 // "linked_amount"); it is deliberately NOT what settled_amount sums — that
-// uses each link's live, recomputed amount (LinkEffectiveAmount) instead,
+// uses each link's live, recomputed amount (linkEffectiveAmount) instead,
 // so a later sync correcting the transaction's amount is reflected without
 // needing to touch this row.
 type Link struct {
@@ -58,11 +58,12 @@ type Link struct {
 	LinkedAt      time.Time
 }
 
-// SettledAmount mirrors settled_amount, given the payable's
+// settledAmount mirrors settled_amount, given the payable's
 // starting_settled_amount and each linked transaction's current effective
-// amount (from LinkEffectiveAmount) — never the links' stored LinkedAmount
-// snapshots.
-func SettledAmount(startingSettledAmount decimal.Decimal, currentLinkAmounts []decimal.Decimal) decimal.Decimal {
+// amount (from linkEffectiveAmount) — never the links' stored LinkedAmount
+// snapshots. Unexported: Summarize is this package's one entry point for
+// derived state, so nothing outside assembles these pieces itself.
+func settledAmount(startingSettledAmount decimal.Decimal, currentLinkAmounts []decimal.Decimal) decimal.Decimal {
 	total := startingSettledAmount
 	for _, amount := range currentLinkAmounts {
 		total = total.Add(amount)
@@ -70,10 +71,10 @@ func SettledAmount(startingSettledAmount decimal.Decimal, currentLinkAmounts []d
 	return total
 }
 
-// RemainingAmount mirrors remaining_amount: clamped to [0, totalAmount] so
+// remainingAmount mirrors remaining_amount: clamped to [0, totalAmount] so
 // an over-payment/over-receipt (or a starting_settled_amount edited after
 // the fact) never reports negative or more than 100% remaining.
-func RemainingAmount(totalAmount, settledAmount decimal.Decimal) decimal.Decimal {
+func remainingAmount(totalAmount, settledAmount decimal.Decimal) decimal.Decimal {
 	remaining := totalAmount.Sub(settledAmount)
 	if remaining.IsNegative() {
 		return decimal.Zero
@@ -84,8 +85,8 @@ func RemainingAmount(totalAmount, settledAmount decimal.Decimal) decimal.Decimal
 	return remaining
 }
 
-// StatusFor mirrors payable_status.
-func StatusFor(remainingAmount decimal.Decimal) Status {
+// statusFor mirrors payable_status.
+func statusFor(remainingAmount decimal.Decimal) Status {
 	if remainingAmount.IsZero() {
 		return StatusSettled
 	}

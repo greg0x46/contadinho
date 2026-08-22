@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+
+	"contadinho-go/internal/dates"
 )
 
 // Occurrence is one expected instance of a RecurringCommitment on the
@@ -13,16 +15,12 @@ type Occurrence struct {
 	ExpectedAmount decimal.Decimal
 }
 
-func daysInMonth(year int, month time.Month) int {
-	return time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
-}
-
 // occurrenceDate clamps DayOfMonth to the last day of a short month (e.g.
 // day 31 in February becomes the 28th or 29th), matching how a real
 // calendar bill actually lands.
 func occurrenceDate(year int, month time.Month, dayOfMonth int) time.Time {
 	day := dayOfMonth
-	if last := daysInMonth(year, month); day > last {
+	if last := dates.DaysInMonth(year, month); day > last {
 		day = last
 	}
 	return time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
@@ -45,15 +43,15 @@ func OccurrencesInRange(commitment RecurringCommitment, from, to time.Time) []Oc
 			continue
 		}
 		date := occurrenceDate(cursor.Year(), cursor.Month(), commitment.DayOfMonth)
-		if date.Before(dateOnly(commitment.StartDate)) {
+		if date.Before(dates.Day(commitment.StartDate)) {
 			cursor = cursor.AddDate(0, 1, 0)
 			continue
 		}
-		if commitment.EndDate != nil && date.After(dateOnly(*commitment.EndDate)) {
+		if commitment.EndDate != nil && date.After(dates.Day(*commitment.EndDate)) {
 			cursor = cursor.AddDate(0, 1, 0)
 			continue
 		}
-		if date.Before(dateOnly(from)) || date.After(dateOnly(to)) {
+		if date.Before(dates.Day(from)) || date.After(dates.Day(to)) {
 			cursor = cursor.AddDate(0, 1, 0)
 			continue
 		}
@@ -61,8 +59,4 @@ func OccurrencesInRange(commitment RecurringCommitment, from, to time.Time) []Oc
 		cursor = cursor.AddDate(0, 1, 0)
 	}
 	return occurrences
-}
-
-func dateOnly(t time.Time) time.Time {
-	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }

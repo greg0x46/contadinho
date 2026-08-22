@@ -52,6 +52,15 @@ func newDebt(t *testing.T, conn *sql.DB) payables.Payable {
 	return d
 }
 
+func newReceivable(t *testing.T, conn *sql.DB) payables.Payable {
+	t.Helper()
+	r, err := payables.Create(context.Background(), conn, payables.KindReceivable, "Freela", dec(t, "800.00"), dec(t, "800.00"))
+	if err != nil {
+		t.Fatalf("payables.Create: %v", err)
+	}
+	return r
+}
+
 func TestCreateGetListDeleteScenario(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()

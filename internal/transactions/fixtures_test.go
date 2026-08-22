@@ -54,11 +54,14 @@ func (f *fixture) exec(query string, args ...any) {
 }
 
 // account is the input to addAccount; zero-value optional fields stay NULL.
+// A nil AccountType is the "provider never told us" case CashOnHand has to
+// treat as non-credit.
 type account struct {
 	Name         *string
 	Institution  *string
 	CurrencyCode *string
 	AccountType  *string
+	Balance      *string
 }
 
 func (f *fixture) addAccount(a account) string {
@@ -66,10 +69,11 @@ func (f *fixture) addAccount(a account) string {
 	id := uuid.NewString()
 	now := db.FormatTime(time.Now())
 	f.exec(`INSERT INTO financial_accounts (
-			id, source_id, external_id, name, institution, currency_code, account_type,
+			id, source_id, external_id, name, institution, currency_code, account_type, balance,
 			current_raw_import_id, normalized_hash, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'hash', ?, ?)`,
-		id, f.sourceID, id, a.Name, a.Institution, a.CurrencyCode, a.AccountType, f.rawImportID, now, now)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'hash', ?, ?)`,
+		id, f.sourceID, id, a.Name, a.Institution, a.CurrencyCode, a.AccountType, a.Balance,
+		f.rawImportID, now, now)
 	return id
 }
 

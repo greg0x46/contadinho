@@ -2,8 +2,8 @@
 // minus liabilities) over time. There is no background worker: a snapshot
 // for "today" is written on every read (Snapshot, called from the HTTP
 // handler before List), which is enough for a self-hosted app used
-// sporadically — see internal/timeline's startingBalance for the same
-// financial_accounts conventions this package reuses.
+// sporadically. The cash figure comes from transactions.CashOnHand, the
+// same implementation internal/timeline anchors its series on.
 package networth
 
 import (
@@ -25,7 +25,7 @@ import (
 // it's ever collected on the other side, so it stays a liability.
 //
 // CreditCardBalance is the current bill cycle's eligible transaction total
-// (payables.CreditCardTransactionTotal), not financial_accounts.balance —
+// (transactions.CreditCardTransactionTotal), not financial_accounts.balance —
 // the same figure the homepage's "Dívida total" widget folds in as
 // future_installments_total, so the two pages agree.
 //

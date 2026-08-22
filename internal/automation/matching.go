@@ -4,7 +4,7 @@
 // across every existing one) to act on transactions automatically.
 //
 // The condition-matching primitives below are aliases of internal/rules —
-// see .specs/relatorio-financeiro/m0-motor-de-regras.md. A rule whose only
+// see .specs/motores-de-dominio.md sections 2-3. A rule whose only
 // action is "ignore" only ever populates the description/card/account
 // fields of MatchCandidate and only ever writes contains/equals conditions.
 // The amount field (within_percent) and day_of_month field (day_range) are

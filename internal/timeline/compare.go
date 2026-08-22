@@ -53,19 +53,19 @@ type Impact struct {
 
 // ScenarioImpact runs BuildSeries with exactly [scenarioID] active (in
 // addition to base's own filters) and returns the delta in final balance
-// against a Base built with no scenarios — cheap relative to the
-// simulation-with-everything call since it's just one more BuildSeries per
-// active scenario (see build.go/m5 spec: acceptable for the handful of
-// scenarios a user realistically activates at once).
-func ScenarioImpact(ctx context.Context, q Querier, base BuildParams, scenarioID string) (Impact, error) {
+// against baseSeries — one BuildSeries per scenario, so a handler comparing
+// several of them at once pays for each scenario and not for rebuilding the
+// Base alongside every one.
+//
+// baseSeries must be what BuildSeries returns for base with ScenarioIDs
+// cleared — same filters, same window, no scenarios. That is a contract
+// this function cannot check: a baseSeries built with different filters
+// would still subtract cleanly and report a plausible, wrong delta. Every
+// caller that wants impacts already renders the Base, so it holds exactly
+// that series; base.ScenarioIDs itself is ignored here and replaced with
+// the one scenario being measured.
+func ScenarioImpact(ctx context.Context, q Querier, base BuildParams, baseSeries Series, scenarioID string) (Impact, error) {
 	scenario, err := scenarios.GetScenario(ctx, q, scenarioID)
-	if err != nil {
-		return Impact{}, err
-	}
-
-	baseParams := base
-	baseParams.ScenarioIDs = nil
-	baseSeries, err := BuildSeries(ctx, q, baseParams)
 	if err != nil {
 		return Impact{}, err
 	}

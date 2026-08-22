@@ -178,8 +178,8 @@ func TestBackfillNeverOverwritesAnExistingSnapshot(t *testing.T) {
 }
 
 // TestBackfillReconstructsCreditCardDebtFromBillCycle reuses
-// payables.CreditCardTransactionTotalAt's arbitrary-reference-date support:
-// a card debit assigned to a past bill counts toward that day's
+// transactions.CreditCardTransactionTotalAt's arbitrary-reference-date
+// support: a card debit assigned to a past bill counts toward that day's
 // CreditCardBalance the same way it counts toward today's.
 func TestBackfillReconstructsCreditCardDebtFromBillCycle(t *testing.T) {
 	f := newFixture(t)

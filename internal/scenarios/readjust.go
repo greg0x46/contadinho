@@ -47,9 +47,9 @@ var ErrInvalidStrategy = errors.New("invalid readjustment strategy")
 // remainingAmount − Σ(amount − realizedTotal) of the installments left
 // untouched — every installment with *any* allocation, even partial, is
 // preserved exactly as-is and never touched here. remainingAmount is the
-// caller-supplied payables.RemainingAmount for the scenario's payable; this
-// package has no dependency on internal/payables, so it's passed in rather
-// than recomputed here.
+// caller-supplied remaining amount for the scenario's payable (see
+// payables.Summarize); this package has no dependency on internal/payables,
+// so it's passed in rather than recomputed here.
 func Readjust(ctx context.Context, conn *sql.DB, scenarioID string, remainingAmount decimal.Decimal, strategy ReadjustStrategy) ([]ScenarioTransaction, error) {
 	if strategy != StrategyReduceTerm && strategy != StrategyRedistribute {
 		return nil, ErrInvalidStrategy
@@ -60,16 +60,24 @@ func Readjust(ctx context.Context, conn *sql.DB, scenarioID string, remainingAmo
 		return nil, err
 	}
 
+	ids := make([]string, len(list))
+	for i, st := range list {
+		ids[i] = st.ID
+	}
+	// One load of the whole scenario's allocations decides both which
+	// installments are replaceable and how much the kept ones reserve.
+	realizations, err := realizationsFor(ctx, conn, ids)
+	if err != nil {
+		return nil, err
+	}
+
 	var affected []ScenarioTransaction
 	reserved := decimal.Zero
 	for _, st := range list {
-		realizedTotal, err := RealizedTotal(ctx, conn, st.ID)
-		if err != nil {
-			return nil, err
-		}
-		if realizedTotal.IsZero() {
+		realized := sumAllocated(realizations[st.ID])
+		if realized.IsZero() {
 			affected = append(affected, st)
-		} else if shortfall := st.Amount.Sub(realizedTotal); shortfall.IsPositive() {
+		} else if shortfall := st.Amount.Sub(realized); shortfall.IsPositive() {
 			// Only an unpaid shortfall needs to be reserved so it isn't
 			// double-counted against remainingAmount. An overpaid kept
 			// installment (shortfall negative) must NOT reduce reserved

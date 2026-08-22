@@ -7,7 +7,6 @@ import (
 
 	"contadinho-go/internal/categories"
 	"contadinho-go/internal/money"
-	"contadinho-go/internal/syncsvc"
 	"contadinho-go/internal/transactions"
 )
 
@@ -81,7 +80,7 @@ func isReconcileOnlyRule(rule Rule) bool {
 // transaction. A rule whose only action is "reconcile" is skipped here
 // entirely — see isReconcileOnlyRule. Despite the name, it also runs for a
 // resync's update path (see NewTransactionHook below and
-// syncsvc.TransactionUpsertedHook) so a transaction that starts out
+// transactions.UpsertedHook) so a transaction that starts out
 // matching no rule gets re-evaluated once a later sync changes a field a
 // rule cares about — applyInclusion (package transactions) and
 // categories.ApplyRule already refuse to let a rule-origin decision
@@ -124,9 +123,9 @@ func ApplyToNewTransaction(
 }
 
 // NewTransactionHook adapts ApplyToNewTransaction to
-// syncsvc.TransactionUpsertedHook, closing over onIgnored (the
-// payable-unlink hook from package payables; nil is a valid no-op).
-func NewTransactionHook(onIgnored transactions.OnIgnoredHook) syncsvc.TransactionUpsertedHook {
+// transactions.UpsertedHook, closing over onIgnored (the payable-unlink
+// hook from package payables; nil is a valid no-op).
+func NewTransactionHook(onIgnored transactions.OnIgnoredHook) transactions.UpsertedHook {
 	return func(ctx context.Context, conn *sql.DB, transactionID, _ string) error {
 		return ApplyToNewTransaction(ctx, conn, transactionID, onIgnored)
 	}

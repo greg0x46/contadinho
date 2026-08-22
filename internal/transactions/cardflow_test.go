@@ -1,38 +1,20 @@
-package payables_test
+package transactions_test
 
 import (
 	"context"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/payables"
+	"contadinho-go/internal/transactions"
 )
-
-func (f *fixture) addBill(accountID, externalID, dueDate string) {
-	f.t.Helper()
-	id := uuid.NewString()
-	now := db.FormatTime(time.Now())
-	due, err := time.Parse("2006-01-02", dueDate)
-	if err != nil {
-		f.t.Fatal(err)
-	}
-	f.exec(`INSERT INTO financial_bills (
-			id, source_id, account_id, external_id, due_date,
-			current_raw_import_id, normalized_hash, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, 'hash', ?, ?)`,
-		id, f.sourceID, accountID, externalID, db.FormatTime(due), f.rawImportID, now, now)
-}
 
 func TestProjectedEntryDateByBillID(t *testing.T) {
 	f := newFixture(t)
-	account := f.addAccount("BRL")
-	f.addBill(account, "bill-1", "2026-08-10")
-	f.addBill(account, "bill-2", "2026-09-10")
+	account := f.addAccount(account{CurrencyCode: strp("BRL")})
+	f.addBill(bill{AccountID: account, ExternalID: "bill-1", DueDate: time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)})
+	f.addBill(bill{AccountID: account, ExternalID: "bill-2", DueDate: time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)})
 
-	dueDates, err := payables.FetchCardDueDates(context.Background(), f.conn)
+	dueDates, err := transactions.FetchCardDueDates(context.Background(), f.conn)
 	if err != nil {
 		t.Fatalf("FetchCardDueDates: %v", err)
 	}
@@ -47,11 +29,11 @@ func TestProjectedEntryDateByBillID(t *testing.T) {
 
 func TestProjectedEntryDateByForecastMonth(t *testing.T) {
 	f := newFixture(t)
-	account := f.addAccount("BRL")
-	f.addBill(account, "bill-1", "2026-08-10")
-	f.addBill(account, "bill-2", "2026-09-10")
+	account := f.addAccount(account{CurrencyCode: strp("BRL")})
+	f.addBill(bill{AccountID: account, ExternalID: "bill-1", DueDate: time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)})
+	f.addBill(bill{AccountID: account, ExternalID: "bill-2", DueDate: time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)})
 
-	dueDates, err := payables.FetchCardDueDates(context.Background(), f.conn)
+	dueDates, err := transactions.FetchCardDueDates(context.Background(), f.conn)
 	if err != nil {
 		t.Fatalf("FetchCardDueDates: %v", err)
 	}
@@ -67,10 +49,10 @@ func TestProjectedEntryDateByForecastMonth(t *testing.T) {
 
 func TestProjectedEntryDateInfersCadenceBeyondKnownBills(t *testing.T) {
 	f := newFixture(t)
-	account := f.addAccount("BRL")
-	f.addBill(account, "bill-1", "2026-08-10")
+	account := f.addAccount(account{CurrencyCode: strp("BRL")})
+	f.addBill(bill{AccountID: account, ExternalID: "bill-1", DueDate: time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)})
 
-	dueDates, err := payables.FetchCardDueDates(context.Background(), f.conn)
+	dueDates, err := transactions.FetchCardDueDates(context.Background(), f.conn)
 	if err != nil {
 		t.Fatalf("FetchCardDueDates: %v", err)
 	}
@@ -87,10 +69,10 @@ func TestProjectedEntryDateInfersCadenceBeyondKnownBills(t *testing.T) {
 
 func TestProjectedEntryDateNoMetadataFallsBackToNextInferredDueDate(t *testing.T) {
 	f := newFixture(t)
-	account := f.addAccount("BRL")
-	f.addBill(account, "bill-1", "2026-08-31") // day 31, a short-month edge case
+	account := f.addAccount(account{CurrencyCode: strp("BRL")})
+	f.addBill(bill{AccountID: account, ExternalID: "bill-1", DueDate: time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC)}) // day 31, a short-month edge case
 
-	dueDates, err := payables.FetchCardDueDates(context.Background(), f.conn)
+	dueDates, err := transactions.FetchCardDueDates(context.Background(), f.conn)
 	if err != nil {
 		t.Fatalf("FetchCardDueDates: %v", err)
 	}
@@ -106,11 +88,10 @@ func TestProjectedEntryDateNoMetadataFallsBackToNextInferredDueDate(t *testing.T
 
 func TestCreditAccountIDs(t *testing.T) {
 	f := newFixture(t)
-	checking := f.addAccount("BRL")
-	card := f.addAccount("BRL")
-	f.exec(`UPDATE financial_accounts SET account_type = 'CREDIT' WHERE id = ?`, card)
+	checking := f.addAccount(account{CurrencyCode: strp("BRL")})
+	card := f.addAccount(account{CurrencyCode: strp("BRL"), AccountType: strp("CREDIT")})
 
-	ids, err := payables.CreditAccountIDs(context.Background(), f.conn)
+	ids, err := transactions.CreditAccountIDs(context.Background(), f.conn)
 	if err != nil {
 		t.Fatalf("CreditAccountIDs: %v", err)
 	}

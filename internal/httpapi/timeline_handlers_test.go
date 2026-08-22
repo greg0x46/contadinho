@@ -84,6 +84,12 @@ func TestTimelineWithScenarioIDsReturnsSimulationAndImpacts(t *testing.T) {
 	srv, conn := newTestServer(t)
 
 	txID := insertTransaction(t, conn)
+	// Pin occurred_at before reference_date, the way every other timeline
+	// test here does: insertTransaction defaults to time.Now(), and a real
+	// transaction landing after the reference date would shift the base
+	// series' final balance, making the scenario no longer "the only source
+	// of difference" this test asserts on.
+	setCardDebtTransaction(t, conn, txID, time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC), "-42.00", "DEBIT", nil)
 	var accountID string
 	if err := conn.QueryRow(`SELECT account_id FROM financial_transactions WHERE id = ?`, txID).Scan(&accountID); err != nil {
 		t.Fatalf("account id: %v", err)

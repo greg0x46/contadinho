@@ -5,7 +5,7 @@ import "contadinho-go/internal/rules"
 // conditionDTO is the wire shape of a rules.Condition, shared by
 // automation_handlers.go and recurrences_handlers.go — both now compose
 // reconciliation/matching rules from the same internal/rules primitives
-// (see .specs/relatorio-financeiro/m0-motor-de-regras.md).
+// (see .specs/motores-de-dominio.md section 2).
 type conditionDTO struct {
 	Field    string `json:"field"`
 	Operator string `json:"operator"`

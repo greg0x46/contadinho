@@ -3,7 +3,6 @@ package httpapi
 import (
 	"database/sql"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -93,16 +92,11 @@ func netContributed(conn *sql.DB, investmentIDs []string) (map[string]contributi
 	if len(investmentIDs) == 0 {
 		return map[string]contributionInfo{}, nil
 	}
-	placeholders := strings.Repeat("?,", len(investmentIDs))
-	placeholders = placeholders[:len(placeholders)-1]
-	args := make([]any, len(investmentIDs))
-	for i, id := range investmentIDs {
-		args[i] = id
-	}
+	in, args := db.InClause(investmentIDs)
 	rows, err := conn.Query(`
 		SELECT investment_id, movement_type, amount
 		FROM financial_investment_transactions
-		WHERE investment_id IN (`+placeholders+`) AND amount IS NOT NULL`, args...)
+		WHERE investment_id IN (`+in+`) AND amount IS NOT NULL`, args...)
 	if err != nil {
 		return nil, err
 	}

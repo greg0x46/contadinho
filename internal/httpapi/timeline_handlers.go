@@ -285,8 +285,12 @@ func handleGetTimeline(conn *sql.DB) http.HandlerFunc {
 			simulationDTO := timelineSeriesToDTO(simulationSeries)
 			response.Simulation = &simulationDTO
 
+			// baseParams carries no ScenarioIDs and `series` was built from
+			// it, which is exactly ScenarioImpact's contract — so each
+			// impact costs one BuildSeries instead of rebuilding the Base
+			// alongside it.
 			for _, scenarioID := range scenarioIDs {
-				impact, err := timeline.ScenarioImpact(r.Context(), conn, baseParams, scenarioID)
+				impact, err := timeline.ScenarioImpact(r.Context(), conn, baseParams, series, scenarioID)
 				if err != nil {
 					timelineUnavailableProblem(w)
 					return

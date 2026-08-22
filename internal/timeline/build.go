@@ -10,8 +10,8 @@ import (
 
 	"contadinho-go/internal/automation"
 	"contadinho-go/internal/categories"
+	"contadinho-go/internal/dates"
 	"contadinho-go/internal/money"
-	"contadinho-go/internal/payables"
 	"contadinho-go/internal/recurrences"
 	"contadinho-go/internal/scenarios"
 	"contadinho-go/internal/transactions"
@@ -26,7 +26,7 @@ type Querier = transactions.Querier
 // ignored), AccountIDs/CategoryIDs/CardNumbers empty means "no filter".
 // ScenarioIDs is stricter: empty means "no hypothetical entries at all",
 // never "all scenarios" — an inactive (unselected) standalone scenario must
-// never leak into a Series (see m5-simulacao-com-cenarios.md's seção 30).
+// never leak into a Series (see .specs/motores-de-dominio.md, princípio 3).
 type BuildParams struct {
 	From, To      time.Time
 	ReferenceDate time.Time
@@ -36,10 +36,6 @@ type BuildParams struct {
 	ScenarioIDs   []string
 }
 
-func dayOnly(t time.Time) time.Time {
-	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
-}
-
 func contains(list []string, value string) bool {
 	for _, v := range list {
 		if v == value {
@@ -47,49 +43,6 @@ func contains(list []string, value string) bool {
 		}
 	}
 	return false
-}
-
-// startingBalance sums financial_accounts.balance, optionally scoped to
-// accountIDs — the timeline's t=today anchor, always the provider's
-// authoritative balance, never recomputed locally. Credit card accounts are
-// excluded: their balance is owed debt, not cash on hand.
-func startingBalance(ctx context.Context, q Querier, accountIDs []string) (decimal.Decimal, error) {
-	query := `SELECT balance FROM financial_accounts WHERE balance IS NOT NULL AND (account_type IS NULL OR account_type != 'CREDIT')`
-	args := []any{}
-	if len(accountIDs) > 0 {
-		placeholders := make([]string, len(accountIDs))
-		for i, id := range accountIDs {
-			placeholders[i] = "?"
-			args = append(args, id)
-		}
-		query += ` AND id IN (` + joinPlaceholders(placeholders) + `)`
-	}
-	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return decimal.Decimal{}, err
-	}
-	defer rows.Close()
-	total := decimal.Zero
-	for rows.Next() {
-		var raw string
-		if err := rows.Scan(&raw); err != nil {
-			return decimal.Decimal{}, err
-		}
-		amount, err := decimal.NewFromString(raw)
-		if err != nil {
-			return decimal.Decimal{}, fmt.Errorf("parse account balance %q: %w", raw, err)
-		}
-		total = total.Add(amount)
-	}
-	return total, rows.Err()
-}
-
-func joinPlaceholders(placeholders []string) string {
-	out := placeholders[0]
-	for _, p := range placeholders[1:] {
-		out += "," + p
-	}
-	return out
 }
 
 // eligibleRealItems loads real transactions in [from, to], applying the
@@ -144,9 +97,9 @@ func eligibleRealItems(ctx context.Context, q Querier, from, to time.Time, accou
 // purchase already happened, but the cash only leaves the paying account
 // when the bill is due, so their entry is dated (and ranked) as
 // TierConfirmado at the projected due date instead of occurred_at — see
-// payables.CardDueDates.ProjectedEntryDate.
+// transactions.CardDueDates.ProjectedEntryDate.
 func realEntries(ctx context.Context, q Querier, items []transactions.Item) ([]Entry, error) {
-	creditAccounts, err := payables.CreditAccountIDs(ctx, q)
+	creditAccounts, err := transactions.CreditAccountIDs(ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -156,13 +109,13 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item) ([]E
 			transactionIDs = append(transactionIDs, item.ID)
 		}
 	}
-	cardMetadata, err := payables.CardMetadataByTransaction(ctx, q, transactionIDs)
+	cardMetadata, err := transactions.CardMetadataByTransaction(ctx, q, transactionIDs)
 	if err != nil {
 		return nil, err
 	}
-	var dueDates payables.CardDueDates
+	var dueDates transactions.CardDueDates
 	if len(transactionIDs) > 0 {
-		dueDates, err = payables.FetchCardDueDates(ctx, q)
+		dueDates, err = transactions.FetchCardDueDates(ctx, q)
 		if err != nil {
 			return nil, err
 		}
@@ -181,7 +134,7 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item) ([]E
 			amount = amount.Neg()
 		}
 		var categoryID *string
-		categoryName := "Sem categoria"
+		categoryName := noCategoryName
 		if item.InternalCategory != nil {
 			categoryID = &item.InternalCategory.ID
 			categoryName = item.InternalCategory.Name
@@ -190,10 +143,10 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item) ([]E
 		if item.Description != nil {
 			description = *item.Description
 		}
-		date := dayOnly(*item.OccurredAt)
+		date := dates.Day(*item.OccurredAt)
 		tier := TierRealizado
 		if creditAccounts[item.Account.ID] {
-			date = dayOnly(dueDates.ProjectedEntryDate(item.Account.ID, *item.OccurredAt, cardMetadata[item.ID]))
+			date = dates.Day(dueDates.ProjectedEntryDate(item.Account.ID, *item.OccurredAt, cardMetadata[item.ID]))
 			tier = TierConfirmado
 		}
 		entries = append(entries, Entry{
@@ -210,85 +163,57 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item) ([]E
 	return entries, nil
 }
 
-// payablePlanEntries scans every Scenario{Kind: debt_plan|receivable_plan}
-// and its unrealized ScenarioTransactions within [from, to] — Tier
-// Confirmado, since it's a real debt/receivable with a planned date, not a
-// hypothesis. Amount's sign follows the backing Payable's Kind (debt =
-// outflow, receivable = inflow).
+// payablePlanEntries projects the unrealized installments of every
+// payable-backed plan in [from, to] — Tier Confirmado, since it's a real
+// debt/receivable with a planned date, not a hypothesis.
+//
+// The plan's cash-flow direction and its link to a Payable both stay inside
+// package scenarios (Scenario.PayableID/Kind): this package deliberately
+// does not know payables at all, per .specs/motores-de-dominio.md section 6.
 func payablePlanEntries(ctx context.Context, q Querier, from, to time.Time) ([]Entry, error) {
-	plans, err := scenarios.ListPayablePlanScenarios(ctx, q)
+	installments, err := scenarios.ListPlanInstallments(ctx, q, from, to)
 	if err != nil {
 		return nil, err
 	}
-
-	payableKind := map[string]payables.Kind{}
-	var entries []Entry
-	for _, plan := range plans {
-		if plan.PayableID == nil {
-			continue
+	entries := make([]Entry, 0, len(installments))
+	for _, installment := range installments {
+		categoryName := noCategoryName
+		if installment.Category != nil && *installment.Category != "" {
+			categoryName = *installment.Category
 		}
-		kind, cached := payableKind[*plan.PayableID]
-		if !cached {
-			p, err := payables.Get(ctx, q, *plan.PayableID)
-			if err != nil {
-				return nil, err
-			}
-			kind = p.Kind
-			payableKind[*plan.PayableID] = kind
-		}
-
-		installments, err := scenarios.ListScenarioTransactions(ctx, q, plan.ID)
-		if err != nil {
-			return nil, err
-		}
-		for _, installment := range installments {
-			day := dayOnly(installment.ProjectedAt)
-			if day.Before(from) || day.After(to) {
-				continue
-			}
-			realizations, err := scenarios.ListRealizationsForTransaction(ctx, q, installment.ID)
-			if err != nil {
-				return nil, err
-			}
-			realizedTotal := decimal.Zero
-			for _, r := range realizations {
-				realizedTotal = realizedTotal.Add(r.AllocatedAmount)
-			}
-			if !realizedTotal.IsZero() {
-				continue // already (at least partly) realized — the real transaction already carries it, via realEntries
-			}
-
-			amount := installment.Amount
-			if kind == payables.KindDebt {
-				amount = amount.Neg()
-			}
-			categoryName := "Sem categoria"
-			if installment.Category != nil && *installment.Category != "" {
-				categoryName = *installment.Category
-			}
-			entries = append(entries, Entry{
-				Date:         day,
-				Description:  installment.Description,
-				Amount:       amount,
-				CategoryName: categoryName,
-				Tier:         TierConfirmado,
-				Source:       SourcePayablePlan,
-				SourceRefID:  installment.ID,
-			})
-		}
+		entries = append(entries, Entry{
+			Date:         installment.ProjectedAt,
+			Description:  installment.Description,
+			Amount:       installment.Amount,
+			CategoryName: categoryName,
+			Tier:         TierConfirmado,
+			Source:       SourcePayablePlan,
+			SourceRefID:  installment.TransactionID,
+		})
 	}
 	return entries, nil
 }
 
-// recurrenceEntries produces one Entry per RecurringCommitment occurrence
-// in [from, to] for every active commitment: Confirmado either way, using
-// the real transaction's own amount if ResolveOccurrence found one already
-// posted this cycle (still "confirmed", just with the actual value), or the
-// commitment's expected amount if not — never a second query, reconciled
-// against the same realCandidates realEntries already loaded. A commitment
-// with no linked automation rule (see internal/automation.
-// ListActiveReconcileTargets) has nothing to resolve against, so its
-// occurrences always keep the expected amount — this is what lets a
+// recurrenceEntries produces one Entry per *unreconciled* RecurringCommitment
+// occurrence in [from, to] for every active commitment, at Tier Projetado:
+// the occurrence is scheduled and carries its expected amount, but nothing
+// real has been observed for it yet.
+//
+// An occurrence that ResolveOccurrence matches to a real transaction emits
+// no Entry at all — the real transaction is already in the series via
+// realEntries, and emitting the occurrence too would count the same money
+// twice. This mirrors payablePlanEntries' treatment of a realized
+// installment.
+//
+// Candidates are scoped to the occurrence's own calendar month, which is
+// what recurrences.ResolveOccurrence's contract requires: its conditions
+// (amount, day-of-month) are month-agnostic, so an unscoped candidate list
+// would let one month's transaction reconcile every other month's
+// occurrence.
+//
+// A commitment with no linked automation rule (see
+// internal/automation.ListActiveReconcileTargets) has nothing to resolve
+// against, so its occurrences are always emitted — this is what lets a
 // recurring commitment exist independent of any automation.
 func recurrenceEntries(ctx context.Context, q Querier, from, to time.Time, realCandidates []transactions.Item) ([]Entry, error) {
 	commitments, err := recurrences.ListActive(ctx, q)
@@ -313,46 +238,61 @@ func recurrenceEntries(ctx context.Context, q Querier, from, to time.Time, realC
 			name = cat.Name
 			categoryName[commitment.CategoryID] = name
 		}
-		candidates := make([]transactions.Item, 0, len(realCandidates))
-		for _, item := range realCandidates {
-			if item.InternalCategory == nil || item.InternalCategory.ID != commitment.CategoryID {
-				continue
-			}
-			if commitment.AccountID != nil && item.Account.ID != *commitment.AccountID {
-				continue
-			}
-			candidates = append(candidates, item)
+		rule, hasRule := reconcileTargets[commitment.ID]
+		var candidatesByMonth map[time.Time][]transactions.Item
+		if hasRule {
+			candidatesByMonth = candidatesByMonthFor(commitment, realCandidates)
 		}
 
 		for _, occurrence := range recurrences.OccurrencesInRange(commitment, from, to) {
-			amount := occurrence.ExpectedAmount
-			sourceRefID := commitment.ID + ":" + occurrence.Date.Format("2006-01-02")
-			if rule, hasRule := reconcileTargets[commitment.ID]; hasRule {
-				if matched, ok := recurrences.ResolveOccurrence(rule.Conditions, rule.LogicOperator, candidates); ok {
-					matchedAmount, err := decimal.NewFromString(matched.EffectiveMoney.Value)
-					if err != nil {
-						return nil, fmt.Errorf("parse recurrence match amount %q: %w", matched.EffectiveMoney.Value, err)
-					}
-					amount = matchedAmount.Abs()
+			if hasRule {
+				inMonth := candidatesByMonth[monthKey(occurrence.Date)]
+				if _, reconciled := recurrences.ResolveOccurrence(rule.Conditions, rule.LogicOperator, inMonth); reconciled {
+					continue
 				}
 			}
+			amount := occurrence.ExpectedAmount
 			if commitment.Kind == recurrences.KindExpense {
 				amount = amount.Neg()
 			}
 			categoryID := commitment.CategoryID
 			entries = append(entries, Entry{
-				Date:         dayOnly(occurrence.Date),
+				Date:         dates.Day(occurrence.Date),
 				Description:  commitment.Name,
 				Amount:       amount,
 				CategoryID:   &categoryID,
 				CategoryName: name,
-				Tier:         TierConfirmado,
+				Tier:         TierProjetado,
 				Source:       SourceRecurring,
-				SourceRefID:  sourceRefID,
+				SourceRefID:  commitment.ID + ":" + occurrence.Date.Format("2006-01-02"),
 			})
 		}
 	}
 	return entries, nil
+}
+
+// candidatesByMonthFor selects the real transactions a commitment could
+// reconcile against — same category, and same account when it names one —
+// bucketed by monthKey, which is the scope ResolveOccurrence needs: its
+// conditions (amount, day-of-month) are month-agnostic, so one month's
+// transaction would otherwise reconcile every other month's occurrence. The
+// key carries the year, so September 2027 never reconciles September 2026.
+func candidatesByMonthFor(commitment recurrences.RecurringCommitment, realCandidates []transactions.Item) map[time.Time][]transactions.Item {
+	byMonth := map[time.Time][]transactions.Item{}
+	for _, item := range realCandidates {
+		if item.OccurredAt == nil {
+			continue
+		}
+		if item.InternalCategory == nil || item.InternalCategory.ID != commitment.CategoryID {
+			continue
+		}
+		if commitment.AccountID != nil && item.Account.ID != *commitment.AccountID {
+			continue
+		}
+		month := monthKey(*item.OccurredAt)
+		byMonth[month] = append(byMonth[month], item)
+	}
+	return byMonth
 }
 
 // scenarioEntries loads ScenarioTransactions for exactly the
@@ -380,11 +320,11 @@ func scenarioEntries(ctx context.Context, q Querier, scenarioIDs []string, from,
 			return nil, err
 		}
 		for _, st := range transactions {
-			day := dayOnly(st.ProjectedAt)
+			day := dates.Day(st.ProjectedAt)
 			if day.Before(from) || day.After(to) {
 				continue
 			}
-			categoryName := "Sem categoria"
+			categoryName := noCategoryName
 			if st.Category != nil && *st.Category != "" {
 				categoryName = *st.Category
 			}
@@ -407,9 +347,11 @@ func scenarioEntries(ctx context.Context, q Querier, scenarioIDs []string, from,
 // BuildSeries merges every source this phase supports into a single Series
 // — see the package doc for why nothing downstream recomputes this.
 func BuildSeries(ctx context.Context, q Querier, params BuildParams) (Series, error) {
-	from, to, reference := dayOnly(params.From), dayOnly(params.To), dayOnly(params.ReferenceDate)
+	from, to, reference := dates.Day(params.From), dates.Day(params.To), dates.Day(params.ReferenceDate)
 
-	balance, err := startingBalance(ctx, q, params.AccountIDs)
+	// The t=today anchor: cash on hand, from the one implementation net
+	// worth's asset side also reads (see transactions.CashOnHand).
+	balance, err := transactions.CashOnHand(ctx, q, params.AccountIDs)
 	if err != nil {
 		return Series{}, err
 	}

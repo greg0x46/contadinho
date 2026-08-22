@@ -13,6 +13,7 @@ import (
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/money"
 	"contadinho-go/internal/payables"
+	"contadinho-go/internal/transactions"
 )
 
 // Querier is satisfied by both *sql.DB and *sql.Tx — identical in shape to
@@ -26,11 +27,30 @@ const dateLayout = "2006-01-02"
 
 func formatDate(t time.Time) string { return t.UTC().Format(dateLayout) }
 
-// sumTextColumn sums a nullable TEXT decimal column, optionally scoped by a
-// WHERE clause — the shared shape behind cash/credit/investment balances
-// below, mirroring internal/timeline's startingBalance query convention.
-func sumTextColumn(ctx context.Context, q Querier, query string) (decimal.Decimal, error) {
-	rows, err := q.QueryContext(ctx, query)
+// cashBalance is the asset side's cash figure: the same
+// transactions.CashOnHand the timeline anchors on, so the two views can
+// never disagree. Credit card accounts are excluded there — their balance
+// is owed debt, handled by creditCardBalance below.
+func cashBalance(ctx context.Context, q Querier) (decimal.Decimal, error) {
+	return transactions.CashOnHand(ctx, q, nil)
+}
+
+// creditCardBalance is what's currently owed across every credit card,
+// computed the same way handlePayableTotalOwed's "Dívida total" homepage
+// widget does — the current bill cycle's eligible transaction total, never
+// financial_accounts.balance directly (see the doc comment on
+// transactions.CreditCardTransactionTotal for why: the provider balance can
+// include locally-ignored transactions). Reusing that exact function is
+// what keeps this figure and the homepage's in agreement.
+func creditCardBalance(ctx context.Context, q Querier) (decimal.Decimal, error) {
+	return transactions.CreditCardTransactionTotal(ctx, q, "BRL")
+}
+
+// investmentBalance sums every synced investment's current balance. Balances
+// are stored as TEXT to stay exact, so the summing happens here in Go with
+// decimal.Decimal rather than through a float-lossy SQL SUM.
+func investmentBalance(ctx context.Context, q Querier) (decimal.Decimal, error) {
+	rows, err := q.QueryContext(ctx, `SELECT balance FROM financial_investments WHERE balance IS NOT NULL`)
 	if err != nil {
 		return decimal.Decimal{}, err
 	}
@@ -43,63 +63,11 @@ func sumTextColumn(ctx context.Context, q Querier, query string) (decimal.Decima
 		}
 		amount, err := decimal.NewFromString(raw)
 		if err != nil {
-			return decimal.Decimal{}, fmt.Errorf("parse amount %q: %w", raw, err)
+			return decimal.Decimal{}, fmt.Errorf("parse investment balance %q: %w", raw, err)
 		}
 		total = total.Add(amount)
 	}
 	return total, rows.Err()
-}
-
-// cashBalance sums every non-CREDIT account's balance — same exclusion
-// internal/timeline's startingBalance applies, since a credit card's
-// balance is owed debt, not cash on hand.
-func cashBalance(ctx context.Context, q Querier) (decimal.Decimal, error) {
-	return sumTextColumn(ctx, q, `SELECT balance FROM financial_accounts WHERE balance IS NOT NULL AND (account_type IS NULL OR account_type != 'CREDIT')`)
-}
-
-// creditCardBalance is what's currently owed across every credit card,
-// computed the same way handlePayableTotalOwed's "Dívida total" homepage
-// widget does — the current bill cycle's eligible transaction total, never
-// financial_accounts.balance directly (see payables.CreditCardTransactionTotal
-// for why: the provider balance can include locally-ignored transactions).
-// Reusing that exact function is what keeps this figure and the homepage's
-// in agreement.
-func creditCardBalance(ctx context.Context, q Querier) (decimal.Decimal, error) {
-	return payables.CreditCardTransactionTotal(ctx, q, "BRL")
-}
-
-// investmentBalance sums every synced investment's current balance.
-func investmentBalance(ctx context.Context, q Querier) (decimal.Decimal, error) {
-	return sumTextColumn(ctx, q, `SELECT balance FROM financial_investments WHERE balance IS NOT NULL`)
-}
-
-// payablesRemainingTotal sums RemainingAmount across every payable of kind
-// — reusing payables.List/Links/LinkEffectiveAmount rather than reading any
-// stored total, matching how internal/httpapi's summarizePayable derives
-// the same figure.
-func payablesRemainingTotal(ctx context.Context, q Querier, kind payables.Kind) (decimal.Decimal, error) {
-	list, err := payables.List(ctx, q, &kind)
-	if err != nil {
-		return decimal.Decimal{}, err
-	}
-	total := decimal.Zero
-	for _, p := range list {
-		links, err := payables.Links(ctx, q, p.ID)
-		if err != nil {
-			return decimal.Decimal{}, err
-		}
-		amounts := make([]decimal.Decimal, len(links))
-		for i, l := range links {
-			amt, err := payables.LinkEffectiveAmount(ctx, q, l.TransactionID)
-			if err != nil {
-				return decimal.Decimal{}, err
-			}
-			amounts[i] = amt
-		}
-		settled := payables.SettledAmount(p.StartingSettledAmount, amounts)
-		total = total.Add(payables.RemainingAmount(p.TotalAmount, settled))
-	}
-	return total, nil
 }
 
 // Compute aggregates the current net worth from live data — never from a
@@ -120,7 +88,7 @@ func Compute(ctx context.Context, q Querier) (Breakdown, error) {
 	if err != nil {
 		return Breakdown{}, err
 	}
-	debt, err := payablesRemainingTotal(ctx, q, payables.KindDebt)
+	debt, err := payables.RemainingTotal(ctx, q, payables.KindDebt)
 	if err != nil {
 		return Breakdown{}, err
 	}
