@@ -207,6 +207,7 @@ func splitCSV(raw string) []string {
 
 // handleGetTimeline serves GET /api/timeline?reference_date=...&from=...&to=...
 // &account_ids=...&category_ids=...&card_numbers=...&scenario_ids=...
+// &analysis_month=...
 // scenario_ids empty (the default) returns {base, simulation: null,
 // scenario_impacts: []}; non-empty adds Simulation (Base + those scenarios)
 // and one Impact per scenario, each isolated against Base — never all
@@ -240,6 +241,22 @@ func handleGetTimeline(conn *sql.DB) http.HandlerFunc {
 			invalidTimelineProblem(w, "to não pode ser anterior a from.")
 			return
 		}
+		// analysis_month is the month the retrospective aggregations are
+		// about (category breakdown, month-over-month, year-over-year),
+		// kept separate from reference_date — which is the *balance*
+		// anchor and always today. Browsing the report to a past month
+		// must move the aggregations without moving the balance. Absent,
+		// it falls back to reference_date, so callers that predate the
+		// parameter keep their behaviour.
+		analysisMonth := reference
+		if raw := query.Get("analysis_month"); raw != "" {
+			parsed, err := time.Parse(dateOnlyLayout, raw)
+			if err != nil {
+				invalidTimelineProblem(w, "analysis_month inválida.")
+				return
+			}
+			analysisMonth = parsed
+		}
 
 		baseParams := timeline.BuildParams{
 			From: from, To: to, ReferenceDate: reference,
@@ -260,7 +277,7 @@ func handleGetTimeline(conn *sql.DB) http.HandlerFunc {
 		for i, m := range months {
 			monthDTOs[i] = monthSummaryToDTO(m)
 		}
-		categories := timeline.CategoryBreakdown(series, reference)
+		categories := timeline.CategoryBreakdown(series, analysisMonth)
 		categoryDTOs := make([]categoryImpactDTO, len(categories))
 		for i, c := range categories {
 			categoryDTOs[i] = categoryImpactToDTO(c)
@@ -271,7 +288,7 @@ func handleGetTimeline(conn *sql.DB) http.HandlerFunc {
 			MonthlyBreakdown:  monthDTOs,
 			CategoryBreakdown: categoryDTOs,
 			ScenarioImpacts:   []scenarioImpactDTO{},
-			MonthOverMonth:    comparison2FromResult(timeline.MonthOverMonth(months, reference)),
+			MonthOverMonth:    comparison2FromResult(timeline.MonthOverMonth(months, analysisMonth)),
 		}
 
 		if len(scenarioIDs) > 0 {
@@ -310,7 +327,7 @@ func handleGetTimeline(conn *sql.DB) http.HandlerFunc {
 				timelineUnavailableProblem(w)
 				return
 			}
-			response.YearOverYear = comparison2FromResult(timeline.YearOverYear(series, priorYearSeries, reference))
+			response.YearOverYear = comparison2FromResult(timeline.YearOverYear(series, priorYearSeries, analysisMonth))
 		}
 
 		// category_evolution_id, when present, is a category UUID or the

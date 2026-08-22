@@ -41,3 +41,11 @@ export function formatLocalDay(value: string): string {
 export function formatOptionalLocalDay(value: string | null): string {
   return value === null ? "—" : formatLocalDay(value);
 }
+
+// A plain "YYYY-MM-DD" from the timeline API is a calendar day with no
+// instant behind it, so it needs neither Date parsing nor a timezone —
+// reordering the parts is both correct and cheaper than the alternatives.
+export function formatDateOnly(value: string): string {
+  const [year, month, day] = value.split("-");
+  return year && month && day ? `${day}/${month}/${year}` : value;
+}

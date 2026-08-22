@@ -255,3 +255,86 @@ func TestTimelineRejectsToBeforeFrom(t *testing.T) {
 	}
 	resp.Body.Close()
 }
+
+// analysis_month is what the report's month navigator moves; reference_date
+// stays pinned to today because it is the balance anchor. Before the
+// parameter existed the aggregations followed reference_date, so browsing
+// to a past month showed the *current* month's category breakdown under
+// the past month's label.
+func TestTimelineAnalysisMonthMovesAggregationsNotBalance(t *testing.T) {
+	srv, conn := newTestServer(t)
+
+	categorize := func(id string) {
+		resp := doJSON(t, http.MethodPut, srv.URL+"/api/transactions/"+id+"/category",
+			map[string]any{"category_id": categorySupermercadoID})
+		if resp.StatusCode != 200 {
+			t.Fatalf("set category status = %d, want 200", resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+
+	juneID := insertTransaction(t, conn)
+	setCardDebtTransaction(t, conn, juneID, time.Date(2026, 6, 5, 0, 0, 0, 0, time.UTC), "100.00", "DEBIT", nil)
+	categorize(juneID)
+	julyID := insertTransaction(t, conn)
+	setCardDebtTransaction(t, conn, julyID, time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC), "200.00", "DEBIT", nil)
+	categorize(julyID)
+	augustID := insertTransaction(t, conn)
+	setCardDebtTransaction(t, conn, augustID, time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC), "300.00", "DEBIT", nil)
+	categorize(augustID)
+
+	var accountID string
+	if err := conn.QueryRow(`SELECT account_id FROM financial_transactions WHERE id = ?`, augustID).Scan(&accountID); err != nil {
+		t.Fatalf("account id: %v", err)
+	}
+	if _, err := conn.Exec(`UPDATE financial_accounts SET balance = '5000.00' WHERE id = ?`, accountID); err != nil {
+		t.Fatalf("set balance: %v", err)
+	}
+
+	groceriesAmount := func(body map[string]any) string {
+		for _, raw := range body["category_breakdown"].([]any) {
+			row := raw.(map[string]any)
+			if row["category_id"] == categorySupermercadoID {
+				return row["amount"].(string)
+			}
+		}
+		return ""
+	}
+
+	const window = "reference_date=2026-08-15&from=2026-06-01&to=2026-08-31"
+
+	resp := doJSON(t, http.MethodGet, srv.URL+"/api/timeline?"+window, nil)
+	var withoutParam map[string]any
+	decodeJSON(t, resp, &withoutParam)
+	if got := groceriesAmount(withoutParam); got != "300.00" {
+		t.Errorf("category_breakdown without analysis_month = %q, want 300.00 (reference_date's month)", got)
+	}
+
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/timeline?"+window+"&analysis_month=2026-07-01&year_over_year=true", nil)
+	var july map[string]any
+	decodeJSON(t, resp, &july)
+
+	if got := groceriesAmount(july); got != "200.00" {
+		t.Errorf("category_breakdown with analysis_month=2026-07 = %q, want 200.00", got)
+	}
+	mom := july["month_over_month"].(map[string]any)
+	if mom["current"] != "-200.00" || mom["previous"] != "-100.00" {
+		t.Errorf("month_over_month = %+v, want current=-200.00 previous=-100.00 (July vs June)", mom)
+	}
+	// The balance is anchored on reference_date, not on the month being
+	// analysed — browsing to July must not rewind it.
+	base := july["base"].(map[string]any)
+	if base["starting_balance"] != "5000.00" {
+		t.Errorf("starting_balance = %v, want 5000.00 (still anchored on reference_date)", base["starting_balance"])
+	}
+}
+
+func TestTimelineRejectsInvalidAnalysisMonth(t *testing.T) {
+	srv, _ := newTestServer(t)
+	resp := doJSON(t, http.MethodGet,
+		srv.URL+"/api/timeline?reference_date=2026-08-15&from=2026-08-01&to=2026-08-31&analysis_month=agosto", nil)
+	if resp.StatusCode != 422 {
+		t.Fatalf("status = %d, want 422", resp.StatusCode)
+	}
+	resp.Body.Close()
+}

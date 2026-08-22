@@ -1,13 +1,15 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
+const apiProxyTarget = process.env.CONTADINHO_DEV_API_URL ?? "http://localhost:8000";
+
 export default defineConfig({
   cacheDir: ".vite-cache",
   plugins: [react()],
   server: {
     proxy: {
-      "/api": "http://localhost:8000",
-      "/health": "http://localhost:8000",
+      "/api": apiProxyTarget,
+      "/health": apiProxyTarget,
     },
   },
   test: {

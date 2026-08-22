@@ -38,11 +38,21 @@ function TooltipContent({ active, payload, label }: { active?: boolean; payload?
 
 type PointRow = { date: string; balance: number; simulationBalance?: number };
 
-function mergePoints(base: TimelineSeries, simulation: TimelineSeries | null): PointRow[] {
-  const rows = base.points.map((p) => ({ date: p.date, balance: Number(p.balance) }) as PointRow);
+function mergePoints(base: TimelineSeries, simulation: TimelineSeries | null, referenceDate: string): PointRow[] {
+  const rows = base.points.map((p) => ({
+    date: p.date,
+    // starting_balance is the canonical balance at the reference date. Keep
+    // today's plotted point anchored to the same value as the summary card;
+    // the selected horizon must only change points after today.
+    balance: p.date === referenceDate ? Number(base.starting_balance) : Number(p.balance),
+  }) as PointRow);
   if (!simulation) return rows;
   const simulationByDate = new Map(simulation.points.map((p) => [p.date, Number(p.balance)]));
-  return rows.map((row) => ({ ...row, simulationBalance: simulationByDate.get(row.date) }));
+  return rows.map((row) => ({
+    ...row,
+    simulationBalance:
+      row.date === referenceDate ? Number(simulation.starting_balance) : simulationByDate.get(row.date),
+  }));
 }
 
 // ProjectionTimeline draws Series.Points as one continuous line —
@@ -55,12 +65,14 @@ export function ProjectionTimeline({
   series,
   simulation,
   referenceDate,
+  height = 280,
 }: {
   series: TimelineSeries;
   simulation?: TimelineSeries | null;
   referenceDate: string;
+  height?: number;
 }) {
-  const data = mergePoints(series, simulation ?? null);
+  const data = mergePoints(series, simulation ?? null, referenceDate);
   const todayPoint = series.points.find((p) => p.date === referenceDate);
   const activeSeries = simulation ?? series;
 
@@ -74,7 +86,7 @@ export function ProjectionTimeline({
           style={{ marginBottom: 12 }}
         />
       )}
-      <ResponsiveContainer width="100%" height={280}>
+      <ResponsiveContainer width="100%" height={height}>
         <LineChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="date" tickFormatter={formatDate} tickLine={false} axisLine={{ stroke: colors.border }} />
@@ -93,7 +105,7 @@ export function ProjectionTimeline({
             label={{ value: "Menor saldo", position: "top" }}
           />
           <Line
-            type="monotone"
+            type="stepAfter"
             dataKey="balance"
             name="Saldo (base)"
             stroke={monthlyEvolutionColor.result}
@@ -102,7 +114,7 @@ export function ProjectionTimeline({
           />
           {simulation && (
             <Line
-              type="monotone"
+              type="stepAfter"
               dataKey="simulationBalance"
               name="Saldo (simulação)"
               stroke={monthlyEvolutionColor.income}

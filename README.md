@@ -151,20 +151,23 @@ sincronização entre múltiplos processos/instâncias.
 
 ### Rodar para desenvolvimento local
 
-Backend, escutando na porta para a qual o servidor de dev do frontend faz
-proxy:
+O script abaixo inicia o backend e o Vite juntos. O frontend fica com hot
+reload e as requisições de `/api` são encaminhadas automaticamente para o
+backend:
 
 ```sh
-go run ./cmd/contadinho -addr localhost:8000
+./dev.sh
 ```
 
-Frontend, com hot reload:
+Abra `http://localhost:5173`. `Ctrl-C` encerra os dois processos. Para
+sobrescrever as portas:
 
 ```sh
-cd frontend
-npm install
-npm run dev
+CONTADINHO_DEV_ADDR=localhost:8100 VITE_DEV_PORT=5174 ./dev.sh
 ```
+
+Se as dependências ainda não estiverem instaladas, execute `cd frontend &&
+npm install` uma vez antes de iniciar o script.
 
 ### Testes e verificações
 

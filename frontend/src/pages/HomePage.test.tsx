@@ -1,14 +1,22 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as payablesApi from "../api/payables";
+import * as timelineApi from "../api/timeline";
 import * as transactionsApi from "../api/transactions";
-import type { PayableTotalOwed, PayableTotalToReceive, SpendingByCategory } from "../api/contracts";
+import type {
+  PayableTotalOwed,
+  PayableTotalToReceive,
+  SpendingByCategory,
+  TimelineResponse,
+} from "../api/contracts";
 import { QueryTestProvider } from "../test/QueryTestProvider";
 import { HomePage } from "./HomePage";
 
 vi.mock("../api/payables");
+vi.mock("../api/timeline");
 vi.mock("../api/transactions");
 
 const totalOwed: PayableTotalOwed = {
@@ -48,6 +56,32 @@ const spendingByCategory: SpendingByCategory = {
   ],
 };
 
+const projection: TimelineResponse = {
+  base: {
+    points: [
+      { date: "2026-08-15", balance: "1900.00", inflow: "0.00", outflow: "0.00", lowest_tier: "realizado" },
+      { date: "2026-11-30", balance: "1500.00", inflow: "0.00", outflow: "400.00", lowest_tier: "projetado" },
+    ],
+    entries: [],
+    starting_balance: "1900.00",
+    lowest_balance: {
+      date: "2026-11-30",
+      balance: "1500.00",
+      inflow: "0.00",
+      outflow: "400.00",
+      lowest_tier: "projetado",
+    },
+    first_negative: null,
+  },
+  monthly_breakdown: [],
+  category_breakdown: [],
+  simulation: null,
+  scenario_impacts: [],
+  month_over_month: null,
+  year_over_year: null,
+  category_evolution: null,
+};
+
 function renderPage() {
   return render(
     <MemoryRouter>
@@ -61,6 +95,7 @@ function renderPage() {
 beforeEach(() => {
   vi.mocked(transactionsApi.getSpendingByCategory).mockResolvedValue(spendingByCategory);
   vi.mocked(payablesApi.getPayableTotalToReceive).mockResolvedValue(totalToReceive);
+  vi.mocked(timelineApi.getTimeline).mockResolvedValue(projection);
 });
 
 describe("TotalReceivableCard", () => {
@@ -70,7 +105,10 @@ describe("TotalReceivableCard", () => {
 
   it("renders the total receivable card once loaded", async () => {
     renderPage();
-    expect(await screen.findByText(/500,00/)).toBeVisible();
+    const title = await screen.findByText("Total a receber");
+    const card = title.closest<HTMLElement>(".ant-card");
+    if (!card) throw new Error("Card de recebíveis não encontrado.");
+    expect(await within(card).findByText(/500,00/)).toBeVisible();
   });
 
   it("shows a retry option when the total fails to load", async () => {
@@ -81,6 +119,49 @@ describe("TotalReceivableCard", () => {
 });
 
 describe("HomePage", () => {
+  it("renders a compact projection summary on the Home dashboard", async () => {
+    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
+    renderPage();
+    expect(await screen.findByText("Próximos 3 meses")).toBeVisible();
+    expect(screen.getByText("Projeção de saldo")).toBeVisible();
+    expect(screen.getByText("Saldo hoje")).toBeVisible();
+  });
+
+  it("keeps the projection horizon options in the card header", async () => {
+    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText("Fim do mês")).toBeVisible();
+    expect(screen.getByText("3 meses")).toBeVisible();
+    expect(screen.getByText("6 meses")).toBeVisible();
+    expect(screen.getByText("12 meses")).toBeVisible();
+
+    await user.click(screen.getByText("6 meses"));
+    expect(await screen.findByText("Próximos 6 meses")).toBeVisible();
+  });
+
+  it("keeps current cards on the left and projection metrics above its chart", async () => {
+    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
+    renderPage();
+    await screen.findByText("Próximos 3 meses");
+
+    const layout = document.querySelector(".dashboard-layout");
+    expect(layout?.firstElementChild).toHaveClass("dashboard-current-summary");
+    expect(layout?.lastElementChild).toHaveClass("dashboard-widget");
+
+    const summary = document.querySelector(".projection-summary");
+    expect(summary?.firstElementChild).toHaveClass("projection-summary-intro");
+    expect(summary?.lastElementChild).toHaveClass("timeline-chart");
+  });
+
+  it("shows a retry option when the projection fails to load", async () => {
+    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
+    vi.mocked(timelineApi.getTimeline).mockRejectedValue(new Error("boom"));
+    renderPage();
+    expect(await screen.findByText("Não foi possível carregar a projeção.")).toBeVisible();
+  });
+
   it("renders the total debt card once loaded", async () => {
     vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
     renderPage();
