@@ -1,4 +1,11 @@
-import type { ScenarioTransactionStatus } from "../api/contracts";
+import type { ScenarioKind, ScenarioTransactionStatus } from "../api/contracts";
+
+export const scenarioKindLabel: Record<ScenarioKind, string> = {
+  debt_plan: "Plano de dívida",
+  receivable_plan: "Plano de recebível",
+  standalone: "Hipotético",
+  recurring: "Recorrente",
+};
 
 export const scenarioTransactionStatusLabel: Record<ScenarioTransactionStatus, string> = {
   atrasada: "Atrasada",

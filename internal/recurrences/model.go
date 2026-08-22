@@ -41,7 +41,12 @@ const (
 
 // RecurringCommitment mirrors the recurring_commitments table.
 type RecurringCommitment struct {
-	ID          string
+	ID string
+	// ScenarioID is the canonical projection identity during the
+	// compatibility period in which the old recurring_commitments DTO is
+	// still exposed. It is not stored on recurring_commitments; the mapping
+	// table owns it.
+	ScenarioID  *string
 	Name        string
 	Kind        Kind
 	Amount      decimal.Decimal // magnitude, always positive
@@ -56,6 +61,32 @@ type RecurringCommitment struct {
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// RecurringSchedule is the pure scheduling shape stored for a recurring
+// Scenario. Activation belongs to scenarios.Scenario.IsActive, so this
+// record contains only cash-flow and calendar fields.
+type RecurringSchedule struct {
+	CashflowKind Kind
+	Amount       decimal.Decimal
+	CategoryID   *string
+	AccountID    *string
+	Cadence      Cadence
+	DayOfMonth   int
+	MonthOfYear  *int
+	StartDate    time.Time
+	EndDate      *time.Time
+}
+
+// Schedule converts the legacy DTO into the schedule used by the unified
+// occurrence generator.
+func (c RecurringCommitment) Schedule() RecurringSchedule {
+	categoryID := c.CategoryID
+	return RecurringSchedule{
+		CashflowKind: c.Kind, Amount: c.Amount, CategoryID: &categoryID,
+		AccountID: c.AccountID, Cadence: c.Cadence, DayOfMonth: c.DayOfMonth,
+		MonthOfYear: c.MonthOfYear, StartDate: c.StartDate, EndDate: c.EndDate,
+	}
 }
 
 // Validate reports the first structural problem found, or nil if the

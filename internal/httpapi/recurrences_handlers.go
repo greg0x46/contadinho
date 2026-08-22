@@ -13,6 +13,7 @@ import (
 
 type recurringCommitmentDTO struct {
 	ID          string    `json:"id"`
+	ScenarioID  *string   `json:"scenario_id,omitempty"`
 	Name        string    `json:"name"`
 	Kind        string    `json:"kind"`
 	Amount      string    `json:"amount"`
@@ -35,7 +36,7 @@ func toRecurringCommitmentDTO(c recurrences.RecurringCommitment) recurringCommit
 		endDate = &s
 	}
 	return recurringCommitmentDTO{
-		ID: c.ID, Name: c.Name, Kind: string(c.Kind), Amount: c.Amount.StringFixed(2),
+		ID: c.ID, ScenarioID: c.ScenarioID, Name: c.Name, Kind: string(c.Kind), Amount: c.Amount.StringFixed(2),
 		CategoryID: c.CategoryID, AccountID: c.AccountID, Cadence: string(c.Cadence),
 		DayOfMonth: c.DayOfMonth, MonthOfYear: c.MonthOfYear,
 		StartDate: c.StartDate.Format(dateOnlyLayout), EndDate: endDate,

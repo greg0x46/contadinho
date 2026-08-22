@@ -1,9 +1,10 @@
 import { PlusOutlined } from "@ant-design/icons";
 import { PageContainer } from "@ant-design/pro-layout";
-import { Alert, Button, Empty, Skeleton } from "antd";
+import { Alert, Button, Empty, Select, Skeleton } from "antd";
 import { useState } from "react";
 
-import type { Scenario, ScenarioTransactionWrite } from "../api/contracts";
+import type { Scenario, ScenarioKind, ScenarioTransactionWrite } from "../api/contracts";
+import { scenarioKindLabel } from "../presentation/scenarioLabels";
 import { StandaloneScenarioCard } from "../components/scenarios/StandaloneScenarioCard";
 import { StandaloneScenarioForm } from "../components/scenarios/StandaloneScenarioForm";
 import { useScenarios } from "../hooks/useScenarios";
@@ -13,7 +14,8 @@ function errorMessage(error: unknown): string {
 }
 
 export function ScenariosPage() {
-  const scenarios = useScenarios({ kind: "standalone" });
+  const [kindFilter, setKindFilter] = useState<ScenarioKind | "all">("all");
+  const scenarios = useScenarios({ kind: kindFilter === "all" ? undefined : kindFilter });
   const [formOpen, setFormOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -37,6 +39,15 @@ export function ScenariosPage() {
     }
   };
 
+  const toggleScenario = async (scenario: Scenario, isActive: boolean) => {
+    setActionError(null);
+    try {
+      await scenarios.toggleScenario({ scenarioId: scenario.id, isActive });
+    } catch (error) {
+      setActionError(errorMessage(error));
+    }
+  };
+
   const addTransaction = (scenarioId: string, write: ScenarioTransactionWrite) =>
     scenarios.createTransaction({ scenarioId, write });
 
@@ -54,6 +65,16 @@ export function ScenariosPage() {
         </Button>,
       ]}
     >
+      <Select
+        aria-label="Filtrar cenários por tipo"
+        value={kindFilter}
+        onChange={setKindFilter}
+        options={[
+          { value: "all", label: "Todos os tipos" },
+          ...Object.entries(scenarioKindLabel).map(([value, label]) => ({ value, label })),
+        ]}
+        style={{ minWidth: 220, marginBottom: 16 }}
+      />
       {actionError && (
         <Alert
           type="error"
@@ -84,6 +105,7 @@ export function ScenariosPage() {
           onDeleteScenario={removeScenario}
           onAddTransaction={addTransaction}
           onDeleteTransaction={deleteTransaction}
+          onToggleScenario={toggleScenario}
         />
       ))}
       <StandaloneScenarioForm

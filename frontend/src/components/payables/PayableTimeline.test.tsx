@@ -31,6 +31,7 @@ const scenarioSummary: Scenario = {
   kind: "debt_plan",
   name: "Plano de pagamento",
   payable_id: payableId,
+  is_accounting_source: true,
   created_at: "2026-07-30T12:00:00Z",
   updated_at: "2026-07-30T12:00:00Z",
 };

@@ -230,6 +230,35 @@ func TestListActiveReconcileTargetsKeyedByCommitmentID(t *testing.T) {
 	}
 }
 
+func TestScenarioIDIsCanonicalReconcileTarget(t *testing.T) {
+	conn := newTestDB(t)
+	ctx := context.Background()
+	commitment := newCommitment(t, conn)
+	if commitment.ScenarioID == nil {
+		t.Fatal("commitment has no canonical scenario id")
+	}
+	scenarioID := *commitment.ScenarioID
+	rule, err := automation.Create(ctx, conn, automation.Write{
+		Name: "Concilia cenário", IsActive: true, LogicOperator: automation.LogicAnd,
+		Conditions: []automation.Condition{{Field: automation.FieldAmount, Operator: automation.OperatorWithinPercent, Value: "10"}},
+		Actions:    []automation.ActionWrite{{Type: automation.ActionReconcile, ScenarioID: &scenarioID}},
+	})
+	if err != nil {
+		t.Fatalf("Create canonical reconcile rule: %v", err)
+	}
+	if len(rule.Actions) != 1 || rule.Actions[0].ScenarioID == nil || *rule.Actions[0].ScenarioID != scenarioID {
+		t.Fatalf("stored action = %+v, want scenario_id %s", rule.Actions, scenarioID)
+	}
+
+	targets, err := automation.ListActiveScenarioReconcileTargets(ctx, conn)
+	if err != nil {
+		t.Fatalf("ListActiveScenarioReconcileTargets: %v", err)
+	}
+	if got, ok := targets[scenarioID]; !ok || got.ID != rule.ID {
+		t.Fatalf("scenario targets = %+v, want rule %s for %s", targets, rule.ID, scenarioID)
+	}
+}
+
 func TestCreateReconcileActionRejectsUnknownCommitment(t *testing.T) {
 	conn := newTestDB(t)
 	if _, err := automation.Create(context.Background(), conn, reconcileWrite("does-not-exist")); !errors.Is(err, automation.ErrInvalidActionTarget) {

@@ -11,6 +11,7 @@ import (
 )
 
 type actionDTO struct {
+	ScenarioID            *string `json:"scenario_id"`
 	Type                  string  `json:"type"`
 	RecurringCommitmentID *string `json:"recurring_commitment_id"`
 	CategoryID            *string `json:"category_id"`
@@ -19,7 +20,7 @@ type actionDTO struct {
 func toActionDTOs(actions []automation.Action) []actionDTO {
 	dtos := make([]actionDTO, len(actions))
 	for i, a := range actions {
-		dtos[i] = actionDTO{Type: string(a.Type), RecurringCommitmentID: a.RecurringCommitmentID, CategoryID: a.CategoryID}
+		dtos[i] = actionDTO{Type: string(a.Type), ScenarioID: a.ScenarioID, RecurringCommitmentID: a.RecurringCommitmentID, CategoryID: a.CategoryID}
 	}
 	return dtos
 }
@@ -28,7 +29,7 @@ func actionsFromDTOs(dtos []actionDTO) []automation.ActionWrite {
 	actions := make([]automation.ActionWrite, len(dtos))
 	for i, d := range dtos {
 		actions[i] = automation.ActionWrite{
-			Type: automation.ActionType(d.Type), RecurringCommitmentID: d.RecurringCommitmentID, CategoryID: d.CategoryID,
+			Type: automation.ActionType(d.Type), ScenarioID: d.ScenarioID, RecurringCommitmentID: d.RecurringCommitmentID, CategoryID: d.CategoryID,
 		}
 	}
 	return actions

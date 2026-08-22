@@ -617,8 +617,9 @@ export type AutomationActionType = (typeof automationActionTypes)[number];
 
 export interface AutomationAction {
   type: AutomationActionType;
+  scenario_id?: string | null;
   recurring_commitment_id: string | null;
-  category_id: string | null;
+  category_id?: string | null;
 }
 
 export interface AutomationRule {
@@ -680,29 +681,43 @@ export function parseAutomationRuleConditionOptions(
 }
 
 function parseAutomationAction(value: unknown): AutomationAction {
+  const record = isRecord(value) ? value : null;
+  const hasScenarioID = record !== null && "scenario_id" in record;
+  const hasCommitmentID = record !== null && "recurring_commitment_id" in record;
+  const hasCategoryID = record !== null && "category_id" in record;
+  if (!hasScenarioID && !hasCommitmentID) throw new TypeError("Ação inválida.");
   const action = requiredRecord(
     value,
-    ["type", "recurring_commitment_id", "category_id"],
+    [
+      "type",
+      ...(hasScenarioID ? ["scenario_id"] : []),
+      ...(hasCommitmentID ? ["recurring_commitment_id"] : []),
+      ...(hasCategoryID ? ["category_id"] : []),
+    ],
     "Ação inválida.",
   );
   const type = action.type as AutomationActionType;
-  const commitmentID = action.recurring_commitment_id;
+  const scenarioID = action.scenario_id;
+  const commitmentID = hasCommitmentID ? action.recurring_commitment_id : null;
   const categoryID = action.category_id;
   if (
-    !automationActionTypes.includes(type) ||
-    !(commitmentID === null || (typeof commitmentID === "string" && isUuid(commitmentID))) ||
-    !(categoryID === null || (typeof categoryID === "string" && isUuid(categoryID))) ||
-    (type === "ignore" && (commitmentID !== null || categoryID !== null)) ||
-    (type === "reconcile" && (commitmentID === null || categoryID !== null)) ||
-    (type === "set_category" && (categoryID === null || commitmentID !== null))
-  ) {
-    throw new TypeError("Ação inválida.");
-  }
-  return {
+		!automationActionTypes.includes(type) ||
+		!(scenarioID === undefined || scenarioID === null || (typeof scenarioID === "string" && isUuid(scenarioID))) ||
+		!(commitmentID === null || (typeof commitmentID === "string" && isUuid(commitmentID))) ||
+    !(categoryID === undefined || categoryID === null || (typeof categoryID === "string" && isUuid(categoryID))) ||
+    (type === "ignore" && (scenarioID != null || commitmentID !== null || (categoryID !== null && categoryID !== undefined))) ||
+    (type === "reconcile" && ((scenarioID == null && commitmentID === null) || (categoryID !== null && categoryID !== undefined))) ||
+    (type === "set_category" && (categoryID == null || scenarioID != null || commitmentID !== null))
+	) {
+		throw new TypeError("Ação inválida.");
+	}
+  const result: AutomationAction = {
     type,
     recurring_commitment_id: commitmentID as string | null,
-    category_id: categoryID as string | null,
   };
+  if (hasScenarioID) result.scenario_id = scenarioID as string | null;
+  if (hasCategoryID) result.category_id = categoryID as string | null;
+	return result;
 }
 
 export function parseAutomationRule(value: unknown): AutomationRule {
@@ -749,15 +764,18 @@ export function parseAutomationRuleList(value: unknown): AutomationRule[] {
 }
 
 function parseRetroactiveApplyResult(value: unknown): RetroactiveApplyResult {
+  const hasCategorized = isRecord(value) && "categorized" in value;
   const result = requiredRecord(
     value,
-    ["matched", "ignored", "categorized"],
+    hasCategorized ? ["matched", "ignored", "categorized"] : ["matched", "ignored"],
     "Resultado retroativo inválido.",
   );
-  if (!isCount(result.matched) || !isCount(result.ignored) || !isCount(result.categorized)) {
+  if (!isCount(result.matched) || !isCount(result.ignored) || (hasCategorized && !isCount(result.categorized))) {
     throw new TypeError("Resultado retroativo inválido.");
   }
-  return { matched: result.matched, ignored: result.ignored, categorized: result.categorized };
+  const parsed = { matched: result.matched, ignored: result.ignored } as RetroactiveApplyResult;
+  if (hasCategorized) parsed.categorized = result.categorized as number;
+  return parsed;
 }
 
 export function parseAutomationRuleWriteResult(value: unknown): AutomationRuleWriteResult {
@@ -780,6 +798,7 @@ export type RecurringCommitmentCadence = (typeof recurringCommitmentCadences)[nu
 
 export interface RecurringCommitment {
   id: string;
+  scenario_id?: string | null;
   name: string;
   kind: RecurringCommitmentKind;
   amount: string;
@@ -816,6 +835,7 @@ const isMonthOfYear = (value: unknown): value is number =>
   Number.isInteger(value) && typeof value === "number" && value >= 1 && value <= 12;
 
 export function parseRecurringCommitment(value: unknown): RecurringCommitment {
+  const hasScenarioID = isRecord(value) && "scenario_id" in value;
   const commitment = requiredRecord(
     value,
     [
@@ -833,12 +853,16 @@ export function parseRecurringCommitment(value: unknown): RecurringCommitment {
       "is_active",
       "created_at",
       "updated_at",
+      ...(hasScenarioID ? ["scenario_id"] : []),
     ],
     "Compromisso recorrente inválido.",
   );
   if (
     typeof commitment.id !== "string" ||
     !isUuid(commitment.id) ||
+    !(commitment.scenario_id === undefined ||
+      commitment.scenario_id === null ||
+      (typeof commitment.scenario_id === "string" && isUuid(commitment.scenario_id))) ||
     typeof commitment.name !== "string" ||
     commitment.name === "" ||
     !recurringCommitmentKinds.includes(commitment.kind as RecurringCommitmentKind) ||
@@ -858,6 +882,7 @@ export function parseRecurringCommitment(value: unknown): RecurringCommitment {
   }
   return {
     id: commitment.id,
+    ...(hasScenarioID ? { scenario_id: commitment.scenario_id as string | null } : {}),
     name: commitment.name,
     kind: commitment.kind as RecurringCommitmentKind,
     amount: decimal(commitment.amount),
@@ -1565,7 +1590,7 @@ export function parseEligibleTransactionList(value: unknown): EligibleTransactio
   return value.map(parseEligibleTransaction);
 }
 
-export const scenarioKinds = ["debt_plan", "receivable_plan", "standalone"] as const;
+export const scenarioKinds = ["debt_plan", "receivable_plan", "standalone", "recurring"] as const;
 export type ScenarioKind = (typeof scenarioKinds)[number];
 
 export interface Scenario {
@@ -1573,6 +1598,10 @@ export interface Scenario {
   kind: ScenarioKind;
   name: string;
   payable_id: string | null;
+  // Optional only for responses from the pre-unification compatibility API;
+  // the canonical Scenario endpoint always supplies both booleans.
+  is_active?: boolean;
+  is_accounting_source?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -1642,7 +1671,12 @@ export interface ReadjustWrite {
   strategy: ReadjustStrategy;
 }
 
-const scenarioKeys = ["id", "kind", "name", "payable_id", "created_at", "updated_at"] as const;
+const legacyScenarioKeys = ["id", "kind", "name", "payable_id", "created_at", "updated_at"] as const;
+const scenarioKeys = [
+  ...legacyScenarioKeys,
+  "is_active",
+  "is_accounting_source",
+] as const;
 
 function isNullableUuid(value: unknown): value is string | null {
   return value === null || (typeof value === "string" && isUuid(value));
@@ -1656,12 +1690,14 @@ function scenarioFieldsFrom(scenario: Record<string, unknown>): Scenario {
     typeof scenario.name !== "string" ||
     scenario.name === "" ||
     !isNullableUuid(scenario.payable_id) ||
+    (scenario.is_active !== undefined && typeof scenario.is_active !== "boolean") ||
+    (scenario.is_accounting_source !== undefined && typeof scenario.is_accounting_source !== "boolean") ||
     !isValidDate(scenario.created_at) ||
     !isValidDate(scenario.updated_at)
   ) {
     throw new TypeError("Cenário inválido.");
   }
-  return {
+  const result: Scenario = {
     id: scenario.id,
     kind: scenario.kind as ScenarioKind,
     name: scenario.name,
@@ -1669,10 +1705,17 @@ function scenarioFieldsFrom(scenario: Record<string, unknown>): Scenario {
     created_at: scenario.created_at,
     updated_at: scenario.updated_at,
   };
+  if (scenario.is_active !== undefined) result.is_active = scenario.is_active as boolean;
+  if (scenario.is_accounting_source !== undefined) {
+    result.is_accounting_source = scenario.is_accounting_source as boolean;
+  }
+  return result;
 }
 
 export function parseScenario(value: unknown): Scenario {
-  return scenarioFieldsFrom(requiredRecord(value, scenarioKeys, "Cenário inválido."));
+  const hasActivation = isRecord(value) && "is_active" in value;
+  const record = requiredRecord(value, hasActivation ? scenarioKeys : legacyScenarioKeys, "Cenário inválido.");
+  return scenarioFieldsFrom(record);
 }
 
 export function parseScenarioList(value: unknown): Scenario[] {
@@ -1756,9 +1799,12 @@ export function parseScenarioTransactionList(value: unknown): ScenarioTransactio
 }
 
 export function parseScenarioDetail(value: unknown): ScenarioDetail {
+  const keys = isRecord(value) && "is_active" in value
+    ? [...scenarioKeys, "transactions", "accumulated_deviation"]
+    : [...legacyScenarioKeys, "transactions", "accumulated_deviation"];
   const detail = requiredRecord(
     value,
-    [...scenarioKeys, "transactions", "accumulated_deviation"],
+    keys,
     "Detalhe de cenário inválido.",
   );
   if (!Array.isArray(detail.transactions)) {
@@ -1768,6 +1814,157 @@ export function parseScenarioDetail(value: unknown): ScenarioDetail {
     ...scenarioFieldsFrom(detail),
     transactions: detail.transactions.map(parseScenarioTransaction),
     accumulated_deviation: decimal(detail.accumulated_deviation),
+  };
+}
+
+export const projectionTiers = ["realizado", "confirmado", "projetado", "hipotetico"] as const;
+export type ProjectionTier = (typeof projectionTiers)[number];
+// Planned transactions use the same serialized source vocabulary as the
+// Timeline endpoint. Keeping both parsers on one set of values prevents a
+// recurring/plan event returned by /planned-transactions from being rejected
+// while the Timeline accepts it.
+export const projectionSources = ["real", "recorrente", "plano_pagamento", "cenario"] as const;
+export type ProjectionSource = (typeof projectionSources)[number];
+
+export interface PlannedTransaction {
+  scenario_id: string;
+  event_key: string;
+  scenario_kind: ScenarioKind;
+  date: string;
+  description: string;
+  amount: string;
+  category_id: string | null;
+  category_name: string;
+  tier: ProjectionTier;
+  source: ProjectionSource;
+  payable_id: string | null;
+  realized: boolean;
+  realization_origin: string;
+  detached: boolean;
+}
+
+const plannedTransactionKeys = [
+  "scenario_id",
+  "event_key",
+  "scenario_kind",
+  "date",
+  "description",
+  "amount",
+  "category_id",
+  "category_name",
+  "tier",
+  "source",
+  "payable_id",
+  "realized",
+  "realization_origin",
+  "detached",
+] as const;
+
+export function parsePlannedTransaction(value: unknown): PlannedTransaction {
+  const item = requiredRecord(value, plannedTransactionKeys, "Evento previsto inválido.");
+  if (
+    typeof item.scenario_id !== "string" ||
+    !isUuid(item.scenario_id) ||
+    typeof item.event_key !== "string" ||
+    item.event_key === "" ||
+    !scenarioKinds.includes(item.scenario_kind as ScenarioKind) ||
+    typeof item.date !== "string" ||
+    !dateOnlyPattern.test(item.date) ||
+    typeof item.description !== "string" ||
+    item.description === "" ||
+    !isNullableUuid(item.category_id) ||
+    typeof item.category_name !== "string" ||
+    !projectionTiers.includes(item.tier as ProjectionTier) ||
+    !projectionSources.includes(item.source as ProjectionSource) ||
+    !isNullableUuid(item.payable_id) ||
+    typeof item.realized !== "boolean" ||
+    typeof item.realization_origin !== "string" ||
+    typeof item.detached !== "boolean"
+  ) {
+    throw new TypeError("Evento previsto inválido.");
+  }
+  return {
+    scenario_id: item.scenario_id,
+    event_key: item.event_key,
+    scenario_kind: item.scenario_kind as ScenarioKind,
+    date: item.date,
+    description: item.description,
+    amount: decimal(item.amount),
+    category_id: item.category_id as string | null,
+    category_name: item.category_name,
+    tier: item.tier as ProjectionTier,
+    source: item.source as ProjectionSource,
+    payable_id: item.payable_id as string | null,
+    realized: item.realized,
+    realization_origin: item.realization_origin,
+    detached: item.detached,
+  };
+}
+
+export function parsePlannedTransactionList(value: unknown): PlannedTransaction[] {
+  if (!Array.isArray(value)) throw new TypeError("Lista de eventos previstos inválida.");
+  return value.map(parsePlannedTransaction);
+}
+
+export interface ScenarioRealization {
+  id: string;
+  scenario_id: string;
+  scenario_transaction_id: string | null;
+  occurrence_date: string | null;
+  transaction_id: string | null;
+  relation_type: "settlement" | "allocation" | "reconciliation";
+  state: "linked" | "detached";
+  origin: string;
+  allocated_amount: string | null;
+  linked_amount: string | null;
+  created_at: string;
+}
+
+const scenarioRealizationKeys = [
+  "id",
+  "scenario_id",
+  "scenario_transaction_id",
+  "occurrence_date",
+  "transaction_id",
+  "relation_type",
+  "state",
+  "origin",
+  "allocated_amount",
+  "linked_amount",
+  "created_at",
+] as const;
+
+export function parseScenarioRealization(value: unknown): ScenarioRealization {
+  const item = requiredRecord(value, scenarioRealizationKeys, "Realização inválida.");
+  if (
+    typeof item.id !== "string" ||
+    !isUuid(item.id) ||
+    typeof item.scenario_id !== "string" ||
+    !isUuid(item.scenario_id) ||
+    !isNullableUuid(item.scenario_transaction_id) ||
+    !(item.occurrence_date === null || (typeof item.occurrence_date === "string" && dateOnlyPattern.test(item.occurrence_date))) ||
+    !isNullableUuid(item.transaction_id) ||
+    !["settlement", "allocation", "reconciliation"].includes(item.relation_type as string) ||
+    !["linked", "detached"].includes(item.state as string) ||
+    typeof item.origin !== "string" ||
+    !isNullableString(item.allocated_amount) ||
+    !isNullableString(item.linked_amount) ||
+    !isValidDate(item.created_at)
+  ) {
+    throw new TypeError("Realização inválida.");
+  }
+  return {
+    id: item.id,
+    scenario_id: item.scenario_id,
+    scenario_transaction_id: item.scenario_transaction_id as string | null,
+    occurrence_date: item.occurrence_date as string | null,
+    transaction_id: item.transaction_id as string | null,
+    relation_type: item.relation_type as ScenarioRealization["relation_type"],
+    state: item.state as ScenarioRealization["state"],
+    origin: item.origin,
+    allocated_amount: nullableDecimal(item.allocated_amount),
+    linked_amount: nullableDecimal(item.linked_amount),
+    created_at: item.created_at,
   };
 }
 

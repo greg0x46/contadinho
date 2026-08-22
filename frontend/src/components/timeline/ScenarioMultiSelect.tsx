@@ -15,7 +15,7 @@ export function ScenarioMultiSelect({
   activeIds: string[];
   onChange: (ids: string[]) => void;
 }) {
-  const scenarios = useScenarios({ kind: "standalone" });
+  const scenarios = useScenarios();
   const options = scenarios.scenarios.map((s) => ({ value: s.id, label: s.name }));
 
   return (
