@@ -186,23 +186,47 @@ func List(ctx context.Context, q Querier, kind *Kind) ([]Payable, error) {
 //
 // A payable with no links is simply absent from the map; ranging over a nil
 // slice is what callers do anyway.
-func linksFor(ctx context.Context, q Querier, payableIDs []string) (map[string][]Link, error) {
-	result := make(map[string][]Link, len(payableIDs))
+type loadedLink struct {
+	Link
+	countsAsSettlement bool
+}
+
+func linksFor(ctx context.Context, q Querier, payableIDs []string) (map[string][]loadedLink, error) {
+	result := make(map[string][]loadedLink, len(payableIDs))
 	if len(payableIDs) == 0 {
 		return result, nil
 	}
 	in, args := db.InClause(payableIDs)
-	rows, err := q.QueryContext(ctx,
-		`SELECT id, payable_id, transaction_id, linked_amount, linked_at FROM payable_transaction_links
-		 WHERE payable_id IN (`+in+`) ORDER BY linked_at DESC`, args...)
+	rows, err := q.QueryContext(ctx, `
+		SELECT l.id, l.payable_id, l.transaction_id, l.linked_amount, l.linked_at,
+		       CASE
+		         WHEN NOT EXISTS (
+					SELECT 1 FROM scenarios s0
+					WHERE s0.payable_id = l.payable_id AND s0.is_accounting_source = 1
+				 ) THEN 1
+		         WHEN EXISTS (
+					SELECT 1
+					FROM scenario_realizations sr
+					JOIN scenarios s ON s.id = sr.scenario_id
+					WHERE s.payable_id = l.payable_id
+					  AND s.is_accounting_source = 1
+					  AND sr.relation_type = 'settlement'
+					  AND sr.state = 'linked'
+					  AND sr.transaction_id = l.transaction_id
+				 ) THEN 1
+		         ELSE 0
+		       END AS counts_as_settlement
+		FROM payable_transaction_links l
+		WHERE l.payable_id IN (`+in+`) ORDER BY l.linked_at DESC`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var l Link
+		var countsAsSettlement int
 		var linkedAmountRaw, linkedAtRaw string
-		if err := rows.Scan(&l.ID, &l.PayableID, &l.TransactionID, &linkedAmountRaw, &linkedAtRaw); err != nil {
+		if err := rows.Scan(&l.ID, &l.PayableID, &l.TransactionID, &linkedAmountRaw, &linkedAtRaw, &countsAsSettlement); err != nil {
 			return nil, err
 		}
 		if l.LinkedAmount, err = decimal.NewFromString(linkedAmountRaw); err != nil {
@@ -211,7 +235,7 @@ func linksFor(ctx context.Context, q Querier, payableIDs []string) (map[string][
 		if l.LinkedAt, err = db.ParseTime(linkedAtRaw); err != nil {
 			return nil, err
 		}
-		result[l.PayableID] = append(result[l.PayableID], l)
+		result[l.PayableID] = append(result[l.PayableID], loadedLink{Link: l, countsAsSettlement: countsAsSettlement != 0})
 	}
 	return result, rows.Err()
 }
@@ -587,7 +611,12 @@ func CreateLink(ctx context.Context, conn *sql.DB, kind Kind, payableID, transac
 	}
 
 	link := Link{ID: uuid.NewString(), PayableID: payableID, TransactionID: transactionID, LinkedAmount: eff.Value.Abs(), LinkedAt: time.Now().UTC()}
-	_, err = conn.ExecContext(ctx, `
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return CreateLinkResult{}, err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO payable_transaction_links (id, payable_id, transaction_id, linked_amount, linked_at)
 		VALUES (?, ?, ?, ?, ?)`,
 		link.ID, link.PayableID, link.TransactionID, money.CanonicalDecimal(link.LinkedAmount), db.FormatTime(link.LinkedAt),
@@ -599,7 +628,39 @@ func CreateLink(ctx context.Context, conn *sql.DB, kind Kind, payableID, transac
 		// internal/db) makes this practically unreachable.
 		return CreateLinkResult{Status: StatusConflict}, nil
 	}
+	if err := createSettlement(ctx, tx, link); err != nil {
+		return CreateLinkResult{Status: StatusConflict}, nil
+	}
+	if err := tx.Commit(); err != nil {
+		return CreateLinkResult{}, err
+	}
 	return CreateLinkResult{Status: StatusCreated, Link: &link}, nil
+}
+
+// createSettlement mirrors a payable link in the accounting scenario. A
+// legacy payable may not have a primary scenario yet; in that transition
+// window the compatibility link remains authoritative until CreateScenario
+// backfills it.
+func createSettlement(ctx context.Context, q Querier, link Link) error {
+	var scenarioID string
+	err := q.QueryRowContext(ctx, `
+		SELECT id FROM scenarios
+		WHERE payable_id = ? AND is_accounting_source = 1`, link.PayableID).Scan(&scenarioID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = q.ExecContext(ctx, `
+		INSERT INTO scenario_realizations (
+			id, scenario_id, transaction_id, relation_type, state, origin,
+			linked_amount, created_at
+		) VALUES (?, ?, ?, 'settlement', 'linked', 'manual', ?, ?)`,
+		uuid.NewString(), scenarioID, link.TransactionID,
+		money.CanonicalDecimal(link.LinkedAmount), db.FormatTime(link.LinkedAt),
+	)
+	return err
 }
 
 // DeleteLink mirrors delete_link: returns found=false when linkID doesn't
@@ -607,15 +668,34 @@ func CreateLink(ctx context.Context, conn *sql.DB, kind Kind, payableID, transac
 // scoping check explicit here rather than delegating it to a WHERE clause
 // that would silently no-op on a mismatched payable_id).
 func DeleteLink(ctx context.Context, conn *sql.DB, payableID, linkID string) (bool, error) {
-	var storedPayableID string
-	err := conn.QueryRowContext(ctx, `SELECT payable_id FROM payable_transaction_links WHERE id = ?`, linkID).Scan(&storedPayableID)
+	var storedPayableID, transactionID string
+	err := conn.QueryRowContext(ctx, `SELECT payable_id, transaction_id FROM payable_transaction_links WHERE id = ?`, linkID).Scan(&storedPayableID, &transactionID)
 	if errors.Is(err, sql.ErrNoRows) || (err == nil && storedPayableID != payableID) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	if _, err := conn.ExecContext(ctx, `DELETE FROM payable_transaction_links WHERE id = ?`, linkID); err != nil {
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM payable_transaction_links WHERE id = ?`, linkID); err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM scenario_realizations
+		WHERE relation_type = 'settlement' AND transaction_id = ?`, transactionID); err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM scenario_realizations
+		WHERE relation_type = 'allocation' AND transaction_id = ?
+		  AND scenario_id IN (SELECT id FROM scenarios WHERE payable_id = ?)`, transactionID, payableID); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -626,6 +706,18 @@ func DeleteLink(ctx context.Context, conn *sql.DB, payableID, linkID string) (bo
 // one is needed (transactions.SetInclusion, automation's apply paths, and
 // the sync pipeline via automation.NewTransactionHook) without an adapter.
 func UnlinkIfPresent(ctx context.Context, q transactions.Querier, transactionID string) error {
-	_, err := q.ExecContext(ctx, `DELETE FROM payable_transaction_links WHERE transaction_id = ?`, transactionID)
+	if _, err := q.ExecContext(ctx, `DELETE FROM payable_transaction_links WHERE transaction_id = ?`, transactionID); err != nil {
+		return err
+	}
+	_, err := q.ExecContext(ctx, `
+		DELETE FROM scenario_realizations
+		WHERE relation_type = 'settlement' AND transaction_id = ?`, transactionID)
+	if err != nil {
+		return err
+	}
+	_, err = q.ExecContext(ctx, `
+		DELETE FROM scenario_realizations
+		WHERE relation_type = 'allocation' AND transaction_id = ?
+		  AND scenario_id IN (SELECT id FROM scenarios WHERE payable_id IS NOT NULL)`, transactionID)
 	return err
 }

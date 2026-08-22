@@ -119,6 +119,170 @@ func TestPayablesMigrationPreservesData(t *testing.T) {
 	}
 }
 
+func TestScenarioProjectionMigrationPreservesAndMapsLegacyData(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	conn, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	conn.SetMaxOpenConns(1)
+	if _, err := conn.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		t.Fatalf("enable foreign keys: %v", err)
+	}
+	migrations, err := fs.Sub(sqliteMigrationsFS, "migrations/sqlite")
+	if err != nil {
+		t.Fatalf("root migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, conn, migrations)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	ctx := context.Background()
+	if _, err := provider.UpTo(ctx, 26); err != nil {
+		t.Fatalf("migrate up to 26: %v", err)
+	}
+
+	const (
+		now       = "2026-08-01T00:00:00.000000000Z"
+		category  = "000433b6-3094-5a9c-87df-465b70574a4b"
+		payableID = "payable-legacy"
+		planID    = "plan-legacy"
+		stID      = "scenario-transaction-legacy"
+		recID     = "recurring-legacy"
+		ruleID    = "rule-legacy"
+		linkID    = "payable-link-legacy"
+		allocID   = "allocation-legacy"
+		reconID   = "reconciliation-legacy"
+		txID      = "transaction-settlement"
+		reconTxID = "transaction-reconciliation"
+	)
+	mustExec(t, conn, `INSERT INTO data_sources (id, provider, external_item_id, created_at, updated_at)
+		VALUES ('source-legacy', 'pluggy', 'item-legacy', ?, ?)`, now, now)
+	mustExec(t, conn, `INSERT INTO sync_runs (id, source_id, status, started_at, finished_at)
+		VALUES ('run-legacy', 'source-legacy', 'completed', ?, ?)`, now, now)
+	mustExec(t, conn, `INSERT INTO raw_imports (
+		id, sync_run_id, source_id, scope, page_sequence, request_attempt,
+		request_method, request_path, http_status, response_headers, payload,
+		payload_sha256, received_at
+		) VALUES ('import-legacy', 'run-legacy', 'source-legacy', 'transactions', 1, 1,
+		'GET', '/transactions', 200, '{}', x'00', 'legacy-hash', ?)`, now)
+	mustExec(t, conn, `INSERT INTO financial_accounts (
+		id, source_id, external_id, currency_code, current_raw_import_id,
+		normalized_hash, created_at, updated_at
+		) VALUES ('account-legacy', 'source-legacy', 'account-legacy', 'BRL',
+		'import-legacy', 'account-hash', ?, ?)`, now, now)
+	for _, tx := range []struct{ id, description, amount, movement string }{
+		{txID, "Pagamento", "-100.00", "DEBIT"},
+		{reconTxID, "Salário", "200.00", "CREDIT"},
+	} {
+		mustExec(t, conn, `INSERT INTO financial_transactions (
+			id, source_id, account_id, external_id, description, amount,
+			amount_in_account_currency, currency_code, occurred_at, provider_status,
+			movement_type, current_raw_import_id, normalized_hash, created_at, updated_at
+			) VALUES (?, 'source-legacy', 'account-legacy', ?, ?, ?, ?, 'BRL', ?, 'POSTED', ?,
+			'import-legacy', 'transaction-hash-' || ?, ?, ?)`,
+			tx.id, tx.id, tx.description, tx.amount, tx.amount, now, tx.movement, tx.id, now, now)
+	}
+	mustExec(t, conn, `INSERT INTO payables (
+		id, kind, name, total_amount, starting_settled_amount, created_at, updated_at
+		) VALUES (?, 'debt', 'Dívida legada', '1000.00', '0.00', ?, ?)`, payableID, now, now)
+	mustExec(t, conn, `INSERT INTO payable_transaction_links (
+		id, payable_id, transaction_id, linked_amount, linked_at
+		) VALUES (?, ?, ?, '100.00', ?)`, linkID, payableID, txID, now)
+	mustExec(t, conn, `INSERT INTO scenarios (
+		id, kind, name, payable_id, created_at, updated_at
+		) VALUES (?, 'debt_plan', 'Plano legado', ?, ?, ?)`, planID, payableID, now, now)
+	mustExec(t, conn, `INSERT INTO scenario_transactions (
+		id, scenario_id, description, amount, projected_at, created_at, updated_at
+		) VALUES (?, ?, 'Parcela legada', '100.00', '2026-08-15', ?, ?)`, stID, planID, now, now)
+	mustExec(t, conn, `INSERT INTO scenario_transaction_realizations (
+		id, scenario_transaction_id, payable_link_id, allocated_amount, created_at
+		) VALUES (?, ?, ?, '100.00', ?)`, allocID, stID, linkID, now)
+	mustExec(t, conn, `INSERT INTO recurring_commitments (
+		id, name, kind, amount, category_id, account_id, cadence, day_of_month,
+		month_of_year, start_date, end_date, is_active, created_at, updated_at
+		) VALUES (?, 'Recorrência legada', 'income', '200.00', ?, NULL, 'monthly', 15,
+		NULL, '2026-01-01', NULL, 0, ?, ?)`, recID, category, now, now)
+	mustExec(t, conn, `INSERT INTO recurrence_reconciliations (
+		id, recurring_commitment_id, occurrence_date, state, transaction_id, created_at
+		) VALUES (?, ?, '2026-08-15', 'linked', ?, ?)`, reconID, recID, reconTxID, now)
+	mustExec(t, conn, `INSERT INTO automation_rules (
+		id, name, is_active, logic_operator, created_at, updated_at
+		) VALUES (?, 'Regra legada', 1, 'and', ?, ?)`, ruleID, now, now)
+	mustExec(t, conn, `INSERT INTO automation_rule_conditions (
+		id, rule_id, field, operator, value, position
+		) VALUES ('condition-legacy', ?, 'description', 'contains', 'salário', 0)`, ruleID)
+	mustExec(t, conn, `INSERT INTO automation_rule_actions (
+		id, rule_id, action_type, recurring_commitment_id, category_id, position
+		) VALUES ('action-legacy', ?, 'reconcile', ?, NULL, 0)`, ruleID, recID)
+
+	if _, err := provider.UpTo(ctx, 27); err != nil {
+		t.Fatalf("migrate up to 27: %v", err)
+	}
+
+	var recurringCount, scheduleCount, settlementCount, allocationCount, reconciliationCount int
+	if err := conn.QueryRow(`SELECT COUNT(*) FROM scenarios WHERE kind = 'recurring'`).Scan(&recurringCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.QueryRow(`SELECT COUNT(*) FROM scenario_recurring_schedules`).Scan(&scheduleCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.QueryRow(`SELECT COUNT(*) FROM scenario_realizations WHERE relation_type = 'settlement'`).Scan(&settlementCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.QueryRow(`SELECT COUNT(*) FROM scenario_realizations WHERE relation_type = 'allocation'`).Scan(&allocationCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.QueryRow(`SELECT COUNT(*) FROM scenario_realizations WHERE relation_type = 'reconciliation'`).Scan(&reconciliationCount); err != nil {
+		t.Fatal(err)
+	}
+	if recurringCount != 1 || scheduleCount != 1 || settlementCount != 1 || allocationCount != 1 || reconciliationCount != 1 {
+		t.Fatalf("migrated counts = recurring %d, schedules %d, settlements %d, allocations %d, reconciliations %d; want one of each", recurringCount, scheduleCount, settlementCount, allocationCount, reconciliationCount)
+	}
+
+	var scenarioID, kind string
+	if err := conn.QueryRow(`SELECT scenario_id FROM recurring_commitment_scenario_map WHERE recurring_commitment_id = ?`, recID).Scan(&scenarioID); err != nil {
+		t.Fatal(err)
+	}
+	if scenarioID == recID {
+		t.Fatal("migration reused recurring commitment id as scenario id")
+	}
+	if err := conn.QueryRow(`SELECT kind FROM scenarios WHERE id = ?`, scenarioID).Scan(&kind); err != nil {
+		t.Fatal(err)
+	}
+	if kind != "recurring" {
+		t.Fatalf("mapped scenario kind = %q, want recurring", kind)
+	}
+	var mappedScenarioID, actionScenarioID string
+	if err := conn.QueryRow(`SELECT scenario_id FROM recurrence_reconciliations WHERE id = ?`, reconID).Scan(&mappedScenarioID); err != nil {
+		t.Fatal(err)
+	}
+	if mappedScenarioID != scenarioID {
+		t.Fatalf("reconciliation scenario_id = %q, want %q", mappedScenarioID, scenarioID)
+	}
+	if err := conn.QueryRow(`SELECT scenario_id FROM automation_rule_actions WHERE id = 'action-legacy'`).Scan(&actionScenarioID); err != nil {
+		t.Fatal(err)
+	}
+	if actionScenarioID != scenarioID {
+		t.Fatalf("automation scenario_id = %q, want %q", actionScenarioID, scenarioID)
+	}
+	var active int
+	if err := conn.QueryRow(`SELECT is_active FROM scenarios WHERE id = ?`, scenarioID).Scan(&active); err != nil {
+		t.Fatal(err)
+	}
+	if active != 0 {
+		t.Fatalf("migrated inactive recurring scenario is_active = %d, want 0", active)
+	}
+	var orphaned int
+	if err := conn.QueryRow(`SELECT COUNT(*) FROM scenario_realizations sr WHERE NOT EXISTS (SELECT 1 FROM scenarios s WHERE s.id = sr.scenario_id)`).Scan(&orphaned); err != nil {
+		t.Fatal(err)
+	}
+	if orphaned != 0 {
+		t.Fatalf("migrated generic realizations with missing scenarios = %d", orphaned)
+	}
+}
+
 func assertRow(t *testing.T, conn *sql.DB, table, id, column, want string) {
 	t.Helper()
 	var got string

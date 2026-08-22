@@ -41,8 +41,12 @@ export function AutomationEntryList({
   onToggleRule: (rule: AutomationRule, isActive: boolean) => void;
   onDeleteRule: (rule: AutomationRule) => void;
 }) {
-  const commitmentName = (commitmentId: string) =>
-    commitments.find((commitment) => commitment.id === commitmentId)?.name ?? "Recorrência removida";
+  const commitmentName = (commitmentId: string | null, scenarioId?: string | null) =>
+    commitments.find(
+      (commitment) =>
+        (commitmentId !== null && commitment.id === commitmentId) ||
+        (scenarioId !== undefined && scenarioId !== null && commitment.scenario_id === scenarioId),
+    )?.name ?? "Recorrência removida";
   const categoryName = (categoryId: string) =>
     categories.find((category) => category.id === categoryId)?.name ?? "Categoria removida";
 
@@ -57,8 +61,8 @@ export function AutomationEntryList({
         <Space size={4} wrap>
           {row.rule.actions.map((action) => (
             <Tag key={action.type} color={actionColor[action.type]}>
-              {action.type === "reconcile" && action.recurring_commitment_id
-                ? `Concilia: ${commitmentName(action.recurring_commitment_id)}`
+              {action.type === "reconcile" && (action.recurring_commitment_id || action.scenario_id)
+                ? `Concilia: ${commitmentName(action.recurring_commitment_id, action.scenario_id)}`
                 : action.type === "set_category" && action.category_id
                   ? `Categoriza: ${categoryName(action.category_id)}`
                   : actionLabel[action.type]}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,22 +38,131 @@ const dateLayout = "2006-01-02"
 func formatDate(t time.Time) string         { return t.UTC().Format(dateLayout) }
 func parseDate(s string) (time.Time, error) { return time.Parse(dateLayout, s) }
 
+const scenarioColumns = `id, kind, name, payable_id, is_active, is_accounting_source, created_at, updated_at`
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
 // CreateScenario mirrors creating a Scenario row. Callers are responsible
 // for enforcing kind-specific rules (payableID required, and its kind must
 // agree with kind) before calling this — the schema also enforces
 // payableID being non-null via a CHECK constraint as defense in depth.
 func CreateScenario(ctx context.Context, q Querier, kind Kind, name string, payableID *string) (Scenario, error) {
 	now := time.Now().UTC()
-	s := Scenario{ID: uuid.NewString(), Kind: kind, Name: name, PayableID: payableID, CreatedAt: now, UpdatedAt: now}
+	if kind != KindDebtPlan && kind != KindReceivablePlan && kind != KindStandalone && kind != KindRecurring {
+		return Scenario{}, errors.New("unknown scenario kind")
+	}
+	isActive := kind != KindStandalone
+	isAccountingSource := false
+	if kind == KindDebtPlan || kind == KindReceivablePlan {
+		if payableID == nil {
+			return Scenario{}, errors.New("payable id is required for a payable plan")
+		}
+		var payableKind string
+		if err := q.QueryRowContext(ctx, `SELECT kind FROM payables WHERE id = ?`, *payableID).Scan(&payableKind); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return Scenario{}, errors.New("payable not found")
+			}
+			return Scenario{}, err
+		}
+		if (kind == KindDebtPlan && payableKind != "debt") ||
+			(kind == KindReceivablePlan && payableKind != "receivable") {
+			return Scenario{}, errors.New("scenario kind does not match payable kind")
+		}
+		var count int
+		if err := q.QueryRowContext(ctx,
+			`SELECT COUNT(1) FROM scenarios WHERE payable_id = ? AND is_accounting_source = 1`, payableID,
+		).Scan(&count); err != nil {
+			return Scenario{}, err
+		}
+		isAccountingSource = count == 0
+	} else if kind == KindStandalone || kind == KindRecurring {
+		if payableID != nil {
+			return Scenario{}, errors.New("this scenario kind cannot reference a payable")
+		}
+	}
+	s := Scenario{
+		ID: uuid.NewString(), Kind: kind, Name: name, PayableID: payableID,
+		IsActive: isActive, IsAccountingSource: isAccountingSource,
+		CreatedAt: now, UpdatedAt: now,
+	}
 	_, err := q.ExecContext(ctx, `
-		INSERT INTO scenarios (id, kind, name, payable_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		s.ID, string(s.Kind), s.Name, s.PayableID, db.FormatTime(now), db.FormatTime(now),
+		INSERT INTO scenarios (id, kind, name, payable_id, is_active, is_accounting_source, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.ID, string(s.Kind), s.Name, s.PayableID, boolToInt(s.IsActive), boolToInt(s.IsAccountingSource),
+		db.FormatTime(now), db.FormatTime(now),
 	)
 	if err != nil {
 		return Scenario{}, err
 	}
+	if s.IsAccountingSource {
+		if err := backfillAccountingSettlements(ctx, q, s); err != nil {
+			return Scenario{}, err
+		}
+	}
 	return s, nil
+}
+
+// backfillAccountingSettlements covers the compatibility window where a
+// payable link was created before its primary scenario existed. Once the
+// scenario is established, all existing real links become explicit generic
+// settlements; allocations in other scenarios remain unrelated.
+func backfillAccountingSettlements(ctx context.Context, q Querier, s Scenario) error {
+	if s.PayableID == nil {
+		return nil
+	}
+	rows, err := q.QueryContext(ctx, `
+		SELECT transaction_id, linked_amount, linked_at
+		FROM payable_transaction_links
+		WHERE payable_id = ?`, *s.PayableID)
+	if err != nil {
+		return err
+	}
+	type linkSeed struct {
+		transactionID string
+		amount        string
+		createdAt     string
+	}
+	var seeds []linkSeed
+	for rows.Next() {
+		var seed linkSeed
+		if err := rows.Scan(&seed.transactionID, &seed.amount, &seed.createdAt); err != nil {
+			rows.Close()
+			return err
+		}
+		seeds = append(seeds, seed)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, seed := range seeds {
+		var exists int
+		if err := q.QueryRowContext(ctx, `
+			SELECT COUNT(1)
+			FROM scenario_realizations
+			WHERE scenario_id = ? AND relation_type = 'settlement' AND transaction_id = ?`,
+			s.ID, seed.transactionID).Scan(&exists); err != nil {
+			return err
+		}
+		if exists != 0 {
+			continue
+		}
+		if _, err := q.ExecContext(ctx, `
+			INSERT INTO scenario_realizations (
+				id, scenario_id, transaction_id, relation_type, state, origin,
+				linked_amount, created_at
+			) VALUES (?, ?, ?, 'settlement', 'linked', 'manual', ?, ?)`,
+			uuid.NewString(), s.ID, seed.transactionID, seed.amount, seed.createdAt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func scanScenario(row *sql.Row) (Scenario, error) {
@@ -60,12 +170,15 @@ func scanScenario(row *sql.Row) (Scenario, error) {
 		s                          Scenario
 		kind                       string
 		payableID                  sql.NullString
+		isActive, isAccounting     int
 		createdAtRaw, updatedAtRaw string
 	)
-	if err := row.Scan(&s.ID, &kind, &s.Name, &payableID, &createdAtRaw, &updatedAtRaw); err != nil {
+	if err := row.Scan(&s.ID, &kind, &s.Name, &payableID, &isActive, &isAccounting, &createdAtRaw, &updatedAtRaw); err != nil {
 		return Scenario{}, err
 	}
 	s.Kind = Kind(kind)
+	s.IsActive = isActive != 0
+	s.IsAccountingSource = isAccounting != 0
 	if payableID.Valid {
 		s.PayableID = &payableID.String
 	}
@@ -81,7 +194,7 @@ func scanScenario(row *sql.Row) (Scenario, error) {
 
 // GetScenario mirrors reading a single Scenario by id.
 func GetScenario(ctx context.Context, q Querier, id string) (Scenario, error) {
-	row := q.QueryRowContext(ctx, `SELECT id, kind, name, payable_id, created_at, updated_at FROM scenarios WHERE id = ?`, id)
+	row := q.QueryRowContext(ctx, `SELECT `+scenarioColumns+` FROM scenarios WHERE id = ?`, id)
 	s, err := scanScenario(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Scenario{}, ErrScenarioNotFound
@@ -93,7 +206,7 @@ func GetScenario(ctx context.Context, q Querier, id string) (Scenario, error) {
 // payable, newest first.
 func ListScenariosByPayable(ctx context.Context, q Querier, payableID string) ([]Scenario, error) {
 	rows, err := q.QueryContext(ctx,
-		`SELECT id, kind, name, payable_id, created_at, updated_at FROM scenarios WHERE payable_id = ? ORDER BY created_at DESC`, payableID)
+		`SELECT `+scenarioColumns+` FROM scenarios WHERE payable_id = ? ORDER BY created_at DESC`, payableID)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +219,7 @@ func ListScenariosByPayable(ctx context.Context, q Querier, payableID string) ([
 // of which one — fed to internal/timeline's M4 projection.
 func listPayablePlanScenarios(ctx context.Context, q Querier) ([]Scenario, error) {
 	rows, err := q.QueryContext(ctx,
-		`SELECT id, kind, name, payable_id, created_at, updated_at FROM scenarios WHERE kind IN (?, ?) ORDER BY created_at DESC`,
+		`SELECT `+scenarioColumns+` FROM scenarios WHERE kind IN (?, ?) ORDER BY created_at DESC`,
 		string(KindDebtPlan), string(KindReceivablePlan))
 	if err != nil {
 		return nil, err
@@ -120,7 +233,7 @@ func listPayablePlanScenarios(ctx context.Context, q Querier) ([]Scenario, error
 // M5 multi-select.
 func ListStandaloneScenarios(ctx context.Context, q Querier) ([]Scenario, error) {
 	rows, err := q.QueryContext(ctx,
-		`SELECT id, kind, name, payable_id, created_at, updated_at FROM scenarios WHERE kind = ? ORDER BY created_at DESC`, string(KindStandalone))
+		`SELECT `+scenarioColumns+` FROM scenarios WHERE kind = ? ORDER BY created_at DESC`, string(KindStandalone))
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +250,7 @@ func ListScenariosByIDs(ctx context.Context, q Querier, ids []string) ([]Scenari
 		return nil, nil
 	}
 	in, args := db.InClause(ids)
-	query := `SELECT id, kind, name, payable_id, created_at, updated_at FROM scenarios WHERE id IN (` + in + `)`
+	query := `SELECT ` + scenarioColumns + ` FROM scenarios WHERE id IN (` + in + `)`
 	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -153,12 +266,15 @@ func scanScenarioRows(rows *sql.Rows) ([]Scenario, error) {
 			s                          Scenario
 			kind                       string
 			payableID                  sql.NullString
+			isActive, isAccounting     int
 			createdAtRaw, updatedAtRaw string
 		)
-		if err := rows.Scan(&s.ID, &kind, &s.Name, &payableID, &createdAtRaw, &updatedAtRaw); err != nil {
+		if err := rows.Scan(&s.ID, &kind, &s.Name, &payableID, &isActive, &isAccounting, &createdAtRaw, &updatedAtRaw); err != nil {
 			return nil, err
 		}
 		s.Kind = Kind(kind)
+		s.IsActive = isActive != 0
+		s.IsAccountingSource = isAccounting != 0
 		if payableID.Valid {
 			s.PayableID = &payableID.String
 		}
@@ -174,15 +290,98 @@ func scanScenarioRows(rows *sql.Rows) ([]Scenario, error) {
 	return list, rows.Err()
 }
 
+// SetActive changes only whether a scenario participates in the default
+// projection selection. It deliberately leaves transactions and all
+// realization history untouched.
+func SetActive(ctx context.Context, q Querier, id string, active bool) (Scenario, error) {
+	now := db.FormatTime(time.Now().UTC())
+	result, err := q.ExecContext(ctx,
+		`UPDATE scenarios SET is_active = ?, updated_at = ? WHERE id = ?`,
+		boolToInt(active), now, id,
+	)
+	if err != nil {
+		return Scenario{}, err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return Scenario{}, ErrScenarioNotFound
+	}
+	// Keep the legacy recurring-commitment alias coherent while old HTTP
+	// clients are still deployed. The Scenario row remains the projection
+	// authority; this is only a compatibility mirror.
+	if _, err := q.ExecContext(ctx, `
+		UPDATE recurring_commitments
+		SET is_active = ?, updated_at = ?
+		WHERE id = (
+			SELECT recurring_commitment_id
+			FROM recurring_commitment_scenario_map
+			WHERE scenario_id = ?
+		)`, boolToInt(active), now, id); err != nil {
+		return Scenario{}, err
+	}
+	return GetScenario(ctx, q, id)
+}
+
+// ListScenarios returns the unified catalog. Nil filters mean no filter; the
+// explicit shape avoids overloading nil/empty IDs with active-selection
+// semantics in callers such as the projection reader.
+type ListFilter struct {
+	Kind      *Kind
+	IsActive  *bool
+	PayableID *string
+}
+
+func ListScenarios(ctx context.Context, q Querier, filter ListFilter) ([]Scenario, error) {
+	query := `SELECT ` + scenarioColumns + ` FROM scenarios`
+	var clauses []string
+	var args []any
+	if filter.Kind != nil {
+		clauses = append(clauses, "kind = ?")
+		args = append(args, string(*filter.Kind))
+	}
+	if filter.IsActive != nil {
+		clauses = append(clauses, "is_active = ?")
+		args = append(args, boolToInt(*filter.IsActive))
+	}
+	if filter.PayableID != nil {
+		clauses = append(clauses, "payable_id = ?")
+		args = append(args, *filter.PayableID)
+	}
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+	query += " ORDER BY created_at, id"
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanScenarioRows(rows)
+}
+
 // DeleteScenario mirrors deleting a Scenario (scenario_transactions cascades
-// via the schema's ON DELETE CASCADE).
+// via the schema's ON DELETE CASCADE). A recurring Scenario created through
+// the compatibility API also owns a legacy recurring_commitments row; remove
+// that alias after the canonical row so the old endpoint cannot expose a
+// projection whose Scenario identity no longer exists.
 func DeleteScenario(ctx context.Context, q Querier, id string) error {
+	var legacyCommitmentID sql.NullString
+	if err := q.QueryRowContext(ctx, `
+		SELECT recurring_commitment_id
+		FROM recurring_commitment_scenario_map
+		WHERE scenario_id = ?`, id).Scan(&legacyCommitmentID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
 	res, err := q.ExecContext(ctx, `DELETE FROM scenarios WHERE id = ?`, id)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrScenarioNotFound
+	}
+	if legacyCommitmentID.Valid {
+		if _, err := q.ExecContext(ctx, `DELETE FROM recurring_commitments WHERE id = ?`, legacyCommitmentID.String); err != nil {
+			return err
+		}
 	}
 	return nil
 }

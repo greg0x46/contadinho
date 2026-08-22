@@ -20,10 +20,9 @@ import type {
 export const payableScenariosQueryKey = (payableId: string) =>
   ["payables", payableId, "scenarios"] as const;
 
-// usePayablePlan surfaces the single Scenario for a payable (debt or
-// receivable — the data model allows more, but the UI keeps this to one
-// plan per payable): it lists the payable's scenarios, and treats the
-// first one found as *the* plan, loading its transactions via getScenario.
+// usePayablePlan surfaces the accounting Scenario for a payable. Simulation
+// scenarios may share the payable, so position in the API array is not a
+// valid selector; the canonical row is marked is_accounting_source.
 export function usePayablePlan(payableId: string) {
   const queryClient = useQueryClient();
 
@@ -31,7 +30,8 @@ export function usePayablePlan(payableId: string) {
     queryKey: payableScenariosQueryKey(payableId),
     queryFn: ({ signal }) => listPayableScenarios(payableId, signal),
   });
-  const planSummary = listQuery.data?.[0] ?? null;
+  const planSummary =
+    listQuery.data?.find((scenario) => scenario.is_accounting_source === true) ?? null;
 
   const detailQuery = useQuery({
     queryKey: [...payableScenariosQueryKey(payableId), planSummary?.id ?? null, "detail"],

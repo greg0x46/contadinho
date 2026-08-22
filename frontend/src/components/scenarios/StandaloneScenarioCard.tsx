@@ -1,5 +1,5 @@
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, DatePicker, Flex, Input, InputNumber, Popconfirm, Select } from "antd";
+import { Alert, Button, Card, DatePicker, Flex, Input, InputNumber, Popconfirm, Select, Space, Switch, Tag } from "antd";
 import type { ProColumns } from "@ant-design/pro-table";
 import ProTable from "@ant-design/pro-table";
 import dayjs, { type Dayjs } from "dayjs";
@@ -7,8 +7,9 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import type { Scenario, ScenarioTransaction, ScenarioTransactionWrite } from "../../api/contracts";
-import { getScenario } from "../../api/scenarios";
+import { getScenario, listScenarioPlannedTransactions } from "../../api/scenarios";
 import { formatBRL } from "../../presentation/money";
+import { scenarioKindLabel } from "../../presentation/scenarioLabels";
 
 const dateFormat = "YYYY-MM-DD";
 
@@ -99,15 +100,22 @@ export function StandaloneScenarioCard({
   onDeleteScenario,
   onAddTransaction,
   onDeleteTransaction,
+  onToggleScenario,
 }: {
   scenario: Scenario;
   onDeleteScenario: (scenario: Scenario) => void;
   onAddTransaction: (scenarioId: string, write: ScenarioTransactionWrite) => Promise<unknown>;
   onDeleteTransaction: (scenarioId: string, transactionId: string) => Promise<void>;
+  onToggleScenario?: (scenario: Scenario, isActive: boolean) => Promise<unknown>;
 }) {
   const detailQuery = useQuery({
     queryKey: ["scenarios", scenario.id, "detail"],
     queryFn: ({ signal }) => getScenario(scenario.id, signal),
+  });
+  const plannedQuery = useQuery({
+    queryKey: ["scenarios", scenario.id, "planned-transactions"],
+    queryFn: async ({ signal }) =>
+      (await listScenarioPlannedTransactions(scenario.id, undefined, undefined, signal)) ?? [],
   });
   const [addError, setAddError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -163,19 +171,36 @@ export function StandaloneScenarioCard({
 
   return (
     <Card
-      title={scenario.name}
+      title={
+        <Space>
+          <span>{scenario.name}</span>
+          <Tag>{scenarioKindLabel[scenario.kind]}</Tag>
+          <Tag color={scenario.is_accounting_source ? "blue" : undefined}>
+            {scenario.is_accounting_source ? "Contábil" : "Simulação"}
+          </Tag>
+        </Space>
+      }
       extra={
-        <Popconfirm
-          title="Excluir cenário"
-          description="As transações hipotéticas deste cenário também serão excluídas."
-          onConfirm={() => onDeleteScenario(scenario)}
-          okText="Excluir"
-          cancelText="Cancelar"
-        >
-          <Button type="link" danger>
-            Excluir cenário
-          </Button>
-        </Popconfirm>
+        <Space>
+          {onToggleScenario && (
+            <Switch
+              aria-label={`${scenario.is_active === false ? "Ativar" : "Desativar"} cenário ${scenario.name}`}
+              checked={scenario.is_active !== false}
+              onChange={(checked) => void onToggleScenario(scenario, checked)}
+            />
+          )}
+          <Popconfirm
+            title="Excluir cenário"
+            description="As projeções deste cenário também serão excluídas."
+            onConfirm={() => onDeleteScenario(scenario)}
+            okText="Excluir"
+            cancelText="Cancelar"
+          >
+            <Button type="link" danger>
+              Excluir cenário
+            </Button>
+          </Popconfirm>
+        </Space>
       }
       style={{ marginBottom: 16 }}
     >
@@ -191,7 +216,12 @@ export function StandaloneScenarioCard({
         pagination={false}
         locale={{ emptyText: "Nenhuma transação hipotética ainda." }}
       />
-      <NewTransactionRow onAdd={add} submitting={adding} />
+      <div style={{ marginTop: 8, color: "#666" }}>
+        Eventos realizados: {plannedQuery.data?.filter((event) => event.realized).length ?? 0}
+        {" · "}
+        Eventos pendentes: {plannedQuery.data?.filter((event) => !event.realized).length ?? 0}
+      </div>
+      {scenario.kind === "standalone" && <NewTransactionRow onAdd={add} submitting={adding} />}
     </Card>
   );
 }

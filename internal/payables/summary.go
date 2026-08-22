@@ -22,6 +22,11 @@ type LinkSummary struct {
 	Link            Link
 	EffectiveAmount decimal.Decimal
 	Transaction     LinkedTransactionSummary
+	// CountsAsSettlement is true only when the real transaction is linked
+	// to the payable's accounting scenario through a generic settlement.
+	// Legacy link rows remain visible for compatibility, but allocations in
+	// other scenarios must never affect the official payable balance.
+	CountsAsSettlement bool
 }
 
 // Summary is a Payable's derived state: settled/remaining amounts, the
@@ -120,7 +125,9 @@ func summaryFrom(p Payable, all []LinkSummary, dayEnd *time.Time) Summary {
 			continue
 		}
 		counted = append(counted, ls)
-		amounts = append(amounts, ls.EffectiveAmount)
+		if ls.CountsAsSettlement {
+			amounts = append(amounts, ls.EffectiveAmount)
+		}
 	}
 	settled := settledAmount(p.StartingSettledAmount, amounts)
 	remaining := remainingAmount(p.TotalAmount, settled)
@@ -169,12 +176,12 @@ func allLinkSummaries(ctx context.Context, q Querier, list []Payable) (map[strin
 	if err != nil {
 		return nil, err
 	}
-
 	out := make(map[string][]LinkSummary, len(linksByPayable))
 	for payableID, rows := range linksByPayable {
 		summaries := make([]LinkSummary, len(rows))
-		for i, l := range rows {
-			ls := LinkSummary{Link: l, EffectiveAmount: decimal.Zero}
+		for i, loaded := range rows {
+			l := loaded.Link
+			ls := LinkSummary{Link: l, EffectiveAmount: decimal.Zero, CountsAsSettlement: loaded.countsAsSettlement}
 			if snapshot, ok := snapshots[l.TransactionID]; ok {
 				ls.EffectiveAmount = snapshot.linkEffectiveAmount()
 				ls.Transaction = LinkedTransactionSummary{

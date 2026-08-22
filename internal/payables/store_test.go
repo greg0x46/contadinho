@@ -14,6 +14,7 @@ import (
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/money"
 	"contadinho-go/internal/payables"
+	"contadinho-go/internal/scenarios"
 	"contadinho-go/internal/transactions"
 )
 
@@ -258,6 +259,71 @@ func TestCreateLinkEligibleTransaction(t *testing.T) {
 	}
 }
 
+func TestSettledCountsOneRealTransactionAcrossMultiplePlanAllocations(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	account := f.addAccount("BRL")
+	txID := f.addTransaction(txSpec{
+		AccountID: account, Description: "Pagamento conjunto", Amount: "-100.00",
+		CurrencyCode: "BRL", MovementType: "DEBIT", ProviderStatus: "POSTED",
+	})
+	payable, err := payables.Create(ctx, f.conn, payables.KindDebt, "Dívida", dec(t, "1000.00"), dec(t, "1000.00"))
+	if err != nil {
+		t.Fatalf("payables.Create: %v", err)
+	}
+	primary, err := scenarios.CreateScenario(ctx, f.conn, scenarios.KindDebtPlan, "Plano contábil", &payable.ID)
+	if err != nil {
+		t.Fatalf("Create primary scenario: %v", err)
+	}
+	if !primary.IsAccountingSource {
+		t.Fatal("first payable plan must be the accounting source")
+	}
+	simulation, err := scenarios.CreateScenario(ctx, f.conn, scenarios.KindDebtPlan, "Simulação", &payable.ID)
+	if err != nil {
+		t.Fatalf("Create simulation scenario: %v", err)
+	}
+	if simulation.IsAccountingSource {
+		t.Fatal("second payable plan must not become the accounting source")
+	}
+	link, err := payables.CreateLink(ctx, f.conn, payables.KindDebt, payable.ID, txID)
+	if err != nil || link.Link == nil {
+		t.Fatalf("CreateLink: result=%+v err=%v", link, err)
+	}
+	first, err := scenarios.CreateScenarioTransaction(ctx, f.conn, primary.ID, "Parcela A", dec(t, "60.00"), time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), nil)
+	if err != nil {
+		t.Fatalf("Create first installment: %v", err)
+	}
+	second, err := scenarios.CreateScenarioTransaction(ctx, f.conn, simulation.ID, "Parcela B", dec(t, "40.00"), time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), nil)
+	if err != nil {
+		t.Fatalf("Create second installment: %v", err)
+	}
+	if _, err := scenarios.CreateRealization(ctx, f.conn, first.ID, &link.Link.ID, dec(t, "60.00")); err != nil {
+		t.Fatalf("allocate first installment: %v", err)
+	}
+	if _, err := scenarios.CreateRealization(ctx, f.conn, second.ID, &link.Link.ID, dec(t, "40.00")); err != nil {
+		t.Fatalf("allocate second installment: %v", err)
+	}
+
+	current, err := payables.Summarize(ctx, f.conn, payable)
+	if err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	if !current.Settled.Equal(dec(t, "100.00")) || !current.Remaining.Equal(dec(t, "900.00")) {
+		t.Fatalf("summary after split allocation = %+v, want settled 100 and remaining 900", current)
+	}
+
+	if _, err := scenarios.SetActive(ctx, f.conn, primary.ID, false); err != nil {
+		t.Fatalf("deactivate accounting scenario: %v", err)
+	}
+	afterDeactivation, err := payables.Summarize(ctx, f.conn, payable)
+	if err != nil {
+		t.Fatalf("Summarize after deactivation: %v", err)
+	}
+	if !afterDeactivation.Settled.Equal(current.Settled) || !afterDeactivation.Remaining.Equal(current.Remaining) {
+		t.Fatalf("deactivation changed payable summary: before=%+v after=%+v", current, afterDeactivation)
+	}
+}
+
 func TestCreateLinkRejectsIneligibleTransaction(t *testing.T) {
 	f := newFixture(t)
 	ctx := context.Background()
@@ -398,6 +464,45 @@ func TestUnlinkIfPresentTriggeredByIgnoringTransaction(t *testing.T) {
 	f.conn.QueryRow(`SELECT COUNT(*) FROM payable_transaction_links WHERE transaction_id = ?`, txID).Scan(&count)
 	if count != 0 {
 		t.Errorf("link should be removed once the transaction is ignored, count = %d", count)
+	}
+}
+
+func TestUnlinkIfPresentDropsGenericPayableAllocation(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	account := f.addAccount("BRL")
+	txID := f.addTransaction(txSpec{AccountID: account, Description: "Pagamento", Amount: "-100.00", CurrencyCode: "BRL", MovementType: "DEBIT", ProviderStatus: "POSTED"})
+	p, err := payables.Create(ctx, f.conn, payables.KindDebt, "Dívida", dec(t, "500.00"), dec(t, "500.00"))
+	if err != nil {
+		t.Fatalf("Create payable: %v", err)
+	}
+	plan, err := scenarios.CreateScenario(ctx, f.conn, scenarios.KindDebtPlan, "Plano", &p.ID)
+	if err != nil {
+		t.Fatalf("Create scenario: %v", err)
+	}
+	link, err := payables.CreateLink(ctx, f.conn, payables.KindDebt, p.ID, txID)
+	if err != nil || link.Link == nil {
+		t.Fatalf("CreateLink: result=%+v err=%v", link, err)
+	}
+	planned, err := scenarios.CreateScenarioTransaction(ctx, f.conn, plan.ID, "Parcela", dec(t, "100.00"), time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), nil)
+	if err != nil {
+		t.Fatalf("Create scenario transaction: %v", err)
+	}
+	if _, err := scenarios.CreateRealization(ctx, f.conn, planned.ID, &link.Link.ID, dec(t, "100.00")); err != nil {
+		t.Fatalf("Create realization: %v", err)
+	}
+
+	if err := payables.UnlinkIfPresent(ctx, f.conn, txID); err != nil {
+		t.Fatalf("UnlinkIfPresent: %v", err)
+	}
+	var count int
+	if err := f.conn.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM scenario_realizations
+		WHERE relation_type = 'allocation' AND transaction_id = ?`, txID).Scan(&count); err != nil {
+		t.Fatalf("count generic allocations: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("generic allocation should be removed with its payable link, count = %d", count)
 	}
 }
 
