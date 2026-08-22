@@ -156,11 +156,25 @@ func PutOverride(ctx context.Context, conn *sql.DB, commitmentID string, occurre
 	defer tx.Rollback()
 
 	day := dates.Day(occurrenceDate)
+	var scenarioID sql.NullString
+	if err := tx.QueryRowContext(ctx,
+		`SELECT scenario_id FROM recurring_commitment_scenario_map WHERE recurring_commitment_id = ?`, commitmentID,
+	).Scan(&scenarioID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return Override{}, err
+	}
 	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM recurrence_reconciliations WHERE recurring_commitment_id = ? AND occurrence_date = ?`,
 		commitmentID, formatDate(day),
 	); err != nil {
 		return Override{}, err
+	}
+	if scenarioID.Valid {
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM scenario_realizations
+			WHERE scenario_id = ? AND relation_type = 'reconciliation' AND occurrence_date = ?`,
+			scenarioID.String, formatDate(day)); err != nil {
+			return Override{}, err
+		}
 	}
 
 	o := Override{
@@ -175,15 +189,27 @@ func PutOverride(ctx context.Context, conn *sql.DB, commitmentID string, occurre
 		o.TransactionID = nil
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO recurrence_reconciliations (`+overrideColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		o.ID, o.RecurringCommitmentID, formatDate(o.OccurrenceDate), string(o.State),
+		INSERT INTO recurrence_reconciliations (
+			id, recurring_commitment_id, scenario_id, occurrence_date, state, transaction_id, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		o.ID, o.RecurringCommitmentID, nullableScenarioID(scenarioID), formatDate(o.OccurrenceDate), string(o.State),
 		o.TransactionID, db.FormatTime(o.CreatedAt),
 	); err != nil {
 		// UNIQUE (transaction_id): another occurrence already claims this
 		// transaction. The HTTP layer checks for that first, so reaching here
 		// means a concurrent writer won the race.
 		return Override{}, ErrTransactionAlreadyReconciled
+	}
+	if scenarioID.Valid {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO scenario_realizations (
+				id, scenario_id, occurrence_date, transaction_id, relation_type,
+				state, origin, created_at
+			) VALUES (?, ?, ?, ?, 'reconciliation', ?, 'manual', ?)`,
+			o.ID, scenarioID.String, formatDate(o.OccurrenceDate), o.TransactionID,
+			string(o.State), db.FormatTime(o.CreatedAt)); err != nil {
+			return Override{}, ErrTransactionAlreadyReconciled
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return Override{}, err
@@ -196,6 +222,13 @@ func PutOverride(ctx context.Context, conn *sql.DB, commitmentID string, occurre
 // detaching: detaching is a decision that persists, this forgets that a
 // decision was ever made.
 func DeleteOverride(ctx context.Context, q Querier, commitmentID string, occurrenceDate time.Time) error {
+	var scenarioID sql.NullString
+	err := q.QueryRowContext(ctx,
+		`SELECT scenario_id FROM recurring_commitment_scenario_map WHERE recurring_commitment_id = ?`, commitmentID,
+	).Scan(&scenarioID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
 	res, err := q.ExecContext(ctx,
 		`DELETE FROM recurrence_reconciliations WHERE recurring_commitment_id = ? AND occurrence_date = ?`,
 		commitmentID, formatDate(dates.Day(occurrenceDate)))
@@ -204,6 +237,15 @@ func DeleteOverride(ctx context.Context, q Querier, commitmentID string, occurre
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrOverrideNotFound
+	}
+	if scenarioID.Valid {
+		_, err = q.ExecContext(ctx, `
+			DELETE FROM scenario_realizations
+			WHERE scenario_id = ? AND relation_type = 'reconciliation' AND occurrence_date = ?`,
+			scenarioID.String, formatDate(dates.Day(occurrenceDate)))
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -219,6 +261,18 @@ func DeleteOverride(ctx context.Context, q Querier, commitmentID string, occurre
 // untouched by this — the user's decision to detach survives an unrelated
 // transaction being ignored.
 func UnlinkIfPresent(ctx context.Context, q transactions.Querier, transactionID string) error {
-	_, err := q.ExecContext(ctx, `DELETE FROM recurrence_reconciliations WHERE transaction_id = ?`, transactionID)
+	if _, err := q.ExecContext(ctx, `DELETE FROM recurrence_reconciliations WHERE transaction_id = ?`, transactionID); err != nil {
+		return err
+	}
+	_, err := q.ExecContext(ctx, `
+		DELETE FROM scenario_realizations
+		WHERE relation_type = 'reconciliation' AND transaction_id = ?`, transactionID)
 	return err
+}
+
+func nullableScenarioID(value sql.NullString) any {
+	if !value.Valid {
+		return nil
+	}
+	return value.String
 }

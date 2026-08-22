@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -38,17 +39,20 @@ func invalidScenarioTransactionProblem(w http.ResponseWriter, detail string) {
 const dateOnlyLayout = "2006-01-02"
 
 type scenarioDTO struct {
-	ID        string    `json:"id"`
-	Kind      string    `json:"kind"`
-	Name      string    `json:"name"`
-	PayableID *string   `json:"payable_id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID                 string    `json:"id"`
+	Kind               string    `json:"kind"`
+	Name               string    `json:"name"`
+	PayableID          *string   `json:"payable_id"`
+	IsActive           bool      `json:"is_active"`
+	IsAccountingSource bool      `json:"is_accounting_source"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 func scenarioToDTO(s scenarios.Scenario) scenarioDTO {
 	return scenarioDTO{
 		ID: s.ID, Kind: string(s.Kind), Name: s.Name, PayableID: s.PayableID,
+		IsActive: s.IsActive, IsAccountingSource: s.IsAccountingSource,
 		CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
 	}
 }
@@ -200,17 +204,30 @@ func handleCreatePayableScenario(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
-// handleListScenarios serves GET /api/scenarios?kind=standalone — the only
-// supported value in this v1, since payable-backed scenarios are already
-// reachable via GET /api/payables/{id}/scenarios and standalone ones have
-// no payable to scope them by.
+// handleListScenarios serves the unified scenario catalog. Optional kind and
+// is_active filters are explicit query filters; absence means all scenarios,
+// while projection selection remains a separate active/explicit decision.
 func handleListScenarios(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("kind") != string(scenarios.KindStandalone) {
-			invalidScenarioProblem(w, "Informe kind=standalone.")
-			return
+		filter := scenarios.ListFilter{}
+		if raw := r.URL.Query().Get("kind"); raw != "" {
+			kind := scenarios.Kind(raw)
+			if kind != scenarios.KindDebtPlan && kind != scenarios.KindReceivablePlan &&
+				kind != scenarios.KindStandalone && kind != scenarios.KindRecurring {
+				invalidScenarioProblem(w, "Informe um kind de cenário válido.")
+				return
+			}
+			filter.Kind = &kind
 		}
-		list, err := scenarios.ListStandaloneScenarios(r.Context(), conn)
+		if raw := r.URL.Query().Get("is_active"); raw != "" {
+			active, err := strconv.ParseBool(raw)
+			if err != nil {
+				invalidScenarioProblem(w, "Informe is_active como booleano.")
+				return
+			}
+			filter.IsActive = &active
+		}
+		list, err := scenarios.ListScenarios(r.Context(), conn, filter)
 		if err != nil {
 			scenariosUnavailableProblem(w)
 			return

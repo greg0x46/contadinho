@@ -547,19 +547,42 @@ func TestStandaloneScenarioLifecycleOverHTTP(t *testing.T) {
 	}
 }
 
-func TestListScenariosRejectsUnknownKind(t *testing.T) {
+func TestListScenariosUsesUnifiedCatalog(t *testing.T) {
 	srv, _ := newTestServer(t)
 	resp := doJSON(t, http.MethodGet, srv.URL+"/api/scenarios?kind=debt_plan", nil)
-	if resp.StatusCode != 422 {
-		t.Fatalf("status = %d, want 422", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("filtered status = %d, want 200", resp.StatusCode)
+	}
+	var filtered []map[string]any
+	decodeJSON(t, resp, &filtered)
+	if len(filtered) != 0 {
+		t.Fatalf("filtered list = %+v, want empty", filtered)
+	}
+
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/scenarios", nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("catalog status = %d, want 200", resp.StatusCode)
+	}
+	var catalog []map[string]any
+	decodeJSON(t, resp, &catalog)
+	if len(catalog) != 0 {
+		t.Fatalf("catalog = %+v, want empty", catalog)
+	}
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios", map[string]any{"name": "Viagem"})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create standalone status = %d, want 201", resp.StatusCode)
 	}
 	resp.Body.Close()
 
 	resp = doJSON(t, http.MethodGet, srv.URL+"/api/scenarios", nil)
-	if resp.StatusCode != 422 {
-		t.Fatalf("status = %d, want 422", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		t.Fatalf("catalog after create status = %d, want 200", resp.StatusCode)
 	}
-	resp.Body.Close()
+	decodeJSON(t, resp, &catalog)
+	if len(catalog) != 1 || catalog[0]["kind"] != "standalone" || catalog[0]["is_active"] != false {
+		t.Fatalf("catalog after create = %+v", catalog)
+	}
 }
 
 func TestCreateStandaloneScenarioRejectsEmptyName(t *testing.T) {

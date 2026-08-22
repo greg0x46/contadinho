@@ -29,12 +29,13 @@ func (w Write) Validate() error {
 	for _, action := range w.Actions {
 		switch action.Type {
 		case ActionIgnore:
-			if action.RecurringCommitmentID != nil || action.CategoryID != nil {
+			if action.ScenarioID != nil || action.RecurringCommitmentID != nil || action.CategoryID != nil {
 				return fmt.Errorf("ignore action must not reference a target")
 			}
 		case ActionReconcile:
-			if action.RecurringCommitmentID == nil || strings.TrimSpace(*action.RecurringCommitmentID) == "" {
-				return fmt.Errorf("reconcile action requires a recurring_commitment_id")
+			if (action.ScenarioID == nil || strings.TrimSpace(*action.ScenarioID) == "") &&
+				(action.RecurringCommitmentID == nil || strings.TrimSpace(*action.RecurringCommitmentID) == "") {
+				return fmt.Errorf("reconcile action requires a scenario_id")
 			}
 			if action.CategoryID != nil {
 				return fmt.Errorf("reconcile action must not reference a category")
@@ -43,7 +44,7 @@ func (w Write) Validate() error {
 			if action.CategoryID == nil || strings.TrimSpace(*action.CategoryID) == "" {
 				return fmt.Errorf("set_category action requires a category_id")
 			}
-			if action.RecurringCommitmentID != nil {
+			if action.ScenarioID != nil || action.RecurringCommitmentID != nil {
 				return fmt.Errorf("set_category action must not reference a recurring commitment")
 			}
 		default:

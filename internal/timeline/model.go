@@ -25,26 +25,30 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+
+	timelinetypes "contadinho-go/internal/timeline/types"
 )
 
-// CertaintyTier is how sure the timeline is that an Entry will happen.
-type CertaintyTier string
+// These aliases keep the public timeline API stable while allowing the
+// projections package to use the same vocabulary without importing this
+// package back and creating a cycle.
+type Tier = timelinetypes.Tier
+type CertaintyTier = timelinetypes.CertaintyTier
 
 const (
-	TierRealizado  CertaintyTier = "realizado"
-	TierConfirmado CertaintyTier = "confirmado"
-	TierProjetado  CertaintyTier = "projetado"
-	TierHipotetico CertaintyTier = "hipotetico"
+	TierRealizado  = timelinetypes.TierRealizado
+	TierConfirmado = timelinetypes.TierConfirmado
+	TierProjetado  = timelinetypes.TierProjetado
+	TierHipotetico = timelinetypes.TierHipotetico
 )
 
-// SourceKind is which domain concept produced an Entry.
-type SourceKind string
+type SourceKind = timelinetypes.SourceKind
 
 const (
-	SourceReal        SourceKind = "real"
-	SourceRecurring   SourceKind = "recorrente"
-	SourcePayablePlan SourceKind = "plano_pagamento"
-	SourceScenario    SourceKind = "cenario"
+	SourceReal        = timelinetypes.SourceReal
+	SourceRecurring   = timelinetypes.SourceRecurring
+	SourcePayablePlan = timelinetypes.SourcePayablePlan
+	SourceScenario    = timelinetypes.SourceScenario
 )
 
 // Entry is one atomic cash-flow item — the same shape consumed by cards,
@@ -58,7 +62,8 @@ type Entry struct {
 	Tier         CertaintyTier
 	Source       SourceKind
 	SourceRefID  string
-	ScenarioID   *string // set only when Source == SourceScenario (from M5 on)
+	EventKey     string  // stable identity for projected events; real events use transaction:<id>
+	ScenarioID   *string // set for every projected Scenario event
 }
 
 // DayPoint is the running balance at the end of one calendar day.

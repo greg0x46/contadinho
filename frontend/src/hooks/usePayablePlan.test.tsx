@@ -17,6 +17,7 @@ const scenarioSummary: Scenario = {
   kind: "debt_plan",
   name: "Plano de pagamento",
   payable_id: payableId,
+  is_accounting_source: true,
   created_at: "2026-07-30T12:00:00Z",
   updated_at: "2026-07-30T12:00:00Z",
 };
@@ -58,7 +59,7 @@ describe("usePayablePlan", () => {
     expect(result.current.plan).toBeNull();
   });
 
-  it("loads the first scenario's detail once the list resolves", async () => {
+  it("loads the accounting scenario's detail once the list resolves", async () => {
     vi.mocked(scenariosApi.listPayableScenarios).mockResolvedValue([scenarioSummary]);
     vi.mocked(scenariosApi.getScenario).mockResolvedValue(scenarioDetail);
     const { wrapper } = setup();
@@ -67,6 +68,23 @@ describe("usePayablePlan", () => {
     await waitFor(() => expect(result.current.plan).not.toBeNull());
     expect(scenariosApi.getScenario).toHaveBeenCalledWith(scenarioId, expect.anything());
     expect(result.current.plan?.transactions).toHaveLength(1);
+  });
+
+  it("selects the accounting scenario independently of array order", async () => {
+    const simulation: Scenario = {
+      ...scenarioSummary,
+      id: "99999999-9999-4999-8999-999999999999",
+      name: "Simulação",
+      is_accounting_source: false,
+    };
+    vi.mocked(scenariosApi.listPayableScenarios).mockResolvedValue([simulation, scenarioSummary]);
+    vi.mocked(scenariosApi.getScenario).mockResolvedValue(scenarioDetail);
+    const { wrapper } = setup();
+    const { result } = renderHook(() => usePayablePlan(payableId), { wrapper });
+
+    await waitFor(() => expect(result.current.plan).not.toBeNull());
+    expect(scenariosApi.getScenario).toHaveBeenCalledWith(scenarioId, expect.anything());
+    expect(scenariosApi.getScenario).not.toHaveBeenCalledWith(simulation.id, expect.anything());
   });
 
   it("invalidates the scenarios query after generating installments", async () => {

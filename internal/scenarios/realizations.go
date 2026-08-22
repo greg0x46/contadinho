@@ -36,6 +36,28 @@ func CreateRealization(ctx context.Context, q Querier, scenarioTransactionID str
 	if err != nil {
 		return ScenarioTransactionRealization{}, err
 	}
+	// Keep the generic projection relation in sync with the compatibility row.
+	// The legacy endpoint remains usable, but the Timeline reads the unified
+	// table so the same write must be visible to both readers.
+	var scenarioID, transactionID string
+	err = q.QueryRowContext(ctx, `
+		SELECT st.scenario_id, l.transaction_id
+		FROM scenario_transactions st
+		JOIN payable_transaction_links l ON l.id = ?
+		WHERE st.id = ?`, r.PayableLinkID, r.ScenarioTransactionID).Scan(&scenarioID, &transactionID)
+	if err == nil {
+		_, err = q.ExecContext(ctx, `
+			INSERT INTO scenario_realizations (
+				id, scenario_id, scenario_transaction_id, transaction_id, relation_type,
+				state, origin, allocated_amount, created_at
+			) VALUES (?, ?, ?, ?, 'allocation', 'linked', 'manual', ?, ?)`,
+			r.ID, scenarioID, r.ScenarioTransactionID, transactionID,
+			money.CanonicalDecimal(r.AllocatedAmount), db.FormatTime(r.CreatedAt),
+		)
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return ScenarioTransactionRealization{}, err
+	}
 	return r, nil
 }
 
@@ -72,12 +94,25 @@ func GetRealization(ctx context.Context, q Querier, id string) (ScenarioTransact
 // without touching the scenario_transaction or the debt_transaction_link
 // it referenced.
 func DeleteRealization(ctx context.Context, q Querier, id string) error {
+	r, err := GetRealization(ctx, q, id)
+	if err != nil {
+		return err
+	}
 	res, err := q.ExecContext(ctx, `DELETE FROM scenario_transaction_realizations WHERE id = ?`, id)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrRealizationNotFound
+	}
+	_, err = q.ExecContext(ctx, `
+		DELETE FROM scenario_realizations
+		WHERE id = ? OR (
+			scenario_transaction_id = ? AND relation_type = 'allocation'
+			AND allocated_amount = ? AND created_at = ?
+		)`, id, r.ScenarioTransactionID, money.CanonicalDecimal(r.AllocatedAmount), db.FormatTime(r.CreatedAt))
+	if err != nil {
+		return err
 	}
 	return nil
 }
