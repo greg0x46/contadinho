@@ -2239,9 +2239,16 @@ export interface TimelineResponse {
 }
 
 export interface TimelineParams {
+  /** Balance anchor — always today. Never the month being browsed. */
   referenceDate: string;
   from: string;
   to: string;
+  /**
+   * First day of the month the retrospective aggregations are about
+   * (category breakdown, month-over-month, year-over-year). Defaults
+   * server-side to referenceDate's month.
+   */
+  analysisMonth?: string;
   accountIds?: string[];
   categoryIds?: string[];
   cardNumbers?: string[];
