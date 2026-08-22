@@ -82,46 +82,59 @@ func DeleteRealization(ctx context.Context, q Querier, id string) error {
 	return nil
 }
 
-// RealizedTotal mirrors the spec's realizedTotal: the sum of
-// allocated_amount across every realization allocated to
-// scenarioTransactionID, computed on read — never stored on the
-// scenario_transaction row itself. Summed in Go with decimal.Decimal
-// (matching debts.PaidAmount's approach) rather than SQL SUM, which would
-// have to go through a float-lossy CAST(... AS REAL) on this driver.
-func RealizedTotal(ctx context.Context, q Querier, scenarioTransactionID string) (decimal.Decimal, error) {
-	rows, err := q.QueryContext(ctx,
-		`SELECT allocated_amount FROM scenario_transaction_realizations WHERE scenario_transaction_id = ?`,
-		scenarioTransactionID)
-	if err != nil {
-		return decimal.Zero, err
-	}
-	defer rows.Close()
+// sumAllocated mirrors the spec's realizedTotal: the sum of
+// allocated_amount across every realization allocated to one installment,
+// computed on read — never stored on the scenario_transaction row itself.
+// Summed in Go with decimal.Decimal (matching debts.PaidAmount's approach)
+// rather than SQL SUM, which would have to go through a float-lossy
+// CAST(... AS REAL) on this driver.
+//
+// It takes the rows rather than an id because every caller has already
+// loaded them in bulk via realizationsFor — a per-installment query for
+// this number is exactly the round trip that batching removed.
+func sumAllocated(list []ScenarioTransactionRealization) decimal.Decimal {
 	total := decimal.Zero
-	for rows.Next() {
-		var raw string
-		if err := rows.Scan(&raw); err != nil {
-			return decimal.Zero, err
-		}
-		amount, err := decimal.NewFromString(raw)
-		if err != nil {
-			return decimal.Zero, err
-		}
-		total = total.Add(amount)
+	for _, r := range list {
+		total = total.Add(r.AllocatedAmount)
 	}
-	return total, rows.Err()
+	return total
 }
 
-// ListRealizationsForTransaction mirrors listing every allocation a planned
+// listRealizationsForTransaction mirrors listing every allocation a planned
 // installment has received, newest first.
-func ListRealizationsForTransaction(ctx context.Context, q Querier, scenarioTransactionID string) ([]ScenarioTransactionRealization, error) {
+func listRealizationsForTransaction(ctx context.Context, q Querier, scenarioTransactionID string) ([]ScenarioTransactionRealization, error) {
+	byTransaction, err := realizationsFor(ctx, q, []string{scenarioTransactionID})
+	if err != nil {
+		return nil, err
+	}
+	return byTransaction[scenarioTransactionID], nil
+}
+
+// realizationsFor loads every allocation belonging to any of
+// scenarioTransactionIDs in one query, keyed by scenario_transaction_id and
+// newest-first within each key.
+//
+// It exists because every interesting read here is per-scenario, not
+// per-installment: summarizing a scenario, listing a plan's unrealized
+// installments, deciding which installments a readjustment may replace. One
+// query for the whole set keeps those O(1) in round trips instead of O(number
+// of installments). An installment with no allocations is simply absent from
+// the map.
+func realizationsFor(ctx context.Context, q Querier, scenarioTransactionIDs []string) (map[string][]ScenarioTransactionRealization, error) {
+	result := make(map[string][]ScenarioTransactionRealization, len(scenarioTransactionIDs))
+	if len(scenarioTransactionIDs) == 0 {
+		return result, nil
+	}
+	in, args := db.InClause(scenarioTransactionIDs)
 	rows, err := q.QueryContext(ctx, `
 		SELECT id, scenario_transaction_id, payable_link_id, allocated_amount, created_at
-		FROM scenario_transaction_realizations WHERE scenario_transaction_id = ? ORDER BY created_at DESC`, scenarioTransactionID)
+		FROM scenario_transaction_realizations
+		WHERE scenario_transaction_id IN (`+in+`)
+		ORDER BY created_at DESC`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var list []ScenarioTransactionRealization
 	for rows.Next() {
 		var (
 			r                  ScenarioTransactionRealization
@@ -141,7 +154,7 @@ func ListRealizationsForTransaction(ctx context.Context, q Querier, scenarioTran
 		if r.CreatedAt, err = db.ParseTime(createdAtRaw); err != nil {
 			return nil, err
 		}
-		list = append(list, r)
+		result[r.ScenarioTransactionID] = append(result[r.ScenarioTransactionID], r)
 	}
-	return list, rows.Err()
+	return result, rows.Err()
 }

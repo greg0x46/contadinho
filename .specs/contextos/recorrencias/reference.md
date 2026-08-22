@@ -23,6 +23,12 @@ fontes — ver contexto de Relatório Financeiro.
 
 ## Backend
 
+Na Timeline, uma ocorrência só vira entry se **não** foi reconciliada, e
+com tier **Projetado**; a reconciliada não gera entry porque a transação
+real já a carrega. Os candidatos que uma ocorrência tenta reconciliar são
+escopados ao mês dela — sem isso, a transação de um mês reconciliava as
+ocorrências de todos os outros.
+
 `internal/recurrences` — `RecurringCommitment` (`Kind` income/expense,
 `Amount`, `CategoryID`, `AccountID`, `Cadence` monthly/annual,
 `DayOfMonth`/`MonthOfYear`, `StartDate`/`EndDate`, `IsActive`). Sem

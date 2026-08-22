@@ -15,6 +15,7 @@ import (
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/money"
 	"contadinho-go/internal/pluggy"
+	"contadinho-go/internal/transactions"
 )
 
 // safeMessages mirrors SAFE_MESSAGES: user-facing text never leaks raw
@@ -73,11 +74,11 @@ type Provider interface {
 // its normalized hash (see the outcome == "inserted" || outcome == "updated"
 // call site in upsertTransaction) — not on "unchanged" outcomes, where
 // nothing about the transaction could newly match a rule. It exists so
-// package automation (phase 5) can (re-)apply active rules without this
-// package importing it — automation's matching logic has no reason to depend
-// on sync, so the dependency only goes one way once phase 5 wires a real
-// hook in; nil is a valid no-op for now.
-type TransactionUpsertedHook func(ctx context.Context, conn *sql.DB, transactionID, accountID string) error
+// package automation can (re-)apply active rules without this package
+// importing it. The type itself lives on transactions (the Lançamentos
+// engine) so automation does not have to import an ingestion provider just
+// to name its own entry point; this alias keeps syncsvc's API unchanged.
+type TransactionUpsertedHook = transactions.UpsertedHook
 
 // Service mirrors SyncService.
 type Service struct {

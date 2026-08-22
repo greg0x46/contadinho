@@ -3,7 +3,6 @@ package networth
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/money"
 	"contadinho-go/internal/payables"
+	"contadinho-go/internal/transactions"
 )
 
 // Backfill reconstructs and stores net_worth_snapshots for every past day in
@@ -33,7 +33,7 @@ import (
 //     eligibility/inclusion rules the rest of the app uses — an ignored
 //     transaction is never reversed, matching how it never entered the
 //     balance's story to begin with as far as this app is concerned).
-//   - CreditCardBalance: payables.CreditCardTransactionTotalAt, which
+//   - CreditCardBalance: transactions.CreditCardTransactionTotalAt, which
 //     already accepts an arbitrary reference date — reused as-is per bill
 //     cycle, so it naturally reports 0 for a day before any known bill
 //     closing.
@@ -91,6 +91,15 @@ func Backfill(ctx context.Context, q Querier, today time.Time) error {
 		return err
 	}
 
+	// First pass: walk the window backward accumulating the cash deltas, and
+	// collect the days that actually need a row. Nothing is queried per day
+	// here — the point of the backward walk is that one ordered load of
+	// every transaction answers every day at once.
+	type gap struct {
+		day, dayEnd time.Time
+		cash        decimal.Decimal
+	}
+	var gaps []gap
 	idx := 0
 	runningDelta := decimal.Zero
 	for d := yesterday; !d.Before(windowStart); d = d.AddDate(0, 0, -1) {
@@ -99,24 +108,37 @@ func Backfill(ctx context.Context, q Querier, today time.Time) error {
 			runningDelta = runningDelta.Add(deltas[idx].delta)
 			idx++
 		}
-
-		key := formatDate(d)
-		if existing[key] {
+		if existing[formatDate(d)] {
 			continue
 		}
+		gaps = append(gaps, gap{day: d, dayEnd: dayEnd, cash: currentCash.Sub(runningDelta)})
+	}
+	if len(gaps) == 0 {
+		return nil
+	}
 
-		cash := currentCash.Sub(runningDelta)
-		creditCard, err := creditCardBalanceAsOf(ctx, q, d)
+	// The payables side gets the same treatment: one load of every payable
+	// and every transaction behind its links answers all the days, instead
+	// of re-reading them once per day (see payables.RemainingTotalsAsOf).
+	dayEnds := make([]time.Time, len(gaps))
+	for i, g := range gaps {
+		dayEnds[i] = g.dayEnd
+	}
+	debts, err := payables.RemainingTotalsAsOf(ctx, q, payables.KindDebt, dayEnds)
+	if err != nil {
+		return err
+	}
+
+	for i, g := range gaps {
+		// The card side still costs a query per day: its cycle math keys off
+		// time.Local calendar days and has no as-of-many-days form, so
+		// there is nothing to hoist out of the loop here yet.
+		creditCard, err := creditCardBalanceAsOf(ctx, q, g.day)
 		if err != nil {
 			return err
 		}
-		debt, err := payablesRemainingTotalAsOf(ctx, q, payables.KindDebt, dayEnd)
-		if err != nil {
-			return err
-		}
-
-		breakdown := Breakdown{CashBalance: cash, CreditCardBalance: creditCard, PayablesDebt: debt}.TotalsFor()
-		if err := insertBackfillSnapshot(ctx, q, key, breakdown); err != nil {
+		breakdown := Breakdown{CashBalance: g.cash, CreditCardBalance: creditCard, PayablesDebt: debts[i]}.TotalsFor()
+		if err := insertBackfillSnapshot(ctx, q, formatDate(g.day), breakdown); err != nil {
 			return err
 		}
 	}
@@ -298,73 +320,13 @@ func earliestCashTransactionDay(ctx context.Context, q Querier) (day time.Time, 
 }
 
 // creditCardBalanceAsOf mirrors creditCardBalance but for a past day,
-// reusing payables.CreditCardTransactionTotalAt's arbitrary-reference-date
-// support. The reference time is local noon on day — as opposed to a UTC
-// midnight boundary — because the cycle math keys off time.Local calendar
-// days (see CreditCardTransactionTotalAt); noon keeps the same calendar
-// date in virtually every timezone.
+// reusing transactions.CreditCardTransactionTotalAt's
+// arbitrary-reference-date support. The reference time is local noon on
+// day — as opposed to a UTC midnight boundary — because the cycle math
+// keys off time.Local calendar days (see CreditCardTransactionTotalAt);
+// noon keeps the same calendar date in virtually every timezone.
 func creditCardBalanceAsOf(ctx context.Context, q Querier, day time.Time) (decimal.Decimal, error) {
 	loc := time.Local
 	reference := time.Date(day.Year(), day.Month(), day.Day(), 12, 0, 0, 0, loc)
-	return payables.CreditCardTransactionTotalAt(ctx, q, "BRL", reference, loc)
-}
-
-// payablesRemainingTotalAsOf mirrors payablesRemainingTotal but for a past
-// day: a link only counts toward settled_amount once its transaction's
-// occurred_at is strictly before dayEnd (the boundary right after the
-// backfilled day), so a payment made after that day hasn't happened yet as
-// of that day. starting_settled_amount is always included — it's a
-// pre-app-tracking baseline with no date of its own, same as Compute treats
-// it for "today". A payable created on or after dayEnd is skipped entirely
-// — it didn't exist yet as of the backfilled day, so it can't have been a
-// liability then, regardless of how far its links or starting-settled
-// baseline could otherwise be back-projected.
-func payablesRemainingTotalAsOf(ctx context.Context, q Querier, kind payables.Kind, dayEnd time.Time) (decimal.Decimal, error) {
-	list, err := payables.List(ctx, q, &kind)
-	if err != nil {
-		return decimal.Decimal{}, err
-	}
-	total := decimal.Zero
-	for _, p := range list {
-		if !p.CreatedAt.Before(dayEnd) {
-			continue
-		}
-		links, err := payables.Links(ctx, q, p.ID)
-		if err != nil {
-			return decimal.Decimal{}, err
-		}
-		amounts := make([]decimal.Decimal, 0, len(links))
-		for _, l := range links {
-			occurredAt, err := transactionOccurredAt(ctx, q, l.TransactionID)
-			if err != nil {
-				return decimal.Decimal{}, err
-			}
-			if occurredAt == nil || !occurredAt.Before(dayEnd) {
-				continue
-			}
-			amt, err := payables.LinkEffectiveAmount(ctx, q, l.TransactionID)
-			if err != nil {
-				return decimal.Decimal{}, err
-			}
-			amounts = append(amounts, amt)
-		}
-		settled := payables.SettledAmount(p.StartingSettledAmount, amounts)
-		total = total.Add(payables.RemainingAmount(p.TotalAmount, settled))
-	}
-	return total, nil
-}
-
-// transactionOccurredAt returns nil (not an error) when transactionID has no
-// financial_transactions row — matching payables.effectiveMoneyFor's own
-// treatment of a missing transaction as "no data" rather than a failure.
-func transactionOccurredAt(ctx context.Context, q Querier, transactionID string) (*time.Time, error) {
-	var raw sql.NullString
-	err := q.QueryRowContext(ctx, `SELECT occurred_at FROM financial_transactions WHERE id = ?`, transactionID).Scan(&raw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return db.ParseNullTime(raw)
+	return transactions.CreditCardTransactionTotalAt(ctx, q, "BRL", reference, loc)
 }

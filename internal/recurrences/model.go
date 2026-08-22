@@ -1,11 +1,13 @@
 // Package recurrences models a manually-registered recurring cash flow
 // (salary, rent, subscriptions) — a compromisso the user knows about ahead
-// of time that Pluggy has no way to report before it happens. It's the
-// "Confirmado" tier of internal/timeline's projection (see
-// .specs/relatorio-financeiro/m1-recorrencias.md): occurrences are computed
-// purely from the commitment's own scheduling fields, and reconciled against
-// real transactions at read time via internal/rules — never by storing a
-// link, mirroring the isolation already used by internal/scenarios'
+// of time that Pluggy has no way to report before it happens. It feeds the
+// "Projetado" tier of internal/timeline's projection (see
+// .specs/contextos/recorrencias/reference.md), and only for occurrences no
+// real transaction has reconciled — a reconciled one is already in the
+// series as that transaction. Occurrences are computed purely from the
+// commitment's own scheduling fields, and reconciled against real
+// transactions at read time via internal/rules — never by storing a link,
+// mirroring the isolation already used by internal/scenarios'
 // scenario_transactions vs financial_transactions. A commitment carries no
 // matching criteria of its own: reconciliation conditions live exclusively
 // on an internal/automation Rule with a "reconcile" action targeting this

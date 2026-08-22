@@ -117,9 +117,9 @@ func scanPayable(row *sql.Row) (Payable, error) {
 	return p, nil
 }
 
-// Get mirrors get_debt/get_receivable (without eager-loaded links — call
-// Links separately, as List and the HTTP handlers do, since not every
-// caller needs them).
+// Get mirrors get_debt/get_receivable (without eager-loaded links — the
+// links reach callers on Summary.Links instead, so not every caller pays
+// for loading them).
 func Get(ctx context.Context, q Querier, id string) (Payable, error) {
 	row := q.QueryRowContext(ctx, `SELECT id, kind, name, total_amount, starting_settled_amount, created_at, updated_at FROM payables WHERE id = ?`, id)
 	p, err := scanPayable(row)
@@ -174,17 +174,31 @@ func List(ctx context.Context, q Querier, kind *Kind) ([]Payable, error) {
 	return list, rows.Err()
 }
 
-// Links mirrors accessing payable.links: every link for payableID, newest
-// first (matching the reference's order_by(...linked_at.desc())).
-func Links(ctx context.Context, q Querier, payableID string) ([]Link, error) {
+// linksFor mirrors accessing payable.links for a whole set of payables at
+// once, keyed by payable_id and newest-first within each key (matching the
+// reference's order_by(...linked_at.desc())).
+//
+// There is deliberately no single-payable form: every read path here — the
+// HTTP list endpoint, RemainingTotal, the net-worth backfill — summarizes a
+// set, and offering a convenient per-payable loader is what invites the
+// query-per-payable loop this shape exists to prevent. Unexported because
+// the rows reach anyone outside this package on Summary.Links.
+//
+// A payable with no links is simply absent from the map; ranging over a nil
+// slice is what callers do anyway.
+func linksFor(ctx context.Context, q Querier, payableIDs []string) (map[string][]Link, error) {
+	result := make(map[string][]Link, len(payableIDs))
+	if len(payableIDs) == 0 {
+		return result, nil
+	}
+	in, args := db.InClause(payableIDs)
 	rows, err := q.QueryContext(ctx,
 		`SELECT id, payable_id, transaction_id, linked_amount, linked_at FROM payable_transaction_links
-		 WHERE payable_id = ? ORDER BY linked_at DESC`, payableID)
+		 WHERE payable_id IN (`+in+`) ORDER BY linked_at DESC`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var links []Link
 	for rows.Next() {
 		var l Link
 		var linkedAmountRaw, linkedAtRaw string
@@ -197,9 +211,9 @@ func Links(ctx context.Context, q Querier, payableID string) ([]Link, error) {
 		if l.LinkedAt, err = db.ParseTime(linkedAtRaw); err != nil {
 			return nil, err
 		}
-		links = append(links, l)
+		result[l.PayableID] = append(result[l.PayableID], l)
 	}
-	return links, rows.Err()
+	return result, rows.Err()
 }
 
 // GetLink mirrors reading a single payable_transaction_links row by id,
@@ -226,36 +240,34 @@ func GetLink(ctx context.Context, q Querier, id string) (Link, error) {
 	return l, nil
 }
 
-// LinkEffectiveAmount mirrors link_effective_amount: recomputed from the
-// linked transaction's *current* amount/currency, not the link's stored
-// snapshot — see the package doc comment.
-func LinkEffectiveAmount(ctx context.Context, q Querier, transactionID string) (decimal.Decimal, error) {
-	eff, err := effectiveMoneyFor(ctx, q, transactionID)
-	if err != nil {
-		return decimal.Zero, err
-	}
+// linkEffectiveAmount mirrors link_effective_amount: how much of a linked
+// transaction counts toward settled_amount, recomputed from the
+// transaction's *current* amount/currency rather than the link's stored
+// snapshot — see the package doc comment. A non-BRL transaction contributes
+// nothing: every payable total is BRL, and converting here would invent a
+// rate the app never stored.
+//
+// It takes the already-loaded row rather than an id because summarize is
+// the only caller and holds the snapshot — reloading it per link is what
+// Summary.Links exists to avoid.
+func (s transactionSnapshot) linkEffectiveAmount() decimal.Decimal {
+	eff := money.SelectEffectiveMoney(s.amountInAcct, s.acctCurrency, s.amount, s.currencyCode)
 	if eff == nil || eff.CurrencyCode != "BRL" {
-		return decimal.Zero, nil
+		return decimal.Zero
 	}
-	return eff.Value.Abs(), nil
+	return eff.Value.Abs()
 }
 
-// LinkedTransactionSummary is the display-only transaction fields a
-// PayableLinkedTransaction response needs alongside the link row itself.
+// LinkedTransactionSummary is what a link's read paths need off the
+// transaction behind it, beyond the effective amount: the fields a
+// PayableLinkedTransaction response renders, plus OccurredAt, which is not
+// display-only — SummarizeAsOf's cutoff (countsAsOf) decides whether a link
+// counted on a past day from exactly this value. It reaches callers on
+// LinkSummary.Transaction, filled from the same row the link's effective
+// amount came from.
 type LinkedTransactionSummary struct {
 	OccurredAt  *time.Time
 	Description *string
-}
-
-// TransactionSummaryFor loads the fields _linked_transaction_response reads
-// off link.transaction directly (this package has no ORM relationship to
-// walk, so the HTTP layer asks for them explicitly per link).
-func TransactionSummaryFor(ctx context.Context, q Querier, transactionID string) (LinkedTransactionSummary, error) {
-	s, _, err := loadTransaction(ctx, q, transactionID)
-	if err != nil {
-		return LinkedTransactionSummary{}, err
-	}
-	return LinkedTransactionSummary{OccurredAt: s.occurredAt, Description: s.description}, nil
 }
 
 type transactionSnapshot struct {
@@ -270,81 +282,122 @@ type transactionSnapshot struct {
 	inclusionState *string
 }
 
+// snapshotScan holds the nullable columns a transactionSnapshot is built
+// from, so the single-row and batch loaders below share one column list and
+// one conversion instead of keeping two copies in sync.
+type snapshotScan struct {
+	description, occurredAt, movementType  sql.NullString
+	amount, amountInAcct, currencyCode     sql.NullString
+	acctCurrency, acctName, inclusionState sql.NullString
+}
+
+const transactionSnapshotColumns = `ft.description, ft.occurred_at, ft.movement_type, ft.amount,
+	ft.amount_in_account_currency, ft.currency_code, fa.currency_code, fa.name, tid.state`
+
+const transactionSnapshotFrom = `FROM financial_transactions ft
+	JOIN financial_accounts fa ON fa.id = ft.account_id
+	LEFT JOIN transaction_inclusion_decisions tid ON tid.transaction_id = ft.id`
+
+func (sc *snapshotScan) dest() []any {
+	return []any{&sc.description, &sc.occurredAt, &sc.movementType, &sc.amount,
+		&sc.amountInAcct, &sc.currencyCode, &sc.acctCurrency, &sc.acctName, &sc.inclusionState}
+}
+
+func (sc *snapshotScan) snapshot() (transactionSnapshot, error) {
+	var s transactionSnapshot
+	if sc.description.Valid {
+		s.description = &sc.description.String
+	}
+	if sc.movementType.Valid {
+		s.movementType = &sc.movementType.String
+	}
+	if sc.currencyCode.Valid {
+		s.currencyCode = &sc.currencyCode.String
+	}
+	if sc.acctCurrency.Valid {
+		s.acctCurrency = &sc.acctCurrency.String
+	}
+	if sc.acctName.Valid {
+		s.acctName = &sc.acctName.String
+	}
+	if sc.inclusionState.Valid {
+		s.inclusionState = &sc.inclusionState.String
+	}
+	if sc.occurredAt.Valid {
+		t, err := db.ParseTime(sc.occurredAt.String)
+		if err != nil {
+			return transactionSnapshot{}, err
+		}
+		s.occurredAt = &t
+	}
+	if sc.amount.Valid {
+		d, err := decimal.NewFromString(sc.amount.String)
+		if err != nil {
+			return transactionSnapshot{}, err
+		}
+		s.amount = &d
+	}
+	if sc.amountInAcct.Valid {
+		d, err := decimal.NewFromString(sc.amountInAcct.String)
+		if err != nil {
+			return transactionSnapshot{}, err
+		}
+		s.amountInAcct = &d
+	}
+	return s, nil
+}
+
 func loadTransaction(ctx context.Context, q Querier, transactionID string) (transactionSnapshot, bool, error) {
-	var (
-		s                                       transactionSnapshot
-		description, movementType, currencyCode sql.NullString
-		amountRaw, amountInAcctRaw              sql.NullString
-		occurredAtRaw                           sql.NullString
-		acctCurrency, acctName                  sql.NullString
-		inclusionState                          sql.NullString
-	)
-	err := q.QueryRowContext(ctx, `
-		SELECT ft.description, ft.occurred_at, ft.movement_type, ft.amount, ft.amount_in_account_currency,
-			ft.currency_code, fa.currency_code, fa.name, tid.state
-		FROM financial_transactions ft
-		JOIN financial_accounts fa ON fa.id = ft.account_id
-		LEFT JOIN transaction_inclusion_decisions tid ON tid.transaction_id = ft.id
-		WHERE ft.id = ?`, transactionID,
-	).Scan(&description, &occurredAtRaw, &movementType, &amountRaw, &amountInAcctRaw,
-		&currencyCode, &acctCurrency, &acctName, &inclusionState)
+	var sc snapshotScan
+	err := q.QueryRowContext(ctx,
+		`SELECT `+transactionSnapshotColumns+` `+transactionSnapshotFrom+` WHERE ft.id = ?`, transactionID,
+	).Scan(sc.dest()...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return transactionSnapshot{}, false, nil
 	}
 	if err != nil {
 		return transactionSnapshot{}, false, err
 	}
-	if description.Valid {
-		s.description = &description.String
-	}
-	if movementType.Valid {
-		s.movementType = &movementType.String
-	}
-	if currencyCode.Valid {
-		s.currencyCode = &currencyCode.String
-	}
-	if acctCurrency.Valid {
-		s.acctCurrency = &acctCurrency.String
-	}
-	if acctName.Valid {
-		s.acctName = &acctName.String
-	}
-	if inclusionState.Valid {
-		s.inclusionState = &inclusionState.String
-	}
-	if occurredAtRaw.Valid {
-		t, err := db.ParseTime(occurredAtRaw.String)
-		if err != nil {
-			return transactionSnapshot{}, false, err
-		}
-		s.occurredAt = &t
-	}
-	if amountRaw.Valid {
-		d, err := decimal.NewFromString(amountRaw.String)
-		if err != nil {
-			return transactionSnapshot{}, false, err
-		}
-		s.amount = &d
-	}
-	if amountInAcctRaw.Valid {
-		d, err := decimal.NewFromString(amountInAcctRaw.String)
-		if err != nil {
-			return transactionSnapshot{}, false, err
-		}
-		s.amountInAcct = &d
+	s, err := sc.snapshot()
+	if err != nil {
+		return transactionSnapshot{}, false, err
 	}
 	return s, true, nil
 }
 
-func effectiveMoneyFor(ctx context.Context, q Querier, transactionID string) (*money.EffectiveMoney, error) {
-	s, ok, err := loadTransaction(ctx, q, transactionID)
+// loadTransactions is loadTransaction for many ids at once: one query for
+// the whole set instead of one per id, which is what lets summarize cost a
+// fixed number of round trips no matter how many links a payable has.
+//
+// An id with no row is simply absent from the result — the same "no data,
+// not an error" treatment loadTransaction gives a missing transaction, with
+// the map's comma-ok standing in for its bool.
+func loadTransactions(ctx context.Context, q Querier, transactionIDs []string) (map[string]transactionSnapshot, error) {
+	result := make(map[string]transactionSnapshot, len(transactionIDs))
+	if len(transactionIDs) == 0 {
+		return result, nil
+	}
+	in, args := db.InClause(transactionIDs)
+	rows, err := q.QueryContext(ctx,
+		`SELECT ft.id, `+transactionSnapshotColumns+` `+transactionSnapshotFrom+
+			` WHERE ft.id IN (`+in+`)`, args...)
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
-		return nil, nil
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var sc snapshotScan
+		if err := rows.Scan(append([]any{&id}, sc.dest()...)...); err != nil {
+			return nil, err
+		}
+		s, err := sc.snapshot()
+		if err != nil {
+			return nil, err
+		}
+		result[id] = s
 	}
-	return money.SelectEffectiveMoney(s.amountInAcct, s.acctCurrency, s.amount, s.currencyCode), nil
+	return result, rows.Err()
 }
 
 func inclusionStateFor(s transactionSnapshot) money.InclusionState {

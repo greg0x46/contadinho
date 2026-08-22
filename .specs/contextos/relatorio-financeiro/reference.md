@@ -15,9 +15,26 @@ drill-down todos lendo da mesma série, nunca recalculando localmente.
 
 `internal/timeline` — `Series{Points, Entries, StartingBalance,
 LowestBalance, FirstNegative}`, `Entry` com `CertaintyTier`
-(`realizado`/`confirmado`/`projetado`/`hipotetico`). `BuildSeries` funde 4
-fontes hoje: transações reais, parcelas de plano de payable, ocorrências de
-recorrência, e transações de cenário standalone ativo.
+(`realizado`/`confirmado`/`projetado`/`hipotetico`). `BuildSeries` funde 3
+fontes: Lançamentos, Cenários e Recorrências. Os 4 tiers são todos
+produzidos hoje:
+
+- **Realizado** — transação real; um lançamento de cartão vira
+  **Confirmado**, redatado para o vencimento da fatura.
+- **Confirmado** — parcela de plano de payable (dívida real com data
+  planejada).
+- **Projetado** — ocorrência de recorrência **não reconciliada**. Uma
+  ocorrência reconciliada contra uma transação real não gera entry: a
+  transação real já carrega o dinheiro (antes gerava, e o valor era contado
+  duas vezes). Os candidatos que uma ocorrência tenta reconciliar são
+  escopados ao mês dela.
+- **Hipotético** — transação de cenário standalone explicitamente
+  selecionado.
+
+O pacote **não conhece Payables**: o vínculo de um plano com um `Payable`
+fica encapsulado em `internal/scenarios` (`Scenario.PayableID`/`Kind`, via
+`ListPlanInstallments`/`SignedAmount`). O saldo âncora vem de
+`transactions.CashOnHand`.
 
 ## Rotas HTTP
 

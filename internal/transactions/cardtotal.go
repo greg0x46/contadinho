@@ -1,4 +1,4 @@
-package payables
+package transactions
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	"contadinho-go/internal/dates"
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/money"
 )
@@ -188,7 +189,7 @@ func inferredNextClosing(lastClosing time.Time, closings []time.Time, loc *time.
 	// A monthly closing on the 29th, 30th, or 31st can be represented by
 	// the month's last day when that day does not exist. If earlier history
 	// proves a larger nominal day, retain it for the next month.
-	if closingDay == daysInMonth(lastClosing.Year(), lastClosing.Month(), loc) {
+	if closingDay == dates.DaysInMonth(lastClosing.Year(), lastClosing.Month()) {
 		for _, closing := range closings {
 			if closing.Before(lastClosing) && closing.Day() > closingDay {
 				closingDay = closing.Day()
@@ -198,14 +199,10 @@ func inferredNextClosing(lastClosing time.Time, closings []time.Time, loc *time.
 
 	nextMonth := time.Date(lastClosing.Year(), lastClosing.Month()+1, 1, 0, 0, 0, 0, loc)
 	day := closingDay
-	if maxDay := daysInMonth(nextMonth.Year(), nextMonth.Month(), loc); day > maxDay {
+	if maxDay := dates.DaysInMonth(nextMonth.Year(), nextMonth.Month()); day > maxDay {
 		day = maxDay
 	}
 	return time.Date(nextMonth.Year(), nextMonth.Month(), day, 0, 0, 0, 0, loc)
-}
-
-func daysInMonth(year int, month time.Month, loc *time.Location) int {
-	return time.Date(year, month+1, 0, 0, 0, 0, 0, loc).Day()
 }
 
 type cardDebtTransaction struct {
@@ -284,7 +281,7 @@ func cardTransactionBelongsToCurrentCycle(accountID string, transaction cardDebt
 	if raw == nil {
 		return cardTransactionIsInCycle(transaction.occurredAt, cycle)
 	}
-	// cardTransactionMetadata is shared with carddue.go's ProjectedEntryDate
+	// cardTransactionMetadata is shared with cardflow.go's ProjectedEntryDate
 	// — same Pluggy credit_card_metadata shape, read here only for billId.
 	var metadata cardTransactionMetadata
 	if err := json.Unmarshal([]byte(*raw), &metadata); err != nil || metadata.BillID == nil || *metadata.BillID == "" {

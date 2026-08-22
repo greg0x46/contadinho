@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -154,14 +153,10 @@ func latestBillClosingDay(ctx context.Context, conn *sql.DB, accountIDs []string
 	if len(accountIDs) == 0 {
 		return map[string]int{}, nil
 	}
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(accountIDs)), ",")
-	args := make([]any, len(accountIDs))
-	for i, id := range accountIDs {
-		args[i] = id
-	}
+	in, args := db.InClause(accountIDs)
 	rows, err := conn.QueryContext(ctx, `
 		SELECT account_id, closing_date FROM financial_bills
-		WHERE closing_date IS NOT NULL AND account_id IN (`+placeholders+`)`, args...)
+		WHERE closing_date IS NOT NULL AND account_id IN (`+in+`)`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query bill closing dates: %w", err)
 	}

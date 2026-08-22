@@ -22,7 +22,12 @@ camada HTTP).
 
 ## Backend
 
-`internal/scenarios`.
+`internal/scenarios`. Além do CRUD: `SignedAmount` (a direção de caixa de
+uma parcela, derivada do `Kind` do próprio cenário — é o que permite a
+Timeline projetar um plano sem conhecer `payables`), `ListPlanInstallments`
+(parcelas não realizadas de todo plano num intervalo) e `Summarize`/
+`SummarizeTransaction` (status por parcela e desvio acumulado, antes
+calculados no handler HTTP).
 
 ## Rotas HTTP
 

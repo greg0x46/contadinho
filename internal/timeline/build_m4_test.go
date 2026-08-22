@@ -3,6 +3,7 @@ package timeline_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/shopspring/decimal"
 
@@ -156,15 +157,24 @@ func TestBuildSeriesRecurrenceEntriesUseExpectedAmountWithoutMatch(t *testing.T)
 			recurrenceEntry = &series.Entries[i]
 		}
 	}
-	if recurrenceEntry == nil || recurrenceEntry.Amount.String() != "-1500" || recurrenceEntry.Tier != timeline.TierConfirmado {
-		t.Fatalf("recurrence entry = %+v, want -1500 Confirmado", recurrenceEntry)
+	// Projetado, not Confirmado: the occurrence is scheduled and carries
+	// its expected amount, but nothing real has been observed for it.
+	if recurrenceEntry == nil || recurrenceEntry.Amount.String() != "-1500" || recurrenceEntry.Tier != timeline.TierProjetado {
+		t.Fatalf("recurrence entry = %+v, want -1500 Projetado", recurrenceEntry)
 	}
 	if !recurrenceEntry.Date.Equal(date(t, "2026-09-05")) {
 		t.Errorf("recurrence entry date = %v, want 2026-09-05", recurrenceEntry.Date)
 	}
 }
 
-func TestBuildSeriesRecurrenceEntriesUseRealAmountWhenMatched(t *testing.T) {
+// TestBuildSeriesReconciledRecurrenceEmitsNoEntry pins the rule that keeps
+// a reconciled commitment from being counted twice: the real transaction is
+// already in the series via realEntries, so its occurrence must not also
+// appear. September's occurrence is reconciled and drops out; October's has
+// no transaction of its own and stays, at its expected amount rather than
+// September's actual one — the candidates a month's occurrence resolves
+// against are scoped to that month.
+func TestBuildSeriesReconciledRecurrenceEmitsNoEntry(t *testing.T) {
 	f := newFixture(t)
 	account := f.addAccount("1000.00")
 	ctx := context.Background()
@@ -188,19 +198,82 @@ func TestBuildSeriesRecurrenceEntriesUseRealAmountWhenMatched(t *testing.T) {
 	f.addTransaction(txn{AccountID: account, Amount: "-1490.00", OccurredAt: date(t, "2026-09-06"), CategoryID: &cat})
 
 	series, err := timeline.BuildSeries(ctx, f.conn, timeline.BuildParams{
-		From: date(t, "2026-09-01"), To: date(t, "2026-09-30"), ReferenceDate: date(t, "2026-08-15"),
+		From: date(t, "2026-09-01"), To: date(t, "2026-10-31"), ReferenceDate: date(t, "2026-08-15"),
 	})
 	if err != nil {
 		t.Fatalf("BuildSeries: %v", err)
 	}
-	var recurrenceEntry *timeline.Entry
-	for i := range series.Entries {
-		if series.Entries[i].Source == timeline.SourceRecurring {
-			recurrenceEntry = &series.Entries[i]
+
+	var recurrenceEntries []timeline.Entry
+	for _, e := range series.Entries {
+		if e.Source == timeline.SourceRecurring {
+			recurrenceEntries = append(recurrenceEntries, e)
 		}
 	}
-	if recurrenceEntry == nil || recurrenceEntry.Amount.String() != "-1490" {
-		t.Fatalf("recurrence entry = %+v, want -1490 (the real transaction's amount)", recurrenceEntry)
+	if len(recurrenceEntries) != 1 {
+		t.Fatalf("recurrence entries = %+v, want only October's (September's was reconciled away)", recurrenceEntries)
+	}
+	october := recurrenceEntries[0]
+	if !october.Date.Equal(date(t, "2026-10-05")) {
+		t.Errorf("recurrence entry date = %v, want 2026-10-05", october.Date)
+	}
+	if october.Amount.String() != "-1500" || october.Tier != timeline.TierProjetado {
+		t.Errorf("october entry = %+v, want -1500 Projetado (its own expected amount, not September's -1490)", october)
+	}
+
+	// The regression this test exists for: 1000 - 1490 (real, counted once)
+	// - 1500 (October, projected).
+	final := series.Points[len(series.Points)-1].Balance
+	if final.String() != "-1990" {
+		t.Errorf("final balance = %s, want -1990 (the reconciled amount counted exactly once)", final)
+	}
+}
+
+// TestBuildSeriesReconciliationScopeIsYearAware pins the year half of the
+// candidate scope. A window longer than twelve months contains the same
+// calendar month twice; September 2026's real transaction must reconcile
+// only September 2026's occurrence, never September 2027's.
+func TestBuildSeriesReconciliationScopeIsYearAware(t *testing.T) {
+	f := newFixture(t)
+	account := f.addAccount("1000.00")
+	ctx := context.Background()
+
+	commitment, err := recurrences.Create(ctx, f.conn, recurrences.Write{
+		Name: "Aluguel", Kind: recurrences.KindExpense, Amount: decT(t, "1500.00"),
+		CategoryID: categorySupermercado,
+		Cadence:    recurrences.CadenceMonthly, DayOfMonth: 5, StartDate: date(t, "2026-01-01"), IsActive: true,
+	})
+	if err != nil {
+		t.Fatalf("recurrences.Create: %v", err)
+	}
+	if _, err := automation.Create(ctx, f.conn, automation.Write{
+		Name: "Concilia aluguel", IsActive: true, LogicOperator: automation.LogicAnd,
+		Conditions: testReconciliationConditions,
+		Actions:    []automation.ActionWrite{{Type: automation.ActionReconcile, RecurringCommitmentID: &commitment.ID}},
+	}); err != nil {
+		t.Fatalf("automation.Create: %v", err)
+	}
+	cat := categorySupermercado
+	f.addTransaction(txn{AccountID: account, Amount: "-1490.00", OccurredAt: date(t, "2026-09-06"), CategoryID: &cat})
+
+	series, err := timeline.BuildSeries(ctx, f.conn, timeline.BuildParams{
+		From: date(t, "2026-09-01"), To: date(t, "2027-09-30"), ReferenceDate: date(t, "2026-08-15"),
+	})
+	if err != nil {
+		t.Fatalf("BuildSeries: %v", err)
+	}
+
+	var septembers []timeline.Entry
+	for _, e := range series.Entries {
+		if e.Source == timeline.SourceRecurring && e.Date.Month() == time.September {
+			septembers = append(septembers, e)
+		}
+	}
+	if len(septembers) != 1 {
+		t.Fatalf("September recurrence entries = %+v, want only 2027's (2026's was reconciled away)", septembers)
+	}
+	if !septembers[0].Date.Equal(date(t, "2027-09-05")) {
+		t.Errorf("surviving September entry = %v, want 2027-09-05 — 2026's transaction must not reconcile 2027", septembers[0].Date)
 	}
 }
 

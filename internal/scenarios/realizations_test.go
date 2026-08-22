@@ -64,6 +64,9 @@ func linkFixture(t *testing.T, conn *sql.DB, debtID, amount string) payables.Lin
 	return *result.Link
 }
 
+// TestCreateRealizationAndRealizedTotal reads the realized total back
+// through SummarizeTransaction — the package's one entry point for derived
+// state — rather than a bare per-installment query.
 func TestCreateRealizationAndRealizedTotal(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()
@@ -81,20 +84,15 @@ func TestCreateRealizationAndRealizedTotal(t *testing.T) {
 		t.Fatalf("CreateRealization: %v", err)
 	}
 
-	total, err := scenarios.RealizedTotal(ctx, conn, st.ID)
+	summary, err := scenarios.SummarizeTransaction(ctx, conn, st, st.ProjectedAt)
 	if err != nil {
-		t.Fatalf("RealizedTotal: %v", err)
+		t.Fatalf("SummarizeTransaction: %v", err)
 	}
-	if !total.Equal(dec(t, "400.00")) {
-		t.Errorf("RealizedTotal = %s, want 400.00", total)
+	if len(summary.Realizations) != 2 {
+		t.Fatalf("len(summary.Realizations) = %d, want 2", len(summary.Realizations))
 	}
-
-	realizations, err := scenarios.ListRealizationsForTransaction(ctx, conn, st.ID)
-	if err != nil {
-		t.Fatalf("ListRealizationsForTransaction: %v", err)
-	}
-	if len(realizations) != 2 {
-		t.Fatalf("len(realizations) = %d, want 2", len(realizations))
+	if !summary.RealizedTotal.Equal(dec(t, "400.00")) {
+		t.Errorf("summary.RealizedTotal = %s, want 400.00", summary.RealizedTotal)
 	}
 }
 
@@ -105,12 +103,15 @@ func TestRealizedTotalIsZeroWithNoAllocations(t *testing.T) {
 	s, _ := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
 	st, _ := scenarios.CreateScenarioTransaction(ctx, conn, s.ID, "Parcela 1", dec(t, "400.00"), date(t, "2026-09-01"), nil)
 
-	total, err := scenarios.RealizedTotal(ctx, conn, st.ID)
+	summary, err := scenarios.SummarizeTransaction(ctx, conn, st, st.ProjectedAt)
 	if err != nil {
-		t.Fatalf("RealizedTotal: %v", err)
+		t.Fatalf("SummarizeTransaction: %v", err)
 	}
-	if !total.IsZero() {
-		t.Errorf("RealizedTotal = %s, want 0", total)
+	if !summary.RealizedTotal.IsZero() {
+		t.Errorf("RealizedTotal = %s, want 0", summary.RealizedTotal)
+	}
+	if len(summary.Realizations) != 0 {
+		t.Errorf("len(Realizations) = %d, want 0", len(summary.Realizations))
 	}
 }
 
@@ -129,12 +130,12 @@ func TestDeleteRealization(t *testing.T) {
 	if err := scenarios.DeleteRealization(ctx, conn, realization.ID); err != nil {
 		t.Fatalf("DeleteRealization: %v", err)
 	}
-	total, err := scenarios.RealizedTotal(ctx, conn, st.ID)
+	summary, err := scenarios.SummarizeTransaction(ctx, conn, st, st.ProjectedAt)
 	if err != nil {
-		t.Fatalf("RealizedTotal: %v", err)
+		t.Fatalf("SummarizeTransaction: %v", err)
 	}
-	if !total.IsZero() {
-		t.Errorf("RealizedTotal after delete = %s, want 0", total)
+	if !summary.RealizedTotal.IsZero() {
+		t.Errorf("RealizedTotal after delete = %s, want 0", summary.RealizedTotal)
 	}
 	if err := scenarios.DeleteRealization(ctx, conn, realization.ID); !errors.Is(err, scenarios.ErrRealizationNotFound) {
 		t.Errorf("DeleteRealization (again): err = %v, want ErrRealizationNotFound", err)

@@ -50,10 +50,24 @@ o motor em si não presume isso; lançamento manual é a mesma entidade, só
 outra via de entrada. Ingestão (Pluggy, e no futuro entrada manual) é
 provedor/entrada de dado, não parte do motor.
 
-Nota: saldo de conta reportado pela Pluggy **não** é a referência de
-verdade do sistema — ele não considera regras de inclusão (ex.: uma
-transação ignorada). O motor de Lançamentos, com suas regras de
-inclusão/valor efetivo, é o que decide o número real, não o provedor.
+Nota sobre saldo: o saldo de conta reportado pelo provedor **é** a
+referência para dinheiro em conta, e as regras de inclusão do motor não o
+corrigem. Marcar um lançamento como ignorado é uma decisão de *relatório*
+— "não conte isso nos meus totais de receita/despesa" (ex.: transferência
+para uma conta não rastreada) —, não uma afirmação de que o dinheiro não
+saiu do banco. O lançamento ignorado moveu dinheiro de verdade, então
+continua dentro do saldo; descontá-lo reportaria um caixa que o usuário
+não tem. Pelo mesmo motivo, a reconstrução histórica de patrimônio reverte
+lançamentos ignorados ao caminhar para trás (`internal/networth`
+`cashDeltasDescending`).
+
+Onde as regras de inclusão *decidem* o número é em outro lugar: nos totais
+de receita/despesa, e na dívida de cartão — ali a pergunta é "quanto esta
+fatura vai me cobrar", que uma decisão de inclusão legitimamente molda, e
+por isso o total sai dos lançamentos elegíveis do ciclo e não do saldo
+reportado (`transactions.CreditCardTransactionTotal`). O caixa em conta
+vem de `transactions.CashOnHand`, uma implementação só, compartilhada pela
+Timeline (âncora de hoje) e pelo Patrimônio Líquido.
 
 ### 2. Motor de regras
 
@@ -180,6 +194,22 @@ paralela com motor de ocorrência próprio.
    (Realizado/Confirmado/Projetado/Hipotético) são a régua comum — qualquer
    motor novo que produza "algo que ainda vai acontecer" deveria se
    encaixar num desses tiers em vez de inventar um novo grau de certeza.
+5. **Um dia é um dia só.** Todo motor que raciocina em dias de calendário
+   (entries da Timeline, parcelas de cenário, vencimento de fatura) trunca
+   por `internal/dates.Day` — meia-noite UTC, a partir do relógio de parede
+   de quem chama. Cada motor tinha crescido a própria cópia; uma definição
+   compartilhada é o que faz dois motores que não podem depender um do
+   outro compararem o mesmo dia com `==`. A exceção deliberada é a
+   matemática de ciclo de fatura (`transactions/cardtotal.go`), que fecha
+   em `time.Local` de propósito — outra convenção, não uma cópia.
+
+   `internal/dates.DaysInMonth` segue a mesma regra para a outra pergunta
+   de calendário que os motores compartilham: quantos dias tem um mês, para
+   encaixar uma cadência mensal num mês mais curto (fechamento no dia 31
+   cai no dia 30 em novembro, não no dia 1º de dezembro). Não recebe
+   `*time.Location` de propósito — a contagem é aritmética de calendário,
+   não um instante, então nenhum fuso a muda; as três cópias que ela
+   substituiu discordavam só na rota, nunca no número.
 
 ## Notas abertas (para avaliação futura, não decisões)
 
@@ -190,3 +220,10 @@ paralela com motor de ocorrência próprio.
 4. Se Payables generalizado exige `Kind` fechado crescendo (`goal` como
    mais um valor) ou um modelo de elegibilidade de vínculo mais aberto —
    não decidido nesta conversa.
+5. Sinal da parcela de plano: `scenarios.SignedAmount` **nega** o valor de
+   um `debt_plan` em vez de forçar a direção do fluxo, e nada hoje rejeita
+   uma parcela gravada com `Amount` negativo — que então leria como
+   entrada num plano de dívida. Comportamento preservado do código
+   anterior; decidir entre validar na escrita ou forçar o sinal na leitura
+   muda totais reais, então fica registrado aqui e não resolvido de
+   passagem num refactor.

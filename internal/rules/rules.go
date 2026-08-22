@@ -4,7 +4,7 @@
 // expected monthly occurrence against real transactions by category/amount/
 // day). It started as internal/automation/matching.go and was generalized
 // here so both packages share one matching engine instead of two parallel
-// implementations — see .specs/relatorio-financeiro/m0-motor-de-regras.md.
+// implementations — see .specs/motores-de-dominio.md section 2.
 package rules
 
 import (

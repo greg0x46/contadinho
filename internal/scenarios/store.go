@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -102,10 +101,10 @@ func ListScenariosByPayable(ctx context.Context, q Querier, payableID string) ([
 	return scanScenarioRows(rows)
 }
 
-// ListPayablePlanScenarios mirrors listing every Scenario{Kind: debt_plan
+// listPayablePlanScenarios mirrors listing every Scenario{Kind: debt_plan
 // or receivable_plan} — i.e. every scenario backed by a payable, regardless
 // of which one — fed to internal/timeline's M4 projection.
-func ListPayablePlanScenarios(ctx context.Context, q Querier) ([]Scenario, error) {
+func listPayablePlanScenarios(ctx context.Context, q Querier) ([]Scenario, error) {
 	rows, err := q.QueryContext(ctx,
 		`SELECT id, kind, name, payable_id, created_at, updated_at FROM scenarios WHERE kind IN (?, ?) ORDER BY created_at DESC`,
 		string(KindDebtPlan), string(KindReceivablePlan))
@@ -137,13 +136,8 @@ func ListScenariosByIDs(ctx context.Context, q Querier, ids []string) ([]Scenari
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	placeholders := make([]string, len(ids))
-	args := make([]any, len(ids))
-	for i, id := range ids {
-		placeholders[i] = "?"
-		args[i] = id
-	}
-	query := `SELECT id, kind, name, payable_id, created_at, updated_at FROM scenarios WHERE id IN (` + strings.Join(placeholders, ",") + `)`
+	in, args := db.InClause(ids)
+	query := `SELECT id, kind, name, payable_id, created_at, updated_at FROM scenarios WHERE id IN (` + in + `)`
 	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -258,13 +252,34 @@ func GetScenarioTransaction(ctx context.Context, q Querier, id string) (Scenario
 // scenario, ordered by projected_at (earliest first — the natural reading
 // order for a payment plan).
 func ListScenarioTransactions(ctx context.Context, q Querier, scenarioID string) ([]ScenarioTransaction, error) {
+	byScenario, err := scenarioTransactionsFor(ctx, q, []string{scenarioID})
+	if err != nil {
+		return nil, err
+	}
+	return byScenario[scenarioID], nil
+}
+
+// scenarioTransactionsFor loads the installments of any number of scenarios
+// in one query, keyed by scenario_id and ordered by projected_at within
+// each key — the same batching shape realizationsFor uses, for the same
+// reason: ListPlanInstallments walks every payable-backed plan at once, and
+// a query per plan would make the timeline's cost grow with how many plans
+// the user has open. A scenario with no installments is simply absent from
+// the map.
+func scenarioTransactionsFor(ctx context.Context, q Querier, scenarioIDs []string) (map[string][]ScenarioTransaction, error) {
+	result := make(map[string][]ScenarioTransaction, len(scenarioIDs))
+	if len(scenarioIDs) == 0 {
+		return result, nil
+	}
+	in, args := db.InClause(scenarioIDs)
 	rows, err := q.QueryContext(ctx,
-		`SELECT `+scenarioTransactionColumns+` FROM scenario_transactions WHERE scenario_id = ? ORDER BY projected_at, created_at`, scenarioID)
+		`SELECT `+scenarioTransactionColumns+` FROM scenario_transactions
+		 WHERE scenario_id IN (`+in+`)
+		 ORDER BY projected_at, created_at`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var list []ScenarioTransaction
 	for rows.Next() {
 		var (
 			st                         ScenarioTransaction
@@ -290,9 +305,9 @@ func ListScenarioTransactions(ctx context.Context, q Querier, scenarioID string)
 		if st.UpdatedAt, err = db.ParseTime(updatedAtRaw); err != nil {
 			return nil, err
 		}
-		list = append(list, st)
+		result[st.ScenarioID] = append(result[st.ScenarioID], st)
 	}
-	return list, rows.Err()
+	return result, rows.Err()
 }
 
 // UpdateScenarioTransaction mirrors editing a planned installment's fields

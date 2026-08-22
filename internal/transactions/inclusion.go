@@ -44,6 +44,16 @@ var ErrTransactionNotFound = errors.New("transaction not found")
 // Callers pass nil until that hook exists.
 type OnIgnoredHook func(ctx context.Context, q Querier, transactionID string) error
 
+// UpsertedHook is called with a transaction's id whenever an ingestion run
+// inserts it for the first time, or updates it because a resync changed its
+// normalized hash — not on "unchanged" outcomes, where nothing about the
+// transaction could newly match a rule. It lives here, on the Lançamentos
+// engine, rather than on the ingestion package that calls it: the engines
+// that react to a new lançamento (automation) must not have to import a
+// provider to describe their own entry point. Package syncsvc aliases this
+// type as TransactionUpsertedHook; nil is a valid no-op.
+type UpsertedHook func(ctx context.Context, conn *sql.DB, transactionID, accountID string) error
+
 type inclusionDecision struct {
 	state     money.InclusionState
 	revision  int

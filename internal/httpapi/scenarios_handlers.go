@@ -9,6 +9,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	"contadinho-go/internal/dates"
 	"contadinho-go/internal/money"
 	"contadinho-go/internal/payables"
 	"contadinho-go/internal/scenarios"
@@ -91,38 +92,33 @@ func realizationsToDTOs(list []scenarios.ScenarioTransactionRealization) []reali
 // so an installment projected for today itself doesn't read as late just
 // because the wall-clock time of day is already past midnight.
 func todayUTC() time.Time {
-	now := time.Now().UTC()
-	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	return dates.Day(time.Now().UTC())
 }
 
-// scenarioTransactionToDTO mirrors summarizePayable's role for payables:
-// status is always recomputed here from today's date and realizedTotal,
-// never read off a stored column.
-func scenarioTransactionToDTO(st scenarios.ScenarioTransaction, today time.Time, realizedTotal decimal.Decimal, realizations []scenarios.ScenarioTransactionRealization) scenarioTransactionDTO {
+// scenarioTransactionToDTO formats one installment's derived state. The
+// derivation itself (realized total, status) belongs to the engine — see
+// scenarios.SummarizeTransaction.
+func scenarioTransactionToDTO(summary scenarios.TransactionSummary) scenarioTransactionDTO {
+	st := summary.Transaction
 	return scenarioTransactionDTO{
 		ID: st.ID, ScenarioID: st.ScenarioID, Description: st.Description,
 		Amount:       money.CanonicalDecimal(st.Amount),
 		ProjectedAt:  st.ProjectedAt.Format(dateOnlyLayout),
 		Category:     st.Category,
-		Status:       string(st.Status(today, realizedTotal)),
-		Realizations: realizationsToDTOs(realizations),
+		Status:       string(summary.Status),
+		Realizations: realizationsToDTOs(summary.Realizations),
 	}
 }
 
-// scenarioTransactionDTOFor fetches st's real realizedTotal (the sum of its
-// scenario_transaction_realizations) before building the DTO — the one
-// place every handler that returns a single scenario_transaction goes
-// through, so Status always reflects real allocations.
+// scenarioTransactionDTOFor is the one path every handler returning a single
+// scenario_transaction goes through, so Status always reflects real
+// allocations.
 func scenarioTransactionDTOFor(ctx context.Context, conn *sql.DB, st scenarios.ScenarioTransaction) (scenarioTransactionDTO, error) {
-	realizations, err := scenarios.ListRealizationsForTransaction(ctx, conn, st.ID)
+	summary, err := scenarios.SummarizeTransaction(ctx, conn, st, todayUTC())
 	if err != nil {
 		return scenarioTransactionDTO{}, err
 	}
-	realizedTotal := decimal.Zero
-	for _, r := range realizations {
-		realizedTotal = realizedTotal.Add(r.AllocatedAmount)
-	}
-	return scenarioTransactionToDTO(st, todayUTC(), realizedTotal, realizations), nil
+	return scenarioTransactionToDTO(summary), nil
 }
 
 type scenarioDetailDTO struct {
@@ -131,13 +127,8 @@ type scenarioDetailDTO struct {
 	AccumulatedDeviation string                   `json:"accumulated_deviation"`
 }
 
-// loadScenarioDetail also computes accumulated_deviation — Σ amount − Σ
-// realizedTotal across every installment whose projected_at is on or before
-// today. A positive value means the plan is behind (less was actually
-// allocated than planned so far); negative means ahead. Installments not
-// yet due don't count toward it, matching the spec's "ritmo necessário vs.
-// ritmo real" framing — only what should already have happened factors
-// into whether the plan is on track.
+// loadScenarioDetail formats a scenario plus its engine-derived Summary
+// (installment statuses and accumulated deviation).
 func loadScenarioDetail(w http.ResponseWriter, r *http.Request, conn *sql.DB, id string) (scenarioDetailDTO, bool) {
 	s, err := scenarios.GetScenario(r.Context(), conn, id)
 	if errors.Is(err, scenarios.ErrScenarioNotFound) {
@@ -148,32 +139,18 @@ func loadScenarioDetail(w http.ResponseWriter, r *http.Request, conn *sql.DB, id
 		scenariosUnavailableProblem(w)
 		return scenarioDetailDTO{}, false
 	}
-	list, err := scenarios.ListScenarioTransactions(r.Context(), conn, s.ID)
+	summary, err := scenarios.Summarize(r.Context(), conn, s.ID, todayUTC())
 	if err != nil {
 		scenariosUnavailableProblem(w)
 		return scenarioDetailDTO{}, false
 	}
-	today := todayUTC()
-	deviation := decimal.Zero
-	dtos := make([]scenarioTransactionDTO, len(list))
-	for i, st := range list {
-		realizations, err := scenarios.ListRealizationsForTransaction(r.Context(), conn, st.ID)
-		if err != nil {
-			scenariosUnavailableProblem(w)
-			return scenarioDetailDTO{}, false
-		}
-		realizedTotal := decimal.Zero
-		for _, real := range realizations {
-			realizedTotal = realizedTotal.Add(real.AllocatedAmount)
-		}
-		dtos[i] = scenarioTransactionToDTO(st, today, realizedTotal, realizations)
-		if !st.ProjectedAt.After(today) {
-			deviation = deviation.Add(st.Amount.Sub(realizedTotal))
-		}
+	dtos := make([]scenarioTransactionDTO, len(summary.Transactions))
+	for i, ts := range summary.Transactions {
+		dtos[i] = scenarioTransactionToDTO(ts)
 	}
 	return scenarioDetailDTO{
 		scenarioDTO: scenarioToDTO(s), Transactions: dtos,
-		AccumulatedDeviation: money.CanonicalDecimal(deviation),
+		AccumulatedDeviation: money.CanonicalDecimal(summary.AccumulatedDeviation),
 	}, true
 }
 
@@ -489,31 +466,10 @@ func handleGenerateInstallments(conn *sql.DB) http.HandlerFunc {
 		dtos := make([]scenarioTransactionDTO, len(created))
 		today := todayUTC()
 		for i, st := range created {
-			dtos[i] = scenarioTransactionToDTO(st, today, decimal.Zero, nil)
+			dtos[i] = scenarioTransactionToDTO(scenarios.SummarizeFresh(st, today))
 		}
 		writeJSON(w, http.StatusCreated, dtos)
 	}
-}
-
-// payableRemainingAmount recomputes a payable's remaining_amount the same
-// way summarizePayable does — duplicated here rather than imported because
-// summarizePayable returns a full payableDTO and this only needs the one
-// number.
-func payableRemainingAmount(ctx context.Context, conn *sql.DB, p payables.Payable) (decimal.Decimal, error) {
-	links, err := payables.Links(ctx, conn, p.ID)
-	if err != nil {
-		return decimal.Decimal{}, err
-	}
-	amounts := make([]decimal.Decimal, len(links))
-	for i, l := range links {
-		amt, err := payables.LinkEffectiveAmount(ctx, conn, l.TransactionID)
-		if err != nil {
-			return decimal.Decimal{}, err
-		}
-		amounts[i] = amt
-	}
-	settled := payables.SettledAmount(p.StartingSettledAmount, amounts)
-	return payables.RemainingAmount(p.TotalAmount, settled), nil
 }
 
 // scenarioRemainingAmount resolves s's remaining amount from its payable_id,
@@ -535,12 +491,12 @@ func scenarioRemainingAmount(w http.ResponseWriter, r *http.Request, conn *sql.D
 		payableUnavailableProblem(w)
 		return decimal.Decimal{}, false
 	}
-	remaining, err := payableRemainingAmount(r.Context(), conn, p)
+	summary, err := payables.Summarize(r.Context(), conn, p)
 	if err != nil {
 		payableUnavailableProblem(w)
 		return decimal.Decimal{}, false
 	}
-	return remaining, true
+	return summary.Remaining, true
 }
 
 type readjustRequest struct {
@@ -603,7 +559,7 @@ func handleReadjustInstallments(conn *sql.DB) http.HandlerFunc {
 		today := todayUTC()
 		dtos := make([]scenarioTransactionDTO, len(created))
 		for i, st := range created {
-			dtos[i] = scenarioTransactionToDTO(st, today, decimal.Zero, nil)
+			dtos[i] = scenarioTransactionToDTO(scenarios.SummarizeFresh(st, today))
 		}
 		writeJSON(w, http.StatusOK, dtos)
 	}

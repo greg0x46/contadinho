@@ -17,6 +17,15 @@ import (
 	"contadinho-go/internal/transactions"
 )
 
+func dec(t *testing.T, s string) decimal.Decimal {
+	t.Helper()
+	d, err := decimal.NewFromString(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
 type fixture struct {
 	t           *testing.T
 	conn        *sql.DB
@@ -232,20 +241,18 @@ func TestCreateLinkEligibleTransaction(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Get: %v", err)
 			}
-			links, err := payables.Links(ctx, f.conn, updated.ID)
+			summary, err := payables.Summarize(ctx, f.conn, updated)
 			if err != nil {
-				t.Fatalf("Links: %v", err)
+				t.Fatalf("Summarize: %v", err)
 			}
-			if len(links) != 1 {
-				t.Fatalf("len(links) = %d, want 1", len(links))
+			if len(summary.Links) != 1 {
+				t.Fatalf("len(summary.Links) = %d, want 1", len(summary.Links))
 			}
-			amt, err := payables.LinkEffectiveAmount(ctx, f.conn, links[0].TransactionID)
-			if err != nil {
-				t.Fatalf("LinkEffectiveAmount: %v", err)
+			if !summary.Links[0].EffectiveAmount.Equal(dec(t, "500.00")) {
+				t.Errorf("EffectiveAmount = %s, want 500.00", summary.Links[0].EffectiveAmount)
 			}
-			settled := payables.SettledAmount(updated.StartingSettledAmount, []decimal.Decimal{amt})
-			if !settled.Equal(dec(t, "500.00")) {
-				t.Errorf("SettledAmount = %s, want 500.00", settled)
+			if !summary.Settled.Equal(dec(t, "500.00")) {
+				t.Errorf("Settled = %s, want 500.00", summary.Settled)
 			}
 		})
 	}
@@ -472,4 +479,13 @@ func TestListEligibleTransactionsSearchFiltersByDescription(t *testing.T) {
 	if len(rows) != 1 || *rows[0].Description != "Mercado Livre" {
 		t.Errorf("rows = %+v", rows)
 	}
+}
+
+// backdatePayable overrides a payable's created_at, which payables.Create
+// always stamps with the real wall-clock time — tests that reconstruct a
+// payable's state on a synthetic past day need it to actually predate that
+// day, or the "did not exist yet" rule zeroes it out.
+func (f *fixture) backdatePayable(payableID string, createdAt time.Time) {
+	f.t.Helper()
+	f.exec(`UPDATE payables SET created_at = ? WHERE id = ?`, db.FormatTime(createdAt), payableID)
 }
