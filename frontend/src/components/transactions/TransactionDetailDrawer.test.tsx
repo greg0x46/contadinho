@@ -2,14 +2,25 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import * as transactionsApi from "../../api/transactions";
 import type { Category } from "../../api/contracts";
+import { QueryTestProvider } from "../../test/QueryTestProvider";
 import { transactionResult } from "../../test/transactionFixtures";
 import { TransactionDetailDrawer } from "./TransactionDetailDrawer";
 
+vi.mock("../../api/transactions");
+
+// The drawer reads a transaction's reconciliation, so it needs a query
+// client. These cases are about the other sections; the reconciliation
+// section has its own file.
 function renderWithRouter(ui: ReactElement) {
-  return render(<MemoryRouter>{ui}</MemoryRouter>);
+  return render(
+    <MemoryRouter>
+      <QueryTestProvider>{ui}</QueryTestProvider>
+    </MemoryRouter>,
+  );
 }
 
 const activeCategories: Category[] = [
@@ -36,6 +47,13 @@ const activeCategories: Category[] = [
 ];
 
 describe("TransactionDetailDrawer", () => {
+  beforeEach(() => {
+    vi.mocked(transactionsApi.getTransactionReconciliation).mockResolvedValue({
+      current: null,
+      options: [],
+    });
+  });
+
   it("assigns a category manually and shows the provider suggestion separately", async () => {
     const user = userEvent.setup();
     const onCategory = vi.fn();

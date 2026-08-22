@@ -22,6 +22,11 @@ regra a um `recurrences.RecurringCommitment` sem afetar a transação
 diretamente — regras reconcile-only são puladas pelo fluxo normal de
 aplicação (`isReconcileOnlyRule`).
 
+A regra `reconcile` deixou de ser a palavra final: o usuário pode
+desconciliar uma ocorrência ou conciliá-la com outra transação, e essa
+decisão vence a regra na resolução (`recurrences.Reconciler`). A regra
+continua valendo em toda ocorrência sem decisão manual.
+
 ## Rotas HTTP
 
 `GET/POST /api/automation-rules`,

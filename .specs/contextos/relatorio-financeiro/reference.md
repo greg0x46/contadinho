@@ -27,7 +27,13 @@ produzidos hoje:
   ocorrência reconciliada contra uma transação real não gera entry: a
   transação real já carrega o dinheiro (antes gerava, e o valor era contado
   duas vezes). Os candidatos que uma ocorrência tenta reconciliar são
-  escopados ao mês dela.
+  escopados ao mês dela. Quem decide se a ocorrência está reconciliada é
+  `recurrences.Reconciler`, o mesmo resolvedor que a tela de Recorrências
+  lê — então desconciliar à mão faz a ocorrência voltar a projetar aqui, e
+  conciliar à mão a suprime. Um vínculo manual pode apontar para uma
+  transação do mês vizinho; a ocorrência é suprimida do mesmo jeito (a
+  conciliação é um fato sobre a ocorrência), e a janela estreita de
+  candidatas mantém o efeito limitado a uma virada de mês.
 - **Hipotético** — transação de cenário standalone explicitamente
   selecionado.
 

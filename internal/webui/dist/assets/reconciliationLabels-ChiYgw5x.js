@@ -1,0 +1,1 @@
+const e={reconciled:"Conciliada",unreconciled:"Não conciliada",detached:"Desconciliada"},o={reconciled:"success",unreconciled:void 0,detached:"warning"},i={rule:"automática",manual:"manual"};function l(c,n){const a=e[c];return c!=="reconciled"||n===null?a:`${a} (${i[n]})`}export{o as a,l as b,i as r};

@@ -1,8 +1,14 @@
 import {
+  parseEligibleTransactionList,
+  parseRecurrenceOccurrence,
+  parseRecurrenceOccurrenceList,
   parseRecurringCommitment,
   parseRecurringCommitmentList,
   parseProblem,
+  type EligibleTransaction,
   type Problem,
+  type RecurrenceOccurrence,
+  type ReconciliationWrite,
   type RecurringCommitment,
   type RecurringCommitmentWrite,
 } from "./contracts";
@@ -36,7 +42,7 @@ async function send<T>(
       }
     }
     throw new ApiError(
-      response.status === 404 ? "not_found" : "response",
+      response.status === 404 ? "not_found" : response.status === 409 ? "conflict" : "response",
       problem?.detail ?? problem?.title ?? defaultMessage,
       problem,
     );
@@ -114,6 +120,78 @@ export function setRecurringCommitmentActive(
 export function deleteRecurringCommitment(commitmentId: string): Promise<void> {
   return send(
     `/api/recurring-commitments/${encodeURIComponent(commitmentId)}`,
+    { method: "DELETE" },
+    204,
+    null,
+  );
+}
+
+/**
+ * An occurrence's address: the commitment plus the calendar day. Occurrences
+ * have no stored id — the schedule generates them — so every reconciliation
+ * write is keyed this way.
+ */
+function occurrenceBase(commitmentId: string, occurrenceDate: string): string {
+  return `/api/recurring-commitments/${encodeURIComponent(commitmentId)}/occurrences/${encodeURIComponent(occurrenceDate)}`;
+}
+
+export function listRecurrenceOccurrences(
+  commitmentId: string,
+  signal?: AbortSignal,
+): Promise<RecurrenceOccurrence[]> {
+  return send(
+    `/api/recurring-commitments/${encodeURIComponent(commitmentId)}/occurrences`,
+    { method: "GET", headers: { Accept: "application/json" }, signal },
+    200,
+    parseRecurrenceOccurrenceList,
+  );
+}
+
+export function listReconciliationCandidates(
+  commitmentId: string,
+  occurrenceDate: string,
+  search: string,
+  signal?: AbortSignal,
+): Promise<EligibleTransaction[]> {
+  const params = new URLSearchParams();
+  if (search.trim() !== "") params.set("search", search.trim());
+  const query = params.toString();
+  return send(
+    `${occurrenceBase(commitmentId, occurrenceDate)}/candidates${query === "" ? "" : `?${query}`}`,
+    { method: "GET", headers: { Accept: "application/json" }, signal },
+    200,
+    parseEligibleTransactionList,
+  );
+}
+
+/** Records a manual decision: link a transaction, or detach the occurrence. */
+export function putReconciliation(
+  commitmentId: string,
+  occurrenceDate: string,
+  write: ReconciliationWrite,
+): Promise<RecurrenceOccurrence> {
+  return send(
+    `${occurrenceBase(commitmentId, occurrenceDate)}/reconciliation`,
+    {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(write),
+    },
+    200,
+    parseRecurrenceOccurrence,
+  );
+}
+
+/**
+ * Forgets the manual decision, handing the occurrence back to the automation
+ * rule — "voltar ao automático", not "desconciliar".
+ */
+export function deleteReconciliation(
+  commitmentId: string,
+  occurrenceDate: string,
+): Promise<void> {
+  return send(
+    `${occurrenceBase(commitmentId, occurrenceDate)}/reconciliation`,
     { method: "DELETE" },
     204,
     null,

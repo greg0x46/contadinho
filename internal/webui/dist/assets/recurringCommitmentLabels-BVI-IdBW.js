@@ -1,0 +1,1 @@
+const t={income:"Receita",expense:"Despesa"},i={monthly:"Mensal",annual:"Anual"},o=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];function a(e){return o[e-1]??String(e)}function u(e,n,r){return e==="annual"&&r!==null?`Dia ${n} de ${a(r)}`:`Todo dia ${n}`}export{i as a,u as b,t as r};

@@ -8,6 +8,7 @@ import {
   recurringCommitmentKindLabel,
 } from "../../presentation/recurringCommitmentLabels";
 import { formatMoney } from "../../presentation/money";
+import { RecurrenceOccurrenceList } from "./RecurrenceOccurrenceList";
 
 export function RecurringCommitmentList({
   commitments,
@@ -100,6 +101,13 @@ export function RecurringCommitmentList({
       pagination={false}
       cardBordered
       scroll={{ x: "max-content" }}
+      // Occurrences load per expanded row rather than with the list: a user
+      // opens one commitment to check it, and eager-loading every row would
+      // be one request per commitment for data usually never looked at.
+      expandable={{
+        expandedRowRender: (commitment) => <RecurrenceOccurrenceList commitment={commitment} />,
+        rowExpandable: (commitment) => commitment.is_active,
+      }}
       locale={{ emptyText: "Nenhum compromisso recorrente cadastrado ainda." }}
     />
   );
