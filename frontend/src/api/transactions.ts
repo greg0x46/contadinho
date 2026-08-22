@@ -4,7 +4,9 @@ import {
   parseTransactionCategoryResult,
   parseTransactionInclusionResult,
   parseTransactionQueryResult,
+  parseTransactionReconciliation,
   type Problem,
+  type TransactionReconciliation,
   type SpendingByCategory,
   type TransactionCategoryResult,
   type TransactionInclusionResult,
@@ -209,5 +211,54 @@ export async function setTransactionCategory(
     return parseTransactionCategoryResult(body);
   } catch {
     throw new ApiError("response", "A confirmação da categoria é inválida.");
+  }
+}
+
+/**
+ * Reads what this transaction currently settles and what else it could,
+ * in one round trip. Read-only on purpose: both writes go through the
+ * occurrence-scoped endpoints in ./recurringCommitments, so there is exactly
+ * one place that decides what a valid reconciliation is.
+ */
+export async function getTransactionReconciliation(
+  transactionId: string,
+  signal?: AbortSignal,
+): Promise<TransactionReconciliation> {
+  const failure = "Não foi possível consultar a conciliação desta transação.";
+  let response: Response;
+  try {
+    response = await fetch(`/api/transactions/${encodeURIComponent(transactionId)}/reconciliation`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new ApiError("transport", failure);
+  }
+
+  const contentType = response.headers.get("content-type")?.split(";")[0].trim();
+  if (!response.ok) {
+    let problem: Problem | undefined;
+    if (contentType === "application/problem+json") {
+      try {
+        problem = parseProblem(await response.json());
+      } catch {
+        problem = undefined;
+      }
+    }
+    throw new ApiError(
+      response.status === 404 ? "not_found" : "response",
+      problem?.detail ?? problem?.title ?? failure,
+      problem,
+    );
+  }
+  if (contentType !== "application/json") {
+    throw new ApiError("response", failure);
+  }
+  try {
+    return parseTransactionReconciliation(await response.json());
+  } catch {
+    throw new ApiError("response", failure);
   }
 }

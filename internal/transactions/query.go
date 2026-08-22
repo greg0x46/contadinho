@@ -76,6 +76,24 @@ type view struct {
 	effectiveAt *time.Time
 }
 
+// viewSelect is the one column list and join shape every view in this
+// package is built from — shared by the unfiltered scan below and by GetItem,
+// which appends a WHERE to it, so a column added here reaches both.
+const viewSelect = `
+	SELECT
+		ft.id, ft.account_id, ft.external_id, ft.description, ft.amount,
+		ft.amount_in_account_currency, ft.currency_code, ft.occurred_at,
+		ft.provider_status, ft.movement_type, ft.source_category, ft.credit_card_metadata,
+		fa.name, fa.institution, fa.currency_code, fa.account_type,
+		tid.state, tid.changed_at, tid.origin, tid.rule_name,
+		tcd.category_id, tcd.changed_at, tcd.origin,
+		cat.id, cat.name, cat.kind, cat.is_active, cat.icon, cat.color
+	FROM financial_transactions ft
+	JOIN financial_accounts fa ON fa.id = ft.account_id
+	LEFT JOIN transaction_inclusion_decisions tid ON tid.transaction_id = ft.id
+	LEFT JOIN transaction_category_decisions tcd ON tcd.transaction_id = ft.id
+	LEFT JOIN categories cat ON cat.id = tcd.category_id`
+
 func fetchAllViews(ctx context.Context, q Querier, query QueryRequest) ([]view, error) {
 	periodBasis, err := settings.GetTransactionsPeriodBasis(ctx, q)
 	if err != nil {
@@ -86,21 +104,7 @@ func fetchAllViews(ctx context.Context, q Querier, query QueryRequest) ([]view, 
 		return nil, err
 	}
 
-	rows, err := q.QueryContext(ctx, `
-		SELECT
-			ft.id, ft.account_id, ft.external_id, ft.description, ft.amount,
-			ft.amount_in_account_currency, ft.currency_code, ft.occurred_at,
-			ft.provider_status, ft.movement_type, ft.source_category, ft.credit_card_metadata,
-			fa.name, fa.institution, fa.currency_code, fa.account_type,
-			tid.state, tid.changed_at, tid.origin, tid.rule_name,
-			tcd.category_id, tcd.changed_at, tcd.origin,
-			cat.id, cat.name, cat.kind, cat.is_active, cat.icon, cat.color
-		FROM financial_transactions ft
-		JOIN financial_accounts fa ON fa.id = ft.account_id
-		LEFT JOIN transaction_inclusion_decisions tid ON tid.transaction_id = ft.id
-		LEFT JOIN transaction_category_decisions tcd ON tcd.transaction_id = ft.id
-		LEFT JOIN categories cat ON cat.id = tcd.category_id
-	`)
+	rows, err := q.QueryContext(ctx, viewSelect)
 	if err != nil {
 		return nil, fmt.Errorf("query transactions: %w", err)
 	}

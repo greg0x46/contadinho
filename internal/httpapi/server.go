@@ -10,17 +10,26 @@ import (
 	"strings"
 
 	"contadinho-go/internal/payables"
+	"contadinho-go/internal/recurrences"
 	"contadinho-go/internal/settings"
 	"contadinho-go/internal/transactions"
 )
 
-// onIgnoredHook wires payables.UnlinkIfPresent into every
-// inclusion-changing path this package exposes (manual PUT, automation's
-// apply-to-new and apply-retroactively): whenever a transaction transitions
-// to "ignored", any payable link it holds is dropped, matching the
-// reference calling unlink_if_present from those same places.
+// onIgnoredHook wires the "a transaction just became ignored" cleanup into
+// every inclusion-changing path this package exposes (manual PUT,
+// automation's apply-to-new and apply-retroactively), matching the reference
+// calling unlink_if_present from those same places.
+//
+// Both links it drops rest on the same fact: a transaction the user excluded
+// from the totals is no longer money the app counts, so it can neither pay
+// down a payable nor carry a recurring commitment's occurrence. A detached
+// occurrence is untouched — that decision is about the occurrence, not about
+// any transaction.
 func onIgnoredHook(ctx context.Context, q transactions.Querier, transactionID string) error {
-	return payables.UnlinkIfPresent(ctx, q, transactionID)
+	if err := payables.UnlinkIfPresent(ctx, q, transactionID); err != nil {
+		return err
+	}
+	return recurrences.UnlinkIfPresent(ctx, q, transactionID)
 }
 
 // NewServer wires every route this phase implements (health, setup/unlock,
@@ -49,6 +58,7 @@ func NewServer(db *sql.DB, frontend fs.FS, session *settings.Session) http.Handl
 	mux.HandleFunc("GET /api/transactions/spending-by-category", handleSpendingByCategory(db))
 	mux.HandleFunc("PUT /api/transactions/{id}/inclusion", handleSetTransactionInclusion(db))
 	mux.HandleFunc("PUT /api/transactions/{id}/category", handleSetTransactionCategory(db))
+	mux.HandleFunc("GET /api/transactions/{id}/reconciliation", handleGetTransactionReconciliation(db))
 
 	mux.HandleFunc("POST /api/sync-runs", handleCreateSyncRun(db))
 	mux.HandleFunc("GET /api/sync-runs", handleListSyncRuns(db))
@@ -105,6 +115,10 @@ func NewServer(db *sql.DB, frontend fs.FS, session *settings.Session) http.Handl
 	mux.HandleFunc("PUT /api/recurring-commitments/{id}", handleUpdateRecurringCommitment(db))
 	mux.HandleFunc("PATCH /api/recurring-commitments/{id}", handleSetRecurringCommitmentActive(db))
 	mux.HandleFunc("DELETE /api/recurring-commitments/{id}", handleDeleteRecurringCommitment(db))
+	mux.HandleFunc("GET /api/recurring-commitments/{id}/occurrences", handleListRecurrenceOccurrences(db))
+	mux.HandleFunc("GET /api/recurring-commitments/{id}/occurrences/{date}/candidates", handleListReconciliationCandidates(db))
+	mux.HandleFunc("PUT /api/recurring-commitments/{id}/occurrences/{date}/reconciliation", handlePutRecurrenceReconciliation(db))
+	mux.HandleFunc("DELETE /api/recurring-commitments/{id}/occurrences/{date}/reconciliation", handleDeleteRecurrenceReconciliation(db))
 
 	mux.Handle("/", spaHandler(frontend))
 

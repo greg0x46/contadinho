@@ -881,6 +881,145 @@ export function parseRecurringCommitmentList(value: unknown): RecurringCommitmen
   return value.map(parseRecurringCommitment);
 }
 
+export const reconciliationStatuses = ["reconciled", "unreconciled", "detached"] as const;
+export type ReconciliationStatus = (typeof reconciliationStatuses)[number];
+export const reconciliationOrigins = ["rule", "manual"] as const;
+export type ReconciliationOrigin = (typeof reconciliationOrigins)[number];
+
+/**
+ * One scheduled instance of a commitment, resolved against the user's manual
+ * decisions and the automation rule. Occurrences aren't stored — the date is
+ * their only identity, which is why every write below is keyed by it.
+ */
+export interface RecurrenceOccurrence {
+  date: string;
+  expected_amount: string;
+  status: ReconciliationStatus;
+  /** Who decided it: "rule" for the automation, "manual" for the user. Null when unreconciled. */
+  origin: ReconciliationOrigin | null;
+  transaction: EligibleTransaction | null;
+}
+
+export function parseRecurrenceOccurrence(value: unknown): RecurrenceOccurrence {
+  const occurrence = requiredRecord(
+    value,
+    ["date", "expected_amount", "status", "origin", "transaction"],
+    "Ocorrência inválida.",
+  );
+  if (
+    !dateOnlyPattern.test(occurrence.date as string) ||
+    !reconciliationStatuses.includes(occurrence.status as ReconciliationStatus) ||
+    !(
+      occurrence.origin === null ||
+      reconciliationOrigins.includes(occurrence.origin as ReconciliationOrigin)
+    )
+  ) {
+    throw new TypeError("Ocorrência inválida.");
+  }
+  return {
+    date: occurrence.date as string,
+    expected_amount: decimal(occurrence.expected_amount),
+    status: occurrence.status as ReconciliationStatus,
+    origin: occurrence.origin as ReconciliationOrigin | null,
+    transaction:
+      occurrence.transaction === null ? null : parseEligibleTransaction(occurrence.transaction),
+  };
+}
+
+export function parseRecurrenceOccurrenceList(value: unknown): RecurrenceOccurrence[] {
+  if (!Array.isArray(value)) {
+    throw new TypeError("Lista de ocorrências inválida.");
+  }
+  return value.map(parseRecurrenceOccurrence);
+}
+
+/** The body of a reconciliation write: pick a transaction, or detach the occurrence. */
+export type ReconciliationWrite =
+  | { state: "linked"; transaction_id: string }
+  | { state: "detached" };
+
+/** One occurrence a transaction could settle, seen from the transaction's side. */
+export interface ReconciliationOption {
+  commitment_id: string;
+  commitment_name: string;
+  kind: RecurringCommitmentKind;
+  occurrence_date: string;
+  expected_amount: string;
+}
+
+export interface CurrentReconciliation extends ReconciliationOption {
+  origin: ReconciliationOrigin;
+}
+
+/**
+ * What a transaction currently settles plus what it could settle, in one
+ * payload — the transaction drawer needs both at once.
+ */
+export interface TransactionReconciliation {
+  current: CurrentReconciliation | null;
+  options: ReconciliationOption[];
+}
+
+const reconciliationOptionKeys = [
+  "commitment_id",
+  "commitment_name",
+  "kind",
+  "occurrence_date",
+  "expected_amount",
+] as const;
+
+function reconciliationOptionFieldsFrom(option: Record<string, unknown>): ReconciliationOption {
+  if (
+    typeof option.commitment_id !== "string" ||
+    !isUuid(option.commitment_id) ||
+    typeof option.commitment_name !== "string" ||
+    option.commitment_name === "" ||
+    !recurringCommitmentKinds.includes(option.kind as RecurringCommitmentKind) ||
+    !dateOnlyPattern.test(option.occurrence_date as string)
+  ) {
+    throw new TypeError("Opção de conciliação inválida.");
+  }
+  return {
+    commitment_id: option.commitment_id,
+    commitment_name: option.commitment_name,
+    kind: option.kind as RecurringCommitmentKind,
+    occurrence_date: option.occurrence_date as string,
+    expected_amount: decimal(option.expected_amount),
+  };
+}
+
+function parseReconciliationOption(value: unknown): ReconciliationOption {
+  return reconciliationOptionFieldsFrom(
+    requiredRecord(value, reconciliationOptionKeys, "Opção de conciliação inválida."),
+  );
+}
+
+function parseCurrentReconciliation(value: unknown): CurrentReconciliation {
+  const current = requiredRecord(
+    value,
+    [...reconciliationOptionKeys, "origin"],
+    "Conciliação atual inválida.",
+  );
+  if (!reconciliationOrigins.includes(current.origin as ReconciliationOrigin)) {
+    throw new TypeError("Conciliação atual inválida.");
+  }
+  return {
+    ...reconciliationOptionFieldsFrom(current),
+    origin: current.origin as ReconciliationOrigin,
+  };
+}
+
+export function parseTransactionReconciliation(value: unknown): TransactionReconciliation {
+  const payload = requiredRecord(value, ["current", "options"], "Conciliação inválida.");
+  if (!Array.isArray(payload.options)) {
+    throw new TypeError("Conciliação inválida.");
+  }
+  return {
+    current: payload.current === null ? null : parseCurrentReconciliation(payload.current),
+    options: payload.options.map(parseReconciliationOption),
+  };
+}
+
 export interface Category {
   id: string;
   name: string;

@@ -199,22 +199,30 @@ func payablePlanEntries(ctx context.Context, q Querier, from, to time.Time) ([]E
 // the occurrence is scheduled and carries its expected amount, but nothing
 // real has been observed for it yet.
 //
-// An occurrence that ResolveOccurrence matches to a real transaction emits
-// no Entry at all — the real transaction is already in the series via
-// realEntries, and emitting the occurrence too would count the same money
-// twice. This mirrors payablePlanEntries' treatment of a realized
-// installment.
+// A reconciled occurrence emits no Entry at all — the real transaction is
+// already in the series via realEntries, and emitting the occurrence too
+// would count the same money twice. This mirrors payablePlanEntries'
+// treatment of a realized installment.
 //
-// Candidates are scoped to the occurrence's own calendar month, which is
-// what recurrences.ResolveOccurrence's contract requires: its conditions
-// (amount, day-of-month) are month-agnostic, so an unscoped candidate list
-// would let one month's transaction reconcile every other month's
-// occurrence.
+// Whether an occurrence counts as reconciled is decided entirely by
+// recurrences.Reconciler, which is also what the HTTP layer reads: a manual
+// override (the user linking a transaction by hand, or detaching the
+// occurrence) wins over the automation rule, and the rule matches within the
+// occurrence's own month otherwise. Keeping that decision in one place is
+// what makes "desconciliar" in the UI actually move this series — the whole
+// point of the override existing.
 //
 // A commitment with no linked automation rule (see
-// internal/automation.ListActiveReconcileTargets) has nothing to resolve
-// against, so its occurrences are always emitted — this is what lets a
-// recurring commitment exist independent of any automation.
+// internal/automation.ListActiveReconcileTargets) and no manual override has
+// nothing to resolve against, so its occurrences are always emitted — this is
+// what lets a recurring commitment exist independent of any automation.
+//
+// Boundary note: a manual link may point at a transaction in a neighbouring
+// month, in which case the occurrence is suppressed here while the real
+// transaction lands in the adjacent month's total. The occurrence is
+// suppressed regardless, because the reconciliation is a fact about the
+// occurrence; the candidate window the HTTP layer offers is deliberately
+// narrow so the effect stays bounded to one month boundary.
 func recurrenceEntries(ctx context.Context, q Querier, from, to time.Time, realCandidates []transactions.Item) ([]Entry, error) {
 	commitments, err := recurrences.ListActive(ctx, q)
 	if err != nil {
@@ -222,6 +230,25 @@ func recurrenceEntries(ctx context.Context, q Querier, from, to time.Time, realC
 	}
 
 	reconcileTargets, err := automation.ListActiveReconcileTargets(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+
+	commitmentIDs := make([]string, len(commitments))
+	for i, commitment := range commitments {
+		commitmentIDs[i] = commitment.ID
+	}
+	// Widened past [from, to] on purpose: the Reconciler uses the overrides to
+	// keep the rule off transactions another occurrence already claims by
+	// hand, and a hand-linked transaction can sit in a neighbouring month.
+	// Loading only this window's overrides would let a transaction linked to
+	// (say) February's occurrence be re-matched by the rule to January's,
+	// suppressing the wrong projection. The margin matches the candidate
+	// window the HTTP layer offers, which is what bounds how far a manual
+	// link can reach.
+	overrides, err := recurrences.ListOverrides(ctx, q, commitmentIDs,
+		from.AddDate(0, 0, -recurrences.ManualLinkReachDays),
+		to.AddDate(0, 0, recurrences.ManualLinkReachDays))
 	if err != nil {
 		return nil, err
 	}
@@ -239,60 +266,33 @@ func recurrenceEntries(ctx context.Context, q Querier, from, to time.Time, realC
 			categoryName[commitment.CategoryID] = name
 		}
 		rule, hasRule := reconcileTargets[commitment.ID]
-		var candidatesByMonth map[time.Time][]transactions.Item
-		if hasRule {
-			candidatesByMonth = candidatesByMonthFor(commitment, realCandidates)
-		}
+		reconciler := recurrences.NewReconciler(
+			commitment, rule.Conditions, rule.LogicOperator, hasRule,
+			overrides[commitment.ID], realCandidates,
+		)
 
-		for _, occurrence := range recurrences.OccurrencesInRange(commitment, from, to) {
-			if hasRule {
-				inMonth := candidatesByMonth[monthKey(occurrence.Date)]
-				if _, reconciled := recurrences.ResolveOccurrence(rule.Conditions, rule.LogicOperator, inMonth); reconciled {
-					continue
-				}
+		for _, resolved := range reconciler.ResolveRange(from, to) {
+			if resolved.Reconciled() {
+				continue
 			}
-			amount := occurrence.ExpectedAmount
+			amount := resolved.Occurrence.ExpectedAmount
 			if commitment.Kind == recurrences.KindExpense {
 				amount = amount.Neg()
 			}
 			categoryID := commitment.CategoryID
 			entries = append(entries, Entry{
-				Date:         dates.Day(occurrence.Date),
+				Date:         dates.Day(resolved.Occurrence.Date),
 				Description:  commitment.Name,
 				Amount:       amount,
 				CategoryID:   &categoryID,
 				CategoryName: name,
 				Tier:         TierProjetado,
 				Source:       SourceRecurring,
-				SourceRefID:  commitment.ID + ":" + occurrence.Date.Format("2006-01-02"),
+				SourceRefID:  commitment.ID + ":" + resolved.Occurrence.Date.Format("2006-01-02"),
 			})
 		}
 	}
 	return entries, nil
-}
-
-// candidatesByMonthFor selects the real transactions a commitment could
-// reconcile against — same category, and same account when it names one —
-// bucketed by monthKey, which is the scope ResolveOccurrence needs: its
-// conditions (amount, day-of-month) are month-agnostic, so one month's
-// transaction would otherwise reconcile every other month's occurrence. The
-// key carries the year, so September 2027 never reconciles September 2026.
-func candidatesByMonthFor(commitment recurrences.RecurringCommitment, realCandidates []transactions.Item) map[time.Time][]transactions.Item {
-	byMonth := map[time.Time][]transactions.Item{}
-	for _, item := range realCandidates {
-		if item.OccurredAt == nil {
-			continue
-		}
-		if item.InternalCategory == nil || item.InternalCategory.ID != commitment.CategoryID {
-			continue
-		}
-		if commitment.AccountID != nil && item.Account.ID != *commitment.AccountID {
-			continue
-		}
-		month := monthKey(*item.OccurredAt)
-		byMonth[month] = append(byMonth[month], item)
-	}
-	return byMonth
 }
 
 // scenarioEntries loads ScenarioTransactions for exactly the

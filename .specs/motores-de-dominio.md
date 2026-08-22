@@ -156,7 +156,9 @@ paralela com motor de ocorrência próprio.
   compromisso de fluxo de caixa conhecido de antemão (salário, aluguel),
   reconciliado contra lançamentos reais compondo Motor de regras +
   Automação (uma `Rule` com ação `reconcile` aponta pro compromisso; sem
-  essa regra, ele nunca reconcilia). *Nota de refactor futuro:* a
+  essa regra e sem decisão manual, ele nunca reconcilia). A decisão manual
+  do usuário vence a regra — ver `.specs/contextos/recorrencias/
+  reference.md`, seção "Conciliação manual". *Nota de refactor futuro:* a
   concepção original era recorrências serem construídas a partir de
   Cenários (cenário como "possibilidade futura" que vira recorrência); o
   código foi implementado de forma diferente (campos de agendamento
@@ -185,8 +187,13 @@ paralela com motor de ocorrência próprio.
    planejamento (`ScenarioTransaction`, `RecurringCommitment`) tem FK dura
    para lançamentos reais. O vínculo, quando existe, é uma tabela de
    ligação explícita (`payable_transaction_links`,
-   `scenario_transaction_realizations`) — nunca o lançamento real "sabe"
-   que está sendo usado para planejamento.
+   `scenario_transaction_realizations`, `recurrence_reconciliations`) —
+   nunca o lançamento real "sabe" que está sendo usado para planejamento.
+   `recurrence_reconciliations` é o caso-limite que mostra o princípio 1
+   junto: o que ela grava é a *decisão* do usuário sobre uma ocorrência
+   (conciliar com X, ou desconciliar), não o estado de conciliação — esse
+   segue recomputado a cada leitura, agora consultando a decisão antes da
+   regra de automação.
 3. **Hipotético é opt-in explícito, nunca ambiente global.** Cenário e
    projeção só entram num relatório quando o parâmetro pede — nunca uma
    flag "modo simulação" ligada globalmente.

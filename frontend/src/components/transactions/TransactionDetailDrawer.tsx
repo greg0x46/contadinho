@@ -17,6 +17,7 @@ import {
   exclusionReasonLabel,
   inclusionOriginLabel,
 } from "../../presentation/transactionStatus";
+import { TransactionReconciliationSection } from "./TransactionReconciliationSection";
 
 function detailValue(item: TransactionItem): string {
   if (!item.effective_money || item.effective_money.currency_code !== "BRL") {
@@ -238,6 +239,11 @@ export function TransactionDetailDrawer({
               </Button>
             )}
           </div>
+
+          <TransactionReconciliationSection
+            transactionId={item.id}
+            ignored={item.inclusion.state === "ignored"}
+          />
 
           <Collapse
             ghost
