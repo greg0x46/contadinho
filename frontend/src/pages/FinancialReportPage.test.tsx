@@ -3,14 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import * as scenariosApi from "../api/scenarios";
 import * as timelineApi from "../api/timeline";
 import type { TimelineResponse } from "../api/contracts";
 import { QueryTestProvider } from "../test/QueryTestProvider";
 import { FinancialReportPage } from "./FinancialReportPage";
 
 vi.mock("../api/timeline");
-vi.mock("../api/scenarios");
 
 const emptyResponse: TimelineResponse = {
   base: {
@@ -83,16 +81,6 @@ function renderPage() {
 describe("FinancialReportPage", () => {
   beforeEach(() => {
     vi.setSystemTime(new Date("2026-08-15T12:00:00Z"));
-    vi.mocked(scenariosApi.listStandaloneScenarios).mockResolvedValue([
-      {
-        id: "55555555-5555-4555-8555-555555555555",
-        kind: "standalone",
-        name: "Viagem",
-        payable_id: null,
-        created_at: "2026-07-30T12:00:00Z",
-        updated_at: "2026-07-30T12:00:00Z",
-      },
-    ]);
   });
 
   it("shows a distinct 'sem movimentações' state instead of a zeroed card", async () => {
@@ -115,51 +103,13 @@ describe("FinancialReportPage", () => {
     expect(screen.getByText("Sem categoria")).toBeVisible();
   });
 
-  it("renders current, projected and lowest balance cards", async () => {
-    vi.mocked(timelineApi.getTimeline).mockResolvedValue(populatedResponse);
-    renderPage();
-    expect(await screen.findByText("Saldo atual")).toBeVisible();
-    expect(screen.getByText("Saldo projetado")).toBeVisible();
-    expect(screen.getByText(/Menor saldo até lá/)).toBeVisible();
-  });
-
-  it("shows a neutral warning when the projection crosses into negative", async () => {
-    vi.mocked(timelineApi.getTimeline).mockResolvedValue({
-      ...populatedResponse,
-      base: { ...populatedResponse.base, first_negative: "2026-09-10" },
-    });
-    renderPage();
-    expect(await screen.findByText(/pode ficar negativo em 10\/09\/2026/)).toBeVisible();
-  });
-
-  it("shows the scenario multi-select with available standalone scenarios", async () => {
-    vi.mocked(timelineApi.getTimeline).mockResolvedValue(populatedResponse);
-    renderPage();
-    expect(await screen.findByRole("combobox", { name: "Cenários ativos" })).toBeInTheDocument();
-  });
-
-  it("renders base vs simulation compare and per-scenario impact when scenarios are active", async () => {
-    const user = userEvent.setup();
-    vi.mocked(timelineApi.getTimeline).mockResolvedValue({
-      ...populatedResponse,
-      simulation: {
-        ...populatedResponse.base,
-        points: [
-          { date: "2026-08-15", balance: "1600.00", inflow: "0.00", outflow: "300.00", lowest_tier: "hipotetico" },
-        ],
-      },
-      scenario_impacts: [
-        { scenario_id: "55555555-5555-4555-8555-555555555555", scenario_name: "Viagem", delta: "-300.00" },
-      ],
-    });
-    renderPage();
-    expect(await screen.findByText("Base × Simulação")).toBeVisible();
-    // Detailing (ProjectionComposition) is collapsed by default (seção 32/33).
-    await user.click(screen.getByText("Detalhamento da projeção"));
-    expect(await screen.findByText("Impacto por cenário")).toBeVisible();
-    expect(screen.getByText("Viagem")).toBeVisible();
-  });
-
+  // The projection assertions that used to live here — current/projected/
+  // lowest balance, the negative-balance warning, the scenario multi-select
+  // and the base×simulation compare — moved out with the projection itself
+  // when the dashboard took it over. What survived is covered by
+  // HomePage.test.tsx ("Saldo hoje", the horizon options, the retry state);
+  // the simulation compare and per-scenario impact are not rendered anywhere
+  // today, so there is nothing left here to assert about them.
   it("shows month-over-month and year-over-year comparisons when present, omitting when absent", async () => {
     vi.mocked(timelineApi.getTimeline).mockResolvedValue({
       ...populatedResponse,

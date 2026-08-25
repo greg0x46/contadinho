@@ -56,10 +56,11 @@ type ScenarioTransaction struct {
 	UpdatedAt   time.Time
 }
 
-// ScenarioTransactionRealization mirrors the scenario_transaction_realizations
-// table: (part of) a real payable_transaction_links row allocated to a
-// planned installment. PayableLinkID is required — enforced by the
-// schema's CHECK constraint.
+// ScenarioTransactionRealization is the installment-allocation view of an
+// allocation row in scenario_realizations: (part of) a real
+// payable_transaction_links row allocated to a planned installment.
+// PayableLinkID is derived from the realized transaction on read, so it is
+// nil for a standalone scenario, which has no payable to link against.
 type ScenarioTransactionRealization struct {
 	ID                    string
 	ScenarioTransactionID string
@@ -81,8 +82,8 @@ const (
 )
 
 // Status computes the installment's status from today's date and
-// realizedTotal (the sum of scenario_transaction_realizations.allocated_amount
-// allocated to it) — both supplied by the caller, never read here, so this
+// realizedTotal (the sum of the allocated_amount of every allocation
+// realization on it) — both supplied by the caller, never read here, so this
 // stays a pure function callable from tests without a database.
 func (s ScenarioTransaction) Status(today time.Time, realizedTotal decimal.Decimal) Status {
 	switch {

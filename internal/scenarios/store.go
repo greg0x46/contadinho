@@ -107,10 +107,13 @@ func CreateScenario(ctx context.Context, q Querier, kind Kind, name string, paya
 	return s, nil
 }
 
-// backfillAccountingSettlements covers the compatibility window where a
-// payable link was created before its primary scenario existed. Once the
-// scenario is established, all existing real links become explicit generic
-// settlements; allocations in other scenarios remain unrelated.
+// backfillAccountingSettlements settles the links a payable already had when
+// its first plan appears. This is the product's ordering, not a migration
+// leftover: a payable is created with no scenario, can be linked to real
+// transactions immediately, and only gets an accounting source when someone
+// creates a plan for it. Without this catch-up, money linked in that gap
+// would never count toward the payable's balance. Allocations in other
+// scenarios remain unrelated.
 func backfillAccountingSettlements(ctx context.Context, q Querier, s Scenario) error {
 	if s.PayableID == nil {
 		return nil
@@ -305,19 +308,6 @@ func SetActive(ctx context.Context, q Querier, id string, active bool) (Scenario
 	if n, _ := result.RowsAffected(); n == 0 {
 		return Scenario{}, ErrScenarioNotFound
 	}
-	// Keep the legacy recurring-commitment alias coherent while old HTTP
-	// clients are still deployed. The Scenario row remains the projection
-	// authority; this is only a compatibility mirror.
-	if _, err := q.ExecContext(ctx, `
-		UPDATE recurring_commitments
-		SET is_active = ?, updated_at = ?
-		WHERE id = (
-			SELECT recurring_commitment_id
-			FROM recurring_commitment_scenario_map
-			WHERE scenario_id = ?
-		)`, boolToInt(active), now, id); err != nil {
-		return Scenario{}, err
-	}
 	return GetScenario(ctx, q, id)
 }
 
@@ -358,30 +348,25 @@ func ListScenarios(ctx context.Context, q Querier, filter ListFilter) ([]Scenari
 	return scanScenarioRows(rows)
 }
 
-// DeleteScenario mirrors deleting a Scenario (scenario_transactions cascades
-// via the schema's ON DELETE CASCADE). A recurring Scenario created through
-// the compatibility API also owns a legacy recurring_commitments row; remove
-// that alias after the canonical row so the old endpoint cannot expose a
-// projection whose Scenario identity no longer exists.
+// ErrScenarioLinkedToAutomationRule is returned by DeleteScenario when an
+// automation rule's reconcile action still targets a recurring Scenario (ON
+// DELETE RESTRICT on automation_rule_actions.scenario_id).
+var ErrScenarioLinkedToAutomationRule = errors.New("scenario is targeted by an automation rule's reconcile action")
+
+// DeleteScenario mirrors deleting a Scenario. Its planned installments,
+// recurring schedule and every realization recorded against it cascade via
+// the schema's ON DELETE CASCADE; an automation rule targeting it does not,
+// so that case surfaces as a typed conflict the caller can act on.
 func DeleteScenario(ctx context.Context, q Querier, id string) error {
-	var legacyCommitmentID sql.NullString
-	if err := q.QueryRowContext(ctx, `
-		SELECT recurring_commitment_id
-		FROM recurring_commitment_scenario_map
-		WHERE scenario_id = ?`, id).Scan(&legacyCommitmentID); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
 	res, err := q.ExecContext(ctx, `DELETE FROM scenarios WHERE id = ?`, id)
 	if err != nil {
+		if db.IsForeignKeyViolation(err) {
+			return ErrScenarioLinkedToAutomationRule
+		}
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrScenarioNotFound
-	}
-	if legacyCommitmentID.Valid {
-		if _, err := q.ExecContext(ctx, `DELETE FROM recurring_commitments WHERE id = ?`, legacyCommitmentID.String); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -451,21 +436,22 @@ func GetScenarioTransaction(ctx context.Context, q Querier, id string) (Scenario
 // scenario, ordered by projected_at (earliest first — the natural reading
 // order for a payment plan).
 func ListScenarioTransactions(ctx context.Context, q Querier, scenarioID string) ([]ScenarioTransaction, error) {
-	byScenario, err := scenarioTransactionsFor(ctx, q, []string{scenarioID})
+	byScenario, err := ListScenarioTransactionsFor(ctx, q, []string{scenarioID})
 	if err != nil {
 		return nil, err
 	}
 	return byScenario[scenarioID], nil
 }
 
-// scenarioTransactionsFor loads the installments of any number of scenarios
-// in one query, keyed by scenario_id and ordered by projected_at within
-// each key — the same batching shape realizationsFor uses, for the same
-// reason: ListPlanInstallments walks every payable-backed plan at once, and
-// a query per plan would make the timeline's cost grow with how many plans
-// the user has open. A scenario with no installments is simply absent from
-// the map.
-func scenarioTransactionsFor(ctx context.Context, q Querier, scenarioIDs []string) (map[string][]ScenarioTransaction, error) {
+// ListScenarioTransactionsFor loads the installments of any number of
+// scenarios in one query, keyed by scenario_id and ordered by projected_at
+// within each key — the same batching shape realizationsFor uses, for the
+// same reason: internal/projections walks every plan of a selection at once,
+// and a query per plan would make the timeline's cost grow with how many
+// plans the user has open. A scenario with no installments is simply absent
+// from the map. Callers holding a single id should use
+// ListScenarioTransactions.
+func ListScenarioTransactionsFor(ctx context.Context, q Querier, scenarioIDs []string) (map[string][]ScenarioTransaction, error) {
 	result := make(map[string][]ScenarioTransaction, len(scenarioIDs))
 	if len(scenarioIDs) == 0 {
 		return result, nil
@@ -527,7 +513,7 @@ func UpdateScenarioTransaction(ctx context.Context, q Querier, id, description s
 }
 
 // DeleteScenarioTransaction mirrors removing a single planned installment
-// (scenario_transaction_realizations cascades via ON DELETE CASCADE).
+// (its scenario_realizations allocations cascade via ON DELETE CASCADE).
 func DeleteScenarioTransaction(ctx context.Context, q Querier, id string) error {
 	res, err := q.ExecContext(ctx, `DELETE FROM scenario_transactions WHERE id = ?`, id)
 	if err != nil {

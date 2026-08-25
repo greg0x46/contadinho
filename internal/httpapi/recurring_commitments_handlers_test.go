@@ -18,7 +18,7 @@ func TestRecurringCommitmentLifecycleOverHTTP(t *testing.T) {
 	decodeJSON(t, resp, &category)
 	categoryID := category["id"].(string)
 
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/recurring-commitments", map[string]any{
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/recurring-scenarios", map[string]any{
 		"name": "Aluguel", "kind": "expense", "amount": "1500.00",
 		"category_id": categoryID, "cadence": "monthly", "day_of_month": 5, "start_date": "2026-01-01",
 		"is_active": true,
@@ -33,7 +33,7 @@ func TestRecurringCommitmentLifecycleOverHTTP(t *testing.T) {
 		t.Errorf("created = %+v", created)
 	}
 
-	resp = doJSON(t, http.MethodGet, srv.URL+"/api/recurring-commitments", nil)
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/recurring-scenarios", nil)
 	if resp.StatusCode != 200 {
 		t.Fatalf("list status = %d, want 200", resp.StatusCode)
 	}
@@ -43,7 +43,7 @@ func TestRecurringCommitmentLifecycleOverHTTP(t *testing.T) {
 		t.Errorf("list = %+v", list)
 	}
 
-	resp = doJSON(t, http.MethodPut, srv.URL+"/api/recurring-commitments/"+id, map[string]any{
+	resp = doJSON(t, http.MethodPut, srv.URL+"/api/recurring-scenarios/"+id, map[string]any{
 		"name": "Aluguel", "kind": "expense", "amount": "1600.00",
 		"category_id": categoryID, "cadence": "monthly", "day_of_month": 10, "start_date": "2026-01-01",
 		"is_active": true,
@@ -57,7 +57,7 @@ func TestRecurringCommitmentLifecycleOverHTTP(t *testing.T) {
 		t.Errorf("updated = %+v", updated)
 	}
 
-	resp = doJSON(t, http.MethodPatch, srv.URL+"/api/recurring-commitments/"+id, map[string]any{"is_active": false})
+	resp = doJSON(t, http.MethodPatch, srv.URL+"/api/recurring-scenarios/"+id, map[string]any{"is_active": false})
 	if resp.StatusCode != 200 {
 		t.Fatalf("set active status = %d, want 200", resp.StatusCode)
 	}
@@ -67,12 +67,12 @@ func TestRecurringCommitmentLifecycleOverHTTP(t *testing.T) {
 		t.Errorf("expected paused commitment, got %+v", paused)
 	}
 
-	resp = doJSON(t, http.MethodDelete, srv.URL+"/api/recurring-commitments/"+id, nil)
+	resp = doJSON(t, http.MethodDelete, srv.URL+"/api/recurring-scenarios/"+id, nil)
 	if resp.StatusCode != 204 {
 		t.Fatalf("delete status = %d, want 204", resp.StatusCode)
 	}
 
-	resp = doJSON(t, http.MethodGet, srv.URL+"/api/recurring-commitments", nil)
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/recurring-scenarios", nil)
 	decodeJSON(t, resp, &list)
 	if len(list) != 0 {
 		t.Errorf("expected empty list after delete, got %+v", list)
@@ -89,7 +89,7 @@ func TestCreateRecurringCommitmentValidatesAnnualRequiresMonth(t *testing.T) {
 	decodeJSON(t, resp, &category)
 	categoryID := category["id"].(string)
 
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/recurring-commitments", map[string]any{
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/recurring-scenarios", map[string]any{
 		"name": "IPVA", "kind": "expense", "amount": "800.00", "category_id": categoryID,
 		"cadence": "annual", "day_of_month": 15, "start_date": "2026-01-01", "is_active": true,
 	})

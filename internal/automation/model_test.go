@@ -45,11 +45,11 @@ func TestValidateRequiresAtLeastOneAction(t *testing.T) {
 }
 
 func TestValidateAllowsMultipleActions(t *testing.T) {
-	commitmentID := "commitment-1"
+	scenarioID := "scenario-1"
 	categoryID := "category-1"
 	w := baseWrite()
 	w.Actions = []automation.ActionWrite{
-		{Type: automation.ActionReconcile, RecurringCommitmentID: &commitmentID},
+		{Type: automation.ActionReconcile, ScenarioID: &scenarioID},
 		{Type: automation.ActionSetCategory, CategoryID: &categoryID},
 	}
 	if err := w.Validate(); err != nil {
@@ -74,20 +74,20 @@ func TestValidateIgnoreActionRejectsCategoryID(t *testing.T) {
 	}
 }
 
-func TestValidateReconcileActionRequiresCommitmentID(t *testing.T) {
+func TestValidateReconcileActionRequiresScenarioID(t *testing.T) {
 	w := baseWrite()
 	w.Actions = []automation.ActionWrite{{Type: automation.ActionReconcile}}
 	if err := w.Validate(); err == nil {
-		t.Error("expected an error: reconcile action requires a recurring_commitment_id")
+		t.Error("expected an error: reconcile action requires a scenario_id")
 	}
 }
 
-func TestValidateIgnoreActionRejectsCommitmentID(t *testing.T) {
-	commitmentID := "commitment-1"
+func TestValidateIgnoreActionRejectsScenarioID(t *testing.T) {
+	scenarioID := "scenario-1"
 	w := baseWrite()
-	w.Actions = []automation.ActionWrite{{Type: automation.ActionIgnore, RecurringCommitmentID: &commitmentID}}
+	w.Actions = []automation.ActionWrite{{Type: automation.ActionIgnore, ScenarioID: &scenarioID}}
 	if err := w.Validate(); err == nil {
-		t.Error("expected an error: ignore action must not reference a recurring commitment")
+		t.Error("expected an error: ignore action must not reference a recurring scenario")
 	}
 }
 
@@ -110,9 +110,9 @@ func TestValidateAmountConditionAllowedWithoutReconcileAction(t *testing.T) {
 }
 
 func TestValidateAmountConditionAllowedWithReconcileAction(t *testing.T) {
-	commitmentID := "commitment-1"
+	scenarioID := "scenario-1"
 	w := baseWrite()
-	w.Actions = []automation.ActionWrite{{Type: automation.ActionReconcile, RecurringCommitmentID: &commitmentID}}
+	w.Actions = []automation.ActionWrite{{Type: automation.ActionReconcile, ScenarioID: &scenarioID}}
 	w.Conditions = []automation.Condition{
 		{Field: automation.FieldAmount, Operator: automation.OperatorWithinPercent, Value: "10"},
 		{Field: automation.FieldDayOfMonth, Operator: automation.OperatorDayRange, Value: "1:5"},

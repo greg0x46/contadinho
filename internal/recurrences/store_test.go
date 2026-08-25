@@ -90,6 +90,38 @@ func TestUpdateUnknownIDReturnsNotFound(t *testing.T) {
 	}
 }
 
+// A recurring Scenario with no schedule row is the half-formed state the
+// projector refuses to project. Update must refuse it too, and refuse it
+// before committing: without the schedule's own RowsAffected check the name
+// change lands, the read-back then fails, and the caller is told 404 about a
+// write that already happened.
+func TestUpdateWithoutScheduleRowIsRejectedWithoutWriting(t *testing.T) {
+	conn := newTestDB(t)
+	ctx := context.Background()
+	category := newCategory(t, conn)
+	created, err := recurrences.Create(ctx, conn, testWrite(t, category.ID))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := conn.ExecContext(ctx,
+		`DELETE FROM scenario_recurring_schedules WHERE scenario_id = ?`, created.ID); err != nil {
+		t.Fatalf("drop schedule: %v", err)
+	}
+
+	write := testWrite(t, category.ID)
+	write.Name = "Nome novo"
+	if _, err := recurrences.Update(ctx, conn, created.ID, write); !errors.Is(err, recurrences.ErrNotFound) {
+		t.Fatalf("Update = %v, want ErrNotFound", err)
+	}
+	var name string
+	if err := conn.QueryRowContext(ctx, `SELECT name FROM scenarios WHERE id = ?`, created.ID).Scan(&name); err != nil {
+		t.Fatalf("read back scenario: %v", err)
+	}
+	if name != "Aluguel" {
+		t.Errorf("scenario name = %q, want the rejected update to have rolled back to %q", name, "Aluguel")
+	}
+}
+
 func TestSetActiveTogglesWithoutChangingOtherFields(t *testing.T) {
 	conn := newTestDB(t)
 	category := newCategory(t, conn)

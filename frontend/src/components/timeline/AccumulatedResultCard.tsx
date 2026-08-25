@@ -3,7 +3,7 @@ import { Card } from "antd";
 
 import type { MonthSummary } from "../../api/contracts";
 import { formatBRL, sumBRL } from "../../presentation/money";
-import { monthlyEvolutionColor } from "../../presentation/timelineLabels";
+import { monthlyEvolutionColor } from "../../presentation/chartColors";
 import { colors } from "../../theme/tokens";
 
 const monthNames = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];

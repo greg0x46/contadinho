@@ -21,22 +21,17 @@ const (
 type Action struct {
 	ID   string
 	Type ActionType
-	// ScenarioID is the canonical target for reconcile actions. It must
-	// reference a Scenario of kind recurring.
+	// ScenarioID is the target of a reconcile action. It must reference a
+	// Scenario of kind recurring.
 	ScenarioID *string
-	// RecurringCommitmentID is retained while the legacy API is alive. New
-	// rows may leave it nil; reads expose it when an old commitment mapping
-	// exists so old clients can keep working.
-	RecurringCommitmentID *string
-	CategoryID            *string // set iff Type == ActionSetCategory
+	CategoryID *string // set iff Type == ActionSetCategory
 }
 
 // ActionWrite is the create/update-time shape of an Action — no ID or
 // position, the store assigns position by slice order (mirroring how
 // conditions are written).
 type ActionWrite struct {
-	Type                  ActionType
-	ScenarioID            *string
-	RecurringCommitmentID *string
-	CategoryID            *string
+	Type       ActionType
+	ScenarioID *string
+	CategoryID *string
 }

@@ -115,15 +115,32 @@ func NewServer(db *sql.DB, frontend fs.FS, session *settings.Session) http.Handl
 
 	mux.HandleFunc("GET /api/net-worth", handleGetNetWorth(db))
 
-	mux.HandleFunc("GET /api/recurring-commitments", handleListRecurringCommitments(db))
-	mux.HandleFunc("POST /api/recurring-commitments", handleCreateRecurringCommitment(db))
-	mux.HandleFunc("PUT /api/recurring-commitments/{id}", handleUpdateRecurringCommitment(db))
-	mux.HandleFunc("PATCH /api/recurring-commitments/{id}", handleSetRecurringCommitmentActive(db))
-	mux.HandleFunc("DELETE /api/recurring-commitments/{id}", handleDeleteRecurringCommitment(db))
-	mux.HandleFunc("GET /api/recurring-commitments/{id}/occurrences", handleListRecurrenceOccurrences(db))
-	mux.HandleFunc("GET /api/recurring-commitments/{id}/occurrences/{date}/candidates", handleListReconciliationCandidates(db))
-	mux.HandleFunc("PUT /api/recurring-commitments/{id}/occurrences/{date}/reconciliation", handlePutRecurrenceReconciliation(db))
-	mux.HandleFunc("DELETE /api/recurring-commitments/{id}/occurrences/{date}/reconciliation", handleDeleteRecurrenceReconciliation(db))
+	// A recurring commitment is a Scenario of kind 'recurring': every {id}
+	// below is a scenario id — the same one the projection, the automation
+	// reconcile target and the occurrence decisions are keyed by.
+	//
+	// The write collection is a sibling of /api/scenarios rather than a
+	// "recurring" sub-collection nested under it, because creating and
+	// editing one carries a schedule the generic scenario endpoints know
+	// nothing about — and because a literal segment sitting where
+	// /api/scenarios/{id} expects a wildcard is a trap: ServeMux refuses to
+	// register "/api/scenarios/recurring/{id}" alongside
+	// "/api/scenarios/{id}/…" for the same method (both match
+	// "/api/scenarios/recurring/occurrences" and neither is more specific),
+	// so the next route added there would panic at startup. A distinct first
+	// segment cannot collide.
+	mux.HandleFunc("GET /api/recurring-scenarios", handleListRecurringCommitments(db))
+	mux.HandleFunc("POST /api/recurring-scenarios", handleCreateRecurringCommitment(db))
+	mux.HandleFunc("PUT /api/recurring-scenarios/{id}", handleUpdateRecurringCommitment(db))
+	mux.HandleFunc("PATCH /api/recurring-scenarios/{id}", handleSetRecurringCommitmentActive(db))
+	mux.HandleFunc("DELETE /api/recurring-scenarios/{id}", handleDeleteRecurringCommitment(db))
+
+	// Occurrences are addressed as plain scenario sub-resources: an
+	// occurrence belongs to the scenario, not to the recurring write shape.
+	mux.HandleFunc("GET /api/scenarios/{id}/occurrences", handleListRecurrenceOccurrences(db))
+	mux.HandleFunc("GET /api/scenarios/{id}/occurrences/{date}/candidates", handleListReconciliationCandidates(db))
+	mux.HandleFunc("PUT /api/scenarios/{id}/occurrences/{date}/reconciliation", handlePutRecurrenceReconciliation(db))
+	mux.HandleFunc("DELETE /api/scenarios/{id}/occurrences/{date}/reconciliation", handleDeleteRecurrenceReconciliation(db))
 
 	mux.Handle("/", spaHandler(frontend))
 

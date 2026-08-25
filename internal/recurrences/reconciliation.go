@@ -19,16 +19,20 @@ const (
 	StateDetached OverrideState = "detached"
 )
 
-// Override mirrors one recurrence_reconciliations row: the only thing this
-// feature persists. The reconciliation *state* is never stored — see
-// Reconciliation.
+// Override mirrors one reconciliation row of scenario_realizations: the only
+// thing this feature persists. The reconciliation *state* is never stored —
+// see Reconciliation.
 type Override struct {
-	ID                    string
-	RecurringCommitmentID string
-	OccurrenceDate        time.Time
-	State                 OverrideState
-	TransactionID         *string // set iff State == StateLinked
-	CreatedAt             time.Time
+	ID             string
+	ScenarioID     string
+	OccurrenceDate time.Time
+	State          OverrideState
+	TransactionID  *string // set iff State == StateLinked
+	// Origin is who wrote the row. A decision recorded through either write
+	// path is "manual" by construction — the type exists so a reader can
+	// report the stored origin instead of assuming one.
+	Origin    Origin
+	CreatedAt time.Time
 }
 
 // ManualLinkReachDays is how far from its occurrence a hand-picked
@@ -192,7 +196,7 @@ func (r Reconciler) Resolve(occurrence Occurrence) Reconciliation {
 
 // ResolveRange resolves every occurrence of the commitment in [from, to].
 func (r Reconciler) ResolveRange(from, to time.Time) []Reconciliation {
-	occurrences := OccurrencesInRange(r.commitment, from, to)
+	occurrences := r.commitment.Occurrences(from, to)
 	resolved := make([]Reconciliation, 0, len(occurrences))
 	for _, occurrence := range occurrences {
 		resolved = append(resolved, r.Resolve(occurrence))

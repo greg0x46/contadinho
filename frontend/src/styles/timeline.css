@@ -40,12 +40,9 @@
   justify-content: space-between;
 }
 
-.timeline-scenario-select {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
+/* .timeline-scenario-clear outlived the scenario selector it was named for:
+   it is the plain link-style button, now used by the category evolution and
+   impact list. */
 .timeline-scenario-clear {
   background: none;
   border: none;

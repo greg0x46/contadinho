@@ -59,10 +59,6 @@ func TestListSelectionAndEventKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recurrences.Create: %v", err)
 	}
-	if commitment.ScenarioID == nil {
-		t.Fatal("recurring compatibility DTO must expose its canonical scenario id")
-	}
-
 	query := projections.ProjectionQuery{
 		From: projectionDate(t, "2026-01-01"), To: projectionDate(t, "2026-04-30"),
 		Selection: projections.SelectionActive,
@@ -77,7 +73,7 @@ func TestListSelectionAndEventKeys(t *testing.T) {
 	firstKeys := make([]string, len(active))
 	for i, event := range active {
 		firstKeys[i] = event.EventKey
-		want := "scenario:" + *commitment.ScenarioID + ":occurrence:" + event.Date.Format("2006-01-02")
+		want := "scenario:" + commitment.ID + ":occurrence:" + event.Date.Format("2006-01-02")
 		if event.EventKey != want {
 			t.Errorf("event key = %q, want %q", event.EventKey, want)
 		}
@@ -96,7 +92,7 @@ func TestListSelectionAndEventKeys(t *testing.T) {
 
 	explicit := query
 	explicit.Selection = projections.SelectionExplicit
-	explicit.IDs = []string{*commitment.ScenarioID}
+	explicit.IDs = []string{commitment.ID}
 	selected, err := projections.List(ctx, conn, explicit)
 	if err != nil {
 		t.Fatalf("List explicit inactive: %v", err)
@@ -163,7 +159,7 @@ func TestListReturnsUnifiedKindsAndRealizationState(t *testing.T) {
 	}
 	recurringQuery := projections.ProjectionQuery{
 		From: projectionDate(t, "2026-02-01"), To: projectionDate(t, "2026-02-28"),
-		Selection: projections.SelectionExplicit, IDs: []string{*commitment.ScenarioID},
+		Selection: projections.SelectionExplicit, IDs: []string{commitment.ID},
 	}
 	events, err = projections.List(ctx, conn, recurringQuery)
 	if err != nil {
@@ -173,7 +169,7 @@ func TestListReturnsUnifiedKindsAndRealizationState(t *testing.T) {
 		t.Fatalf("recurring event = %+v", events)
 	}
 
-	if _, err := scenarios.RealizeEvent(ctx, conn, *commitment.ScenarioID, events[0].EventKey, scenarios.RealizationWrite{
+	if _, err := scenarios.RealizeEvent(ctx, conn, commitment.ID, events[0].EventKey, scenarios.RealizationWrite{
 		State: scenarios.RealizationStateDetached,
 	}); err != nil {
 		t.Fatalf("detach occurrence: %v", err)
@@ -199,8 +195,8 @@ func TestLinkedOccurrenceIsMarkedRealized(t *testing.T) {
 		t.Fatalf("recurrences.Create: %v", err)
 	}
 	txID := insertProjectionTransaction(t, conn)
-	eventKey := "scenario:" + *commitment.ScenarioID + ":occurrence:2026-02-20"
-	if _, err := scenarios.RealizeEvent(ctx, conn, *commitment.ScenarioID, eventKey, scenarios.RealizationWrite{
+	eventKey := "scenario:" + commitment.ID + ":occurrence:2026-02-20"
+	if _, err := scenarios.RealizeEvent(ctx, conn, commitment.ID, eventKey, scenarios.RealizationWrite{
 		State: scenarios.RealizationStateLinked, TransactionID: &txID,
 	}); err != nil {
 		t.Fatalf("link occurrence: %v", err)
@@ -208,7 +204,7 @@ func TestLinkedOccurrenceIsMarkedRealized(t *testing.T) {
 
 	events, err := projections.List(ctx, conn, projections.ProjectionQuery{
 		From: projectionDate(t, "2026-02-01"), To: projectionDate(t, "2026-02-28"),
-		Selection: projections.SelectionExplicit, IDs: []string{*commitment.ScenarioID},
+		Selection: projections.SelectionExplicit, IDs: []string{commitment.ID},
 	})
 	if err != nil {
 		t.Fatalf("List: %v", err)
@@ -235,14 +231,14 @@ func TestSameTransactionCannotReconcileTwoOccurrences(t *testing.T) {
 	first := makeCommitment("Salário A")
 	second := makeCommitment("Salário B")
 	txID := insertProjectionTransaction(t, conn)
-	firstKey := "scenario:" + *first.ScenarioID + ":occurrence:2026-02-20"
-	secondKey := "scenario:" + *second.ScenarioID + ":occurrence:2026-02-20"
-	if _, err := scenarios.RealizeEvent(ctx, conn, *first.ScenarioID, firstKey, scenarios.RealizationWrite{
+	firstKey := "scenario:" + first.ID + ":occurrence:2026-02-20"
+	secondKey := "scenario:" + second.ID + ":occurrence:2026-02-20"
+	if _, err := scenarios.RealizeEvent(ctx, conn, first.ID, firstKey, scenarios.RealizationWrite{
 		State: scenarios.RealizationStateLinked, TransactionID: &txID,
 	}); err != nil {
 		t.Fatalf("link first occurrence: %v", err)
 	}
-	if _, err := scenarios.RealizeEvent(ctx, conn, *second.ScenarioID, secondKey, scenarios.RealizationWrite{
+	if _, err := scenarios.RealizeEvent(ctx, conn, second.ID, secondKey, scenarios.RealizationWrite{
 		State: scenarios.RealizationStateLinked, TransactionID: &txID,
 	}); !errors.Is(err, scenarios.ErrTransactionAlreadyRealized) {
 		t.Fatalf("second link error = %v, want ErrTransactionAlreadyRealized", err)
@@ -261,8 +257,8 @@ func TestGenericRecurringRealizationRejectsWrongDirection(t *testing.T) {
 		t.Fatalf("recurrences.Create: %v", err)
 	}
 	txID := insertProjectionTransaction(t, conn) // positive CREDIT, not an expense
-	_, err = scenarios.RealizeEvent(ctx, conn, *commitment.ScenarioID,
-		"scenario:"+*commitment.ScenarioID+":occurrence:2026-02-20", scenarios.RealizationWrite{
+	_, err = scenarios.RealizeEvent(ctx, conn, commitment.ID,
+		"scenario:"+commitment.ID+":occurrence:2026-02-20", scenarios.RealizationWrite{
 			State: scenarios.RealizationStateLinked, TransactionID: &txID,
 		})
 	if !errors.Is(err, scenarios.ErrInvalidRealization) {
@@ -282,8 +278,8 @@ func TestGenericRealizationRejectsNonEventAndUnlinkedPlanTransaction(t *testing.
 	if err != nil {
 		t.Fatalf("recurrences.Create: %v", err)
 	}
-	if _, err := scenarios.RealizeEvent(ctx, conn, *commitment.ScenarioID,
-		"scenario:"+*commitment.ScenarioID+":occurrence:2026-02-21", scenarios.RealizationWrite{
+	if _, err := scenarios.RealizeEvent(ctx, conn, commitment.ID,
+		"scenario:"+commitment.ID+":occurrence:2026-02-21", scenarios.RealizationWrite{
 			State: scenarios.RealizationStateDetached,
 		}); !errors.Is(err, scenarios.ErrInvalidEventKey) {
 		t.Fatalf("invalid occurrence error = %v, want ErrInvalidEventKey", err)

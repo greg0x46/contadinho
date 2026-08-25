@@ -617,8 +617,8 @@ export type AutomationActionType = (typeof automationActionTypes)[number];
 
 export interface AutomationAction {
   type: AutomationActionType;
-  scenario_id?: string | null;
-  recurring_commitment_id: string | null;
+  /** The recurring Scenario a reconcile action targets; null otherwise. */
+  scenario_id: string | null;
   category_id?: string | null;
 }
 
@@ -682,42 +682,28 @@ export function parseAutomationRuleConditionOptions(
 
 function parseAutomationAction(value: unknown): AutomationAction {
   const record = isRecord(value) ? value : null;
-  const hasScenarioID = record !== null && "scenario_id" in record;
-  const hasCommitmentID = record !== null && "recurring_commitment_id" in record;
   const hasCategoryID = record !== null && "category_id" in record;
-  if (!hasScenarioID && !hasCommitmentID) throw new TypeError("Ação inválida.");
   const action = requiredRecord(
     value,
-    [
-      "type",
-      ...(hasScenarioID ? ["scenario_id"] : []),
-      ...(hasCommitmentID ? ["recurring_commitment_id"] : []),
-      ...(hasCategoryID ? ["category_id"] : []),
-    ],
+    ["type", "scenario_id", ...(hasCategoryID ? ["category_id"] : [])],
     "Ação inválida.",
   );
   const type = action.type as AutomationActionType;
   const scenarioID = action.scenario_id;
-  const commitmentID = hasCommitmentID ? action.recurring_commitment_id : null;
   const categoryID = action.category_id;
   if (
-		!automationActionTypes.includes(type) ||
-		!(scenarioID === undefined || scenarioID === null || (typeof scenarioID === "string" && isUuid(scenarioID))) ||
-		!(commitmentID === null || (typeof commitmentID === "string" && isUuid(commitmentID))) ||
+    !automationActionTypes.includes(type) ||
+    !(scenarioID === null || (typeof scenarioID === "string" && isUuid(scenarioID))) ||
     !(categoryID === undefined || categoryID === null || (typeof categoryID === "string" && isUuid(categoryID))) ||
-    (type === "ignore" && (scenarioID != null || commitmentID !== null || (categoryID !== null && categoryID !== undefined))) ||
-    (type === "reconcile" && ((scenarioID == null && commitmentID === null) || (categoryID !== null && categoryID !== undefined))) ||
-    (type === "set_category" && (categoryID == null || scenarioID != null || commitmentID !== null))
-	) {
-		throw new TypeError("Ação inválida.");
-	}
-  const result: AutomationAction = {
-    type,
-    recurring_commitment_id: commitmentID as string | null,
-  };
-  if (hasScenarioID) result.scenario_id = scenarioID as string | null;
+    (type === "ignore" && (scenarioID !== null || (categoryID !== null && categoryID !== undefined))) ||
+    (type === "reconcile" && (scenarioID === null || (categoryID !== null && categoryID !== undefined))) ||
+    (type === "set_category" && (categoryID == null || scenarioID !== null))
+  ) {
+    throw new TypeError("Ação inválida.");
+  }
+  const result: AutomationAction = { type, scenario_id: scenarioID as string | null };
   if (hasCategoryID) result.category_id = categoryID as string | null;
-	return result;
+  return result;
 }
 
 export function parseAutomationRule(value: unknown): AutomationRule {
@@ -797,8 +783,9 @@ export const recurringCommitmentCadences = ["monthly", "annual"] as const;
 export type RecurringCommitmentCadence = (typeof recurringCommitmentCadences)[number];
 
 export interface RecurringCommitment {
+  /** The recurring Scenario's id: what the projection, the automation
+   *  reconcile target and the occurrence decisions are all keyed by. */
   id: string;
-  scenario_id?: string | null;
   name: string;
   kind: RecurringCommitmentKind;
   amount: string;
@@ -835,7 +822,6 @@ const isMonthOfYear = (value: unknown): value is number =>
   Number.isInteger(value) && typeof value === "number" && value >= 1 && value <= 12;
 
 export function parseRecurringCommitment(value: unknown): RecurringCommitment {
-  const hasScenarioID = isRecord(value) && "scenario_id" in value;
   const commitment = requiredRecord(
     value,
     [
@@ -853,16 +839,12 @@ export function parseRecurringCommitment(value: unknown): RecurringCommitment {
       "is_active",
       "created_at",
       "updated_at",
-      ...(hasScenarioID ? ["scenario_id"] : []),
     ],
     "Compromisso recorrente inválido.",
   );
   if (
     typeof commitment.id !== "string" ||
     !isUuid(commitment.id) ||
-    !(commitment.scenario_id === undefined ||
-      commitment.scenario_id === null ||
-      (typeof commitment.scenario_id === "string" && isUuid(commitment.scenario_id))) ||
     typeof commitment.name !== "string" ||
     commitment.name === "" ||
     !recurringCommitmentKinds.includes(commitment.kind as RecurringCommitmentKind) ||
@@ -882,7 +864,6 @@ export function parseRecurringCommitment(value: unknown): RecurringCommitment {
   }
   return {
     id: commitment.id,
-    ...(hasScenarioID ? { scenario_id: commitment.scenario_id as string | null } : {}),
     name: commitment.name,
     kind: commitment.kind as RecurringCommitmentKind,
     amount: decimal(commitment.amount),

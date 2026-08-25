@@ -42,9 +42,10 @@ compromisso nunca reconcilia).
 ### Conciliação manual
 
 Sobre essa resolução automática existe uma camada de **decisão do
-usuário**, e só ela é persistida (`recurrence_reconciliations`, uma linha
-por ocorrência, `UNIQUE (recurring_commitment_id, occurrence_date)` e
-`UNIQUE (transaction_id)`). O estado resolvido continua recomputado a cada
+usuário**, e só ela é persistida (`scenario_realizations` com
+`relation_type = 'reconciliation'`, uma linha por ocorrência, única por
+`(scenario_id, occurrence_date)` e por `transaction_id` entre os eventos
+completos). O estado resolvido continua recomputado a cada
 leitura — princípio 1 de `.specs/motores-de-dominio.md` —, e a tabela é a
 tabela de ligação explícita que o princípio 2 pede.
 
@@ -74,12 +75,25 @@ afetada por isso, porque a decisão é sobre a ocorrência.
 
 ## Rotas HTTP
 
-`GET/POST /api/recurring-commitments`,
-`PUT/PATCH/DELETE /api/recurring-commitments/{id}`.
+Um compromisso recorrente é um `Scenario{Kind: recurring}` mais sua linha
+em `scenario_recurring_schedules`; o `{id}` de toda rota abaixo é o id do
+cenário — o mesmo que a projeção, o alvo `reconcile` da automação e as
+decisões de ocorrência usam.
 
-Conciliação — o endereço de uma ocorrência é o compromisso mais o dia, já
+`GET/POST /api/recurring-scenarios`,
+`PUT/PATCH/DELETE /api/recurring-scenarios/{id}`.
+
+A coleção de escrita é irmã de `/api/scenarios`, não uma sub-coleção
+`/api/scenarios/recurring`: um segmento literal onde `/api/scenarios/{id}`
+espera um wildcard faz o `ServeMux` recusar o par
+`/api/scenarios/recurring/{id}` × `/api/scenarios/{id}/…` no mesmo método
+— panic no registro, não erro em runtime. Ocorrência continua sendo
+sub-recurso do cenário, porque pertence ao cenário e não à forma de
+escrita.
+
+Conciliação — o endereço de uma ocorrência é o cenário mais o dia, já
 que ocorrência não tem id armazenado:
-`GET /api/recurring-commitments/{id}/occurrences`,
+`GET /api/scenarios/{id}/occurrences`,
 `GET .../occurrences/{date}/candidates`,
 `PUT .../occurrences/{date}/reconciliation` (`{"state":"linked",
 "transaction_id":…}` ou `{"state":"detached"}`),

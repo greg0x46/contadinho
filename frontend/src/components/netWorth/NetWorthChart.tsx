@@ -2,7 +2,7 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 
 import type { NetWorthSnapshot } from "../../api/contracts";
 import { formatBRL } from "../../presentation/money";
-import { monthlyEvolutionColor } from "../../presentation/timelineLabels";
+import { monthlyEvolutionColor } from "../../presentation/chartColors";
 import { colors } from "../../theme/tokens";
 
 type ChartPoint = { date: string; netWorth: number };

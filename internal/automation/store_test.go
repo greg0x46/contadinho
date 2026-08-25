@@ -174,18 +174,18 @@ func newCommitment(t *testing.T, conn *sql.DB) recurrences.RecurringCommitment {
 	return commitment
 }
 
-func reconcileWrite(commitmentID string) automation.Write {
-	id := commitmentID
+func reconcileWrite(scenarioID string) automation.Write {
+	id := scenarioID
 	return automation.Write{
 		Name: "Concilia aluguel", IsActive: true, LogicOperator: automation.LogicAnd,
 		Conditions: []automation.Condition{
 			{Field: automation.FieldAmount, Operator: automation.OperatorWithinPercent, Value: "10"},
 		},
-		Actions: []automation.ActionWrite{{Type: automation.ActionReconcile, RecurringCommitmentID: &id}},
+		Actions: []automation.ActionWrite{{Type: automation.ActionReconcile, ScenarioID: &id}},
 	}
 }
 
-func TestListActiveReconcileTargetsKeyedByCommitmentID(t *testing.T) {
+func TestListActiveReconcileTargetsKeyedByScenarioID(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()
 
@@ -234,10 +234,7 @@ func TestScenarioIDIsCanonicalReconcileTarget(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()
 	commitment := newCommitment(t, conn)
-	if commitment.ScenarioID == nil {
-		t.Fatal("commitment has no canonical scenario id")
-	}
-	scenarioID := *commitment.ScenarioID
+	scenarioID := commitment.ID
 	rule, err := automation.Create(ctx, conn, automation.Write{
 		Name: "Concilia cenário", IsActive: true, LogicOperator: automation.LogicAnd,
 		Conditions: []automation.Condition{{Field: automation.FieldAmount, Operator: automation.OperatorWithinPercent, Value: "10"}},
@@ -250,7 +247,7 @@ func TestScenarioIDIsCanonicalReconcileTarget(t *testing.T) {
 		t.Fatalf("stored action = %+v, want scenario_id %s", rule.Actions, scenarioID)
 	}
 
-	targets, err := automation.ListActiveScenarioReconcileTargets(ctx, conn)
+	targets, err := automation.ListActiveReconcileTargets(ctx, conn)
 	if err != nil {
 		t.Fatalf("ListActiveScenarioReconcileTargets: %v", err)
 	}

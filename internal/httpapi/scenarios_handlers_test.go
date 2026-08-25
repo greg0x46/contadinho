@@ -257,7 +257,10 @@ func TestDeleteRealizationRevertsStatus(t *testing.T) {
 	// not the realization itself, so its id isn't exposed there — read it
 	// straight from the (deterministically singular) row created above.
 	var storedRealizationID string
-	if err := conn.QueryRow(`SELECT id FROM scenario_transaction_realizations WHERE scenario_transaction_id = ?`, transactionID).Scan(&storedRealizationID); err != nil {
+	if err := conn.QueryRow(
+		`SELECT id FROM scenario_realizations WHERE relation_type = 'allocation' AND scenario_transaction_id = ?`,
+		transactionID,
+	).Scan(&storedRealizationID); err != nil {
 		t.Fatalf("query realization id: %v", err)
 	}
 

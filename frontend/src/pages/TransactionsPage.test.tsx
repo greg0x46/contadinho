@@ -27,7 +27,10 @@ describe("TransactionsPage", () => {
     renderPage();
     expect(await screen.findByRole("heading", { name: "Transações" })).toBeVisible();
     expect(await screen.findByText("Mercado", {}, { timeout: 10_000 })).toBeVisible();
-    expect(screen.getByText("Confirmada")).toBeVisible();
+    // The provider status is no longer a row-level fact: e1c8e5a moved it
+    // into the detail drawer's technical information, where
+    // TransactionDetailDrawer.test.tsx covers it. "Saídas" below is the
+    // translated fact this list still owns.
     expect(screen.getAllByText("Saídas").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/R\$/).length).toBeGreaterThan(0);
     expect(screen.queryByText("USD")).not.toBeInTheDocument();

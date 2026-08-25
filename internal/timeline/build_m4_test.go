@@ -190,7 +190,7 @@ func TestBuildSeriesReconciledRecurrenceEmitsNoEntry(t *testing.T) {
 	if _, err := automation.Create(ctx, f.conn, automation.Write{
 		Name: "Concilia aluguel", IsActive: true, LogicOperator: automation.LogicAnd,
 		Conditions: testReconciliationConditions,
-		Actions:    []automation.ActionWrite{{Type: automation.ActionReconcile, RecurringCommitmentID: &commitment.ID}},
+		Actions:    []automation.ActionWrite{{Type: automation.ActionReconcile, ScenarioID: &commitment.ID}},
 	}); err != nil {
 		t.Fatalf("automation.Create: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestBuildSeriesReconciliationScopeIsYearAware(t *testing.T) {
 	if _, err := automation.Create(ctx, f.conn, automation.Write{
 		Name: "Concilia aluguel", IsActive: true, LogicOperator: automation.LogicAnd,
 		Conditions: testReconciliationConditions,
-		Actions:    []automation.ActionWrite{{Type: automation.ActionReconcile, RecurringCommitmentID: &commitment.ID}},
+		Actions:    []automation.ActionWrite{{Type: automation.ActionReconcile, ScenarioID: &commitment.ID}},
 	}); err != nil {
 		t.Fatalf("automation.Create: %v", err)
 	}

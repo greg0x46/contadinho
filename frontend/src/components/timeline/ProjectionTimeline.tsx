@@ -14,7 +14,7 @@ import {
 
 import type { TimelineSeries } from "../../api/contracts";
 import { formatBRL } from "../../presentation/money";
-import { monthlyEvolutionColor } from "../../presentation/timelineLabels";
+import { monthlyEvolutionColor } from "../../presentation/chartColors";
 import { colors } from "../../theme/tokens";
 
 function formatDate(value: string): string {

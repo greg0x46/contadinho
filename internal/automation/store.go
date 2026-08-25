@@ -19,7 +19,7 @@ var ErrNotFound = errors.New("automation rule not found")
 
 // ErrInvalidActionTarget is returned by Create/Update when an action's
 // target doesn't reference an existing row — a reconcile action's ScenarioID
-// (or its legacy RecurringCommitmentID) or a set_category action's CategoryID.
+// or a set_category action's CategoryID.
 var ErrInvalidActionTarget = errors.New("automation action target not found")
 
 // Rule mirrors AutomationRule (with its conditions and actions eager-loaded,
@@ -65,37 +65,58 @@ func insertConditions(ctx context.Context, q Querier, ruleID string, conditions 
 }
 
 func loadConditions(ctx context.Context, q Querier, ruleID string) ([]Condition, error) {
+	byRule, err := loadConditionsFor(ctx, q, []string{ruleID})
+	if err != nil {
+		return nil, err
+	}
+	return byRule[ruleID], nil
+}
+
+// loadConditionsFor reads the conditions of any number of rules in one query,
+// keyed by rule id and ordered by position within each key. Readers that walk
+// a whole rule set at once — ListActiveReconcileTargets, which the Timeline
+// calls on every projection — would otherwise pay a round trip per rule. A
+// rule with no conditions is simply absent from the map.
+func loadConditionsFor(ctx context.Context, q Querier, ruleIDs []string) (map[string][]Condition, error) {
+	result := make(map[string][]Condition, len(ruleIDs))
+	if len(ruleIDs) == 0 {
+		return result, nil
+	}
+	in, args := db.InClause(ruleIDs)
 	rows, err := q.QueryContext(ctx,
-		`SELECT field, operator, value FROM automation_rule_conditions WHERE rule_id = ? ORDER BY position`, ruleID)
+		`SELECT rule_id, field, operator, value FROM automation_rule_conditions
+		 WHERE rule_id IN (`+in+`) ORDER BY rule_id, position`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var conditions []Condition
 	for rows.Next() {
-		var c Condition
-		if err := rows.Scan(&c.Field, &c.Operator, &c.Value); err != nil {
+		var (
+			ruleID string
+			c      Condition
+		)
+		if err := rows.Scan(&ruleID, &c.Field, &c.Operator, &c.Value); err != nil {
 			return nil, err
 		}
-		conditions = append(conditions, c)
+		result[ruleID] = append(result[ruleID], c)
 	}
-	return conditions, rows.Err()
+	return result, rows.Err()
 }
 
 func insertActions(ctx context.Context, q Querier, ruleID string, actions []ActionWrite) error {
 	for i, a := range actions {
-		var scenarioID, commitmentID *string
+		var scenarioID *string
 		if a.Type == ActionReconcile {
 			var err error
-			scenarioID, commitmentID, err = normalizeReconcileTarget(ctx, q, a)
+			scenarioID, err = normalizeReconcileTarget(ctx, q, a)
 			if err != nil {
 				return err
 			}
 		}
 		if _, err := q.ExecContext(ctx, `
-			INSERT INTO automation_rule_actions (id, rule_id, action_type, scenario_id, recurring_commitment_id, category_id, position)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			uuid.NewString(), ruleID, string(a.Type), scenarioID, commitmentID, a.CategoryID, i,
+			INSERT INTO automation_rule_actions (id, rule_id, action_type, scenario_id, category_id, position)
+			VALUES (?, ?, ?, ?, ?, ?)`,
+			uuid.NewString(), ruleID, string(a.Type), scenarioID, a.CategoryID, i,
 		); err != nil {
 			return err
 		}
@@ -104,67 +125,62 @@ func insertActions(ctx context.Context, q Querier, ruleID string, actions []Acti
 }
 
 func loadActions(ctx context.Context, q Querier, ruleID string) ([]Action, error) {
+	byRule, err := loadActionsFor(ctx, q, []string{ruleID})
+	if err != nil {
+		return nil, err
+	}
+	return byRule[ruleID], nil
+}
+
+// loadActionsFor is the batched form, for the same reason loadConditionsFor
+// is: ListActive runs on every synced transaction, and one round trip per
+// rule there is a cost paid per rule per sync.
+func loadActionsFor(ctx context.Context, q Querier, ruleIDs []string) (map[string][]Action, error) {
+	result := make(map[string][]Action, len(ruleIDs))
+	if len(ruleIDs) == 0 {
+		return result, nil
+	}
+	in, args := db.InClause(ruleIDs)
 	rows, err := q.QueryContext(ctx,
-		`SELECT id, action_type, scenario_id, recurring_commitment_id, category_id FROM automation_rule_actions WHERE rule_id = ? ORDER BY position`, ruleID)
+		`SELECT rule_id, id, action_type, scenario_id, category_id FROM automation_rule_actions
+		 WHERE rule_id IN (`+in+`) ORDER BY rule_id, position`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var actions []Action
 	for rows.Next() {
-		var a Action
-		var actionType string
-		if err := rows.Scan(&a.ID, &actionType, &a.ScenarioID, &a.RecurringCommitmentID, &a.CategoryID); err != nil {
+		var (
+			ruleID     string
+			a          Action
+			actionType string
+		)
+		if err := rows.Scan(&ruleID, &a.ID, &actionType, &a.ScenarioID, &a.CategoryID); err != nil {
 			return nil, err
 		}
 		a.Type = ActionType(actionType)
-		actions = append(actions, a)
+		result[ruleID] = append(result[ruleID], a)
 	}
-	return actions, rows.Err()
+	return result, rows.Err()
 }
 
-func normalizeReconcileTarget(ctx context.Context, q Querier, action ActionWrite) (*string, *string, error) {
-	if action.ScenarioID != nil && strings.TrimSpace(*action.ScenarioID) != "" {
-		var kind string
-		if err := q.QueryRowContext(ctx, `SELECT kind FROM scenarios WHERE id = ?`, *action.ScenarioID).Scan(&kind); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return nil, nil, ErrInvalidActionTarget
-			}
-			return nil, nil, err
-		}
-		if kind != "recurring" {
-			return nil, nil, ErrInvalidActionTarget
-		}
-		scenarioID := strings.TrimSpace(*action.ScenarioID)
-		var commitment sql.NullString
-		if err := q.QueryRowContext(ctx,
-			`SELECT recurring_commitment_id FROM recurring_commitment_scenario_map WHERE scenario_id = ?`, scenarioID,
-		).Scan(&commitment); err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return nil, nil, err
-		}
-		if commitment.Valid {
-			return &scenarioID, &commitment.String, nil
-		}
-		return &scenarioID, nil, nil
+// normalizeReconcileTarget validates that a reconcile action points at a
+// recurring Scenario, which is the only thing the resolver can key on.
+func normalizeReconcileTarget(ctx context.Context, q Querier, action ActionWrite) (*string, error) {
+	if action.ScenarioID == nil || strings.TrimSpace(*action.ScenarioID) == "" {
+		return nil, ErrInvalidActionTarget
 	}
-
-	if action.RecurringCommitmentID == nil || strings.TrimSpace(*action.RecurringCommitmentID) == "" {
-		return nil, nil, ErrInvalidActionTarget
-	}
-	var scenarioID string
-	if err := q.QueryRowContext(ctx, `
-		SELECT m.scenario_id
-		FROM recurring_commitment_scenario_map m
-		JOIN scenarios s ON s.id = m.scenario_id
-		WHERE m.recurring_commitment_id = ? AND s.kind = 'recurring'`,
-		strings.TrimSpace(*action.RecurringCommitmentID)).Scan(&scenarioID); err != nil {
+	scenarioID := strings.TrimSpace(*action.ScenarioID)
+	var kind string
+	if err := q.QueryRowContext(ctx, `SELECT kind FROM scenarios WHERE id = ?`, scenarioID).Scan(&kind); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil, ErrInvalidActionTarget
+			return nil, ErrInvalidActionTarget
 		}
-		return nil, nil, err
+		return nil, err
 	}
-	commitmentID := strings.TrimSpace(*action.RecurringCommitmentID)
-	return &scenarioID, &commitmentID, nil
+	if kind != "recurring" {
+		return nil, ErrInvalidActionTarget
+	}
+	return &scenarioID, nil
 }
 
 // Create mirrors create_rule.
@@ -344,17 +360,21 @@ func listWhere(ctx context.Context, q Querier, where string) ([]Rule, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	ruleIDs := make([]string, 0, len(rules))
 	for i := range rules {
-		conditions, err := loadConditions(ctx, q, rules[i].ID)
-		if err != nil {
-			return nil, err
-		}
-		rules[i].Conditions = conditions
-		actions, err := loadActions(ctx, q, rules[i].ID)
-		if err != nil {
-			return nil, err
-		}
-		rules[i].Actions = actions
+		ruleIDs = append(ruleIDs, rules[i].ID)
+	}
+	conditionsByRule, err := loadConditionsFor(ctx, q, ruleIDs)
+	if err != nil {
+		return nil, err
+	}
+	actionsByRule, err := loadActionsFor(ctx, q, ruleIDs)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rules {
+		rules[i].Conditions = conditionsByRule[rules[i].ID]
+		rules[i].Actions = actionsByRule[rules[i].ID]
 	}
 	return rules, nil
 }
@@ -370,25 +390,14 @@ func ListActive(ctx context.Context, q Querier) ([]Rule, error) {
 }
 
 // ListActiveReconcileTargets returns, for every active rule whose action is
-// 'reconcile', the rule keyed by the commitment ID it targets. The
+// 'reconcile', the rule keyed by the recurring Scenario it targets. The
 // database's partial unique index on automation_rule_actions guarantees at
-// most one entry per commitment. internal/timeline uses this to look up
-// which rule's conditions (if any) resolve a given commitment's occurrences.
+// most one entry per scenario. internal/projections uses this to look up
+// which rule's conditions (if any) resolve a given scenario's occurrences.
 func ListActiveReconcileTargets(ctx context.Context, q Querier) (map[string]Rule, error) {
-	return listActiveReconcileTargets(ctx, q, false)
-}
-
-// ListActiveScenarioReconcileTargets is the canonical form of the lookup:
-// keys are recurring Scenario IDs. ListActiveReconcileTargets keeps its
-// legacy commitment-ID key shape for old callers during the migration.
-func ListActiveScenarioReconcileTargets(ctx context.Context, q Querier) (map[string]Rule, error) {
-	return listActiveReconcileTargets(ctx, q, true)
-}
-
-func listActiveReconcileTargets(ctx context.Context, q Querier, byScenario bool) (map[string]Rule, error) {
 	rows, err := q.QueryContext(ctx, `
 		SELECT r.id, r.name, r.is_active, r.logic_operator, r.created_at, r.updated_at,
-		       a.scenario_id, a.recurring_commitment_id
+		       a.scenario_id
 		FROM automation_rules r
 		JOIN automation_rule_actions a ON a.rule_id = r.id
 		WHERE r.is_active = 1 AND a.action_type = 'reconcile'`)
@@ -400,14 +409,13 @@ func listActiveReconcileTargets(ctx context.Context, q Querier, byScenario bool)
 	targets := make(map[string]Rule)
 	for rows.Next() {
 		var (
-			r                     Rule
-			isActive              int
-			createdAtRaw          string
-			updatedAtRaw          string
-			scenarioID            sql.NullString
-			recurringCommitmentID sql.NullString
+			r            Rule
+			isActive     int
+			createdAtRaw string
+			updatedAtRaw string
+			scenarioID   sql.NullString
 		)
-		if err := rows.Scan(&r.ID, &r.Name, &isActive, &r.LogicOperator, &createdAtRaw, &updatedAtRaw, &scenarioID, &recurringCommitmentID); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &isActive, &r.LogicOperator, &createdAtRaw, &updatedAtRaw, &scenarioID); err != nil {
 			return nil, err
 		}
 		r.IsActive = isActive != 0
@@ -417,25 +425,23 @@ func listActiveReconcileTargets(ctx context.Context, q Querier, byScenario bool)
 		if r.UpdatedAt, err = db.ParseTime(updatedAtRaw); err != nil {
 			return nil, err
 		}
-		if byScenario {
-			if scenarioID.Valid {
-				targets[scenarioID.String] = r
-			}
-		} else if recurringCommitmentID.Valid {
-			targets[recurringCommitmentID.String] = r
-		} else if scenarioID.Valid {
+		if scenarioID.Valid {
 			targets[scenarioID.String] = r
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	ruleIDs := make([]string, 0, len(targets))
+	for _, r := range targets {
+		ruleIDs = append(ruleIDs, r.ID)
+	}
+	conditionsByRule, err := loadConditionsFor(ctx, q, ruleIDs)
+	if err != nil {
+		return nil, err
+	}
 	for targetID, r := range targets {
-		conditions, err := loadConditions(ctx, q, r.ID)
-		if err != nil {
-			return nil, err
-		}
-		r.Conditions = conditions
+		r.Conditions = conditionsByRule[r.ID]
 		targets[targetID] = r
 	}
 	return targets, nil

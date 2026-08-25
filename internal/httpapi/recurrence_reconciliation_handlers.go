@@ -245,7 +245,7 @@ func handleListRecurrenceOccurrences(conn *sql.DB) http.HandlerFunc {
 // requireOccurrence resolves {id} and {date} into a commitment and a date
 // that is genuinely one of its occurrences. Validating the date against the
 // schedule (rather than accepting any date) is what keeps
-// recurrence_reconciliations from accumulating rows no read will ever look
+// scenario_realizations from accumulating rows no read will ever look
 // at — occurrences have no stored identity beyond their date, so a typo'd
 // date would silently create an override that never resolves.
 func requireOccurrence(w http.ResponseWriter, r *http.Request, conn *sql.DB) (recurrences.RecurringCommitment, time.Time, bool) {
@@ -272,7 +272,7 @@ func requireOccurrence(w http.ResponseWriter, r *http.Request, conn *sql.DB) (re
 			"Reative o compromisso para conciliar suas ocorrências.")
 		return recurrences.RecurringCommitment{}, time.Time{}, false
 	}
-	if len(recurrences.OccurrencesInRange(commitment, date, date)) == 0 {
+	if len(commitment.Occurrences(date, date)) == 0 {
 		writeProblem(w, 422, "invalid-recurrence-occurrence", "Ocorrência inválida",
 			"Esta data não é uma ocorrência deste compromisso.")
 		return recurrences.RecurringCommitment{}, time.Time{}, false
@@ -429,7 +429,7 @@ func handlePutRecurrenceReconciliation(conn *sql.DB) http.HandlerFunc {
 				return
 			}
 			takenElsewhere := hasExisting &&
-				!(existing.RecurringCommitmentID == commitment.ID && dates.Day(existing.OccurrenceDate).Equal(dates.Day(date)))
+				!(existing.ScenarioID == commitment.ID && dates.Day(existing.OccurrenceDate).Equal(dates.Day(date)))
 			if takenElsewhere {
 				writeProblem(w, 409, "transaction-already-reconciled", "Transação já conciliada",
 					ineligibleReasonDetail(recurrences.ReasonAlreadyReconciled))

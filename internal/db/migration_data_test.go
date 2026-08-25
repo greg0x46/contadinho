@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"io/fs"
 	"path/filepath"
 	"testing"
@@ -119,7 +120,19 @@ func TestPayablesMigrationPreservesData(t *testing.T) {
 	}
 }
 
-func TestScenarioProjectionMigrationPreservesAndMapsLegacyData(t *testing.T) {
+// legacyFixture is the pre-unification database every migration test
+// starts from: one payable with a plan, an allocation, a recurring
+// commitment with a manual reconciliation, and an automation rule
+// targeting that commitment. It is seeded at version 26 and migrated to
+// 27, so callers see exactly what the unification migration produced.
+type legacyFixture struct {
+	recurringScenarioID   string
+	scenarioTransactionID string
+	reconciliationID      string
+}
+
+func seedLegacyFixture(t *testing.T) (*sql.DB, *goose.Provider, legacyFixture) {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "test.db")
 	conn, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -221,6 +234,23 @@ func TestScenarioProjectionMigrationPreservesAndMapsLegacyData(t *testing.T) {
 		t.Fatalf("migrate up to 27: %v", err)
 	}
 
+	var scenarioID string
+	if err := conn.QueryRow(`SELECT scenario_id FROM recurring_commitment_scenario_map WHERE recurring_commitment_id = ?`, recID).Scan(&scenarioID); err != nil {
+		t.Fatal(err)
+	}
+	return conn, provider, legacyFixture{
+		recurringScenarioID: scenarioID, scenarioTransactionID: stID, reconciliationID: reconID,
+	}
+}
+
+func TestScenarioProjectionMigrationPreservesAndMapsLegacyData(t *testing.T) {
+	conn, _, seeded := seedLegacyFixture(t)
+	scenarioID := seeded.recurringScenarioID
+	const (
+		recID   = "recurring-legacy"
+		reconID = "reconciliation-legacy"
+	)
+
 	var recurringCount, scheduleCount, settlementCount, allocationCount, reconciliationCount int
 	if err := conn.QueryRow(`SELECT COUNT(*) FROM scenarios WHERE kind = 'recurring'`).Scan(&recurringCount); err != nil {
 		t.Fatal(err)
@@ -241,10 +271,7 @@ func TestScenarioProjectionMigrationPreservesAndMapsLegacyData(t *testing.T) {
 		t.Fatalf("migrated counts = recurring %d, schedules %d, settlements %d, allocations %d, reconciliations %d; want one of each", recurringCount, scheduleCount, settlementCount, allocationCount, reconciliationCount)
 	}
 
-	var scenarioID, kind string
-	if err := conn.QueryRow(`SELECT scenario_id FROM recurring_commitment_scenario_map WHERE recurring_commitment_id = ?`, recID).Scan(&scenarioID); err != nil {
-		t.Fatal(err)
-	}
+	var kind string
 	if scenarioID == recID {
 		t.Fatal("migration reused recurring commitment id as scenario id")
 	}
@@ -280,6 +307,72 @@ func TestScenarioProjectionMigrationPreservesAndMapsLegacyData(t *testing.T) {
 	}
 	if orphaned != 0 {
 		t.Fatalf("migrated generic realizations with missing scenarios = %d", orphaned)
+	}
+}
+
+// The three drop migrations retire the compatibility tables the unification
+// left behind. Each one has to carry forward whatever only ever reached the
+// legacy table, so this continues the fixture above from version 27 to head
+// and checks the same legacy rows are still readable through the canonical
+// tables afterwards.
+func TestDropMigrationsCarryLegacyRowsForward(t *testing.T) {
+	conn, provider, seeded := seedLegacyFixture(t)
+	ctx := context.Background()
+
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("migrate to head: %v", err)
+	}
+
+	for _, table := range []string{
+		"scenario_transaction_realizations", "recurrence_reconciliations",
+		"recurring_commitments", "recurring_commitment_scenario_map",
+	} {
+		var name string
+		err := conn.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&name)
+		if !errors.Is(err, sql.ErrNoRows) {
+			t.Errorf("table %s still exists after the drop migrations (err=%v)", table, err)
+		}
+	}
+
+	var allocations, reconciliations int
+	if err := conn.QueryRow(
+		`SELECT COUNT(*) FROM scenario_realizations WHERE relation_type = 'allocation' AND scenario_transaction_id = ?`,
+		seeded.scenarioTransactionID,
+	).Scan(&allocations); err != nil {
+		t.Fatal(err)
+	}
+	if allocations != 1 {
+		t.Errorf("allocations after the drop = %d, want 1", allocations)
+	}
+	if err := conn.QueryRow(
+		`SELECT COUNT(*) FROM scenario_realizations WHERE relation_type = 'reconciliation' AND scenario_id = ?`,
+		seeded.recurringScenarioID,
+	).Scan(&reconciliations); err != nil {
+		t.Fatal(err)
+	}
+	if reconciliations != 1 {
+		t.Errorf("reconciliations after the drop = %d, want 1", reconciliations)
+	}
+
+	// The recurring commitment survives as its Scenario, schedule included,
+	// and the automation rule still targets it by scenario id.
+	var name, cashflowKind, actionScenarioID string
+	if err := conn.QueryRow(`
+		SELECT s.name, r.cashflow_kind
+		FROM scenarios s JOIN scenario_recurring_schedules r ON r.scenario_id = s.id
+		WHERE s.id = ?`, seeded.recurringScenarioID).Scan(&name, &cashflowKind); err != nil {
+		t.Fatal(err)
+	}
+	if name != "Recorrência legada" || cashflowKind != "income" {
+		t.Errorf("recurring scenario = %q/%q, want \"Recorrência legada\"/income", name, cashflowKind)
+	}
+	if err := conn.QueryRow(
+		`SELECT scenario_id FROM automation_rule_actions WHERE id = 'action-legacy'`,
+	).Scan(&actionScenarioID); err != nil {
+		t.Fatal(err)
+	}
+	if actionScenarioID != seeded.recurringScenarioID {
+		t.Errorf("reconcile target = %q, want %q", actionScenarioID, seeded.recurringScenarioID)
 	}
 }
 

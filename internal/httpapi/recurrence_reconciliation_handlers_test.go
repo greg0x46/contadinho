@@ -40,7 +40,7 @@ func newReconciliationFixture(t *testing.T) *reconciliationFixture {
 	decodeJSON(t, resp, &category)
 	f.categoryID = category["id"].(string)
 
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/recurring-commitments", map[string]any{
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/recurring-scenarios", map[string]any{
 		"name": "Aluguel", "kind": "expense", "amount": "1500.00",
 		"category_id": f.categoryID, "cadence": "monthly", "day_of_month": 5,
 		"start_date": "2026-01-01", "is_active": true,
@@ -55,11 +55,11 @@ func newReconciliationFixture(t *testing.T) *reconciliationFixture {
 }
 
 func (f *reconciliationFixture) occurrencesURL(from, to string) string {
-	return fmt.Sprintf("%s/api/recurring-commitments/%s/occurrences?from=%s&to=%s", f.url, f.id, from, to)
+	return fmt.Sprintf("%s/api/scenarios/%s/occurrences?from=%s&to=%s", f.url, f.id, from, to)
 }
 
 func (f *reconciliationFixture) reconciliationURL(date string) string {
-	return fmt.Sprintf("%s/api/recurring-commitments/%s/occurrences/%s/reconciliation", f.url, f.id, date)
+	return fmt.Sprintf("%s/api/scenarios/%s/occurrences/%s/reconciliation", f.url, f.id, date)
 }
 
 // addTransaction inserts one transaction on occurredAt. The movement type
@@ -304,7 +304,7 @@ func TestListCandidatesRanksTheClosestTransactionFirst(t *testing.T) {
 	far := f.addTransaction("-1500.00", "2026-02-25")
 
 	resp := doJSON(t, http.MethodGet,
-		fmt.Sprintf("%s/api/recurring-commitments/%s/occurrences/2026-02-05/candidates", f.url, f.id), nil)
+		fmt.Sprintf("%s/api/scenarios/%s/occurrences/2026-02-05/candidates", f.url, f.id), nil)
 	if resp.StatusCode != 200 {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -333,7 +333,7 @@ func TestListCandidatesExcludesAlreadyReconciledTransactions(t *testing.T) {
 	}
 
 	resp := doJSON(t, http.MethodGet,
-		fmt.Sprintf("%s/api/recurring-commitments/%s/occurrences/2026-02-05/candidates", f.url, f.id), nil)
+		fmt.Sprintf("%s/api/scenarios/%s/occurrences/2026-02-05/candidates", f.url, f.id), nil)
 	var candidates []map[string]any
 	decodeJSON(t, resp, &candidates)
 	if len(candidates) != 1 || candidates[0]["id"] != free {
@@ -346,7 +346,7 @@ func TestListCandidatesFiltersBySearch(t *testing.T) {
 	f.addTransaction("-1450.00", "2026-02-04")
 
 	resp := doJSON(t, http.MethodGet,
-		fmt.Sprintf("%s/api/recurring-commitments/%s/occurrences/2026-02-05/candidates?search=imobiliaria", f.url, f.id), nil)
+		fmt.Sprintf("%s/api/scenarios/%s/occurrences/2026-02-05/candidates?search=imobiliaria", f.url, f.id), nil)
 	var matching []map[string]any
 	decodeJSON(t, resp, &matching)
 	if len(matching) != 1 {
@@ -354,7 +354,7 @@ func TestListCandidatesFiltersBySearch(t *testing.T) {
 	}
 
 	resp = doJSON(t, http.MethodGet,
-		fmt.Sprintf("%s/api/recurring-commitments/%s/occurrences/2026-02-05/candidates?search=supermercado", f.url, f.id), nil)
+		fmt.Sprintf("%s/api/scenarios/%s/occurrences/2026-02-05/candidates?search=supermercado", f.url, f.id), nil)
 	var none []map[string]any
 	decodeJSON(t, resp, &none)
 	if len(none) != 0 {
@@ -371,10 +371,10 @@ func TestOccurrenceEndpointsRejectAnUnknownCommitment(t *testing.T) {
 		url    string
 		body   any
 	}{
-		{http.MethodGet, srv.URL + "/api/recurring-commitments/" + missing + "/occurrences", nil},
-		{http.MethodGet, srv.URL + "/api/recurring-commitments/" + missing + "/occurrences/2026-02-05/candidates", nil},
-		{http.MethodPut, srv.URL + "/api/recurring-commitments/" + missing + "/occurrences/2026-02-05/reconciliation", map[string]any{"state": "detached"}},
-		{http.MethodDelete, srv.URL + "/api/recurring-commitments/" + missing + "/occurrences/2026-02-05/reconciliation", nil},
+		{http.MethodGet, srv.URL + "/api/scenarios/" + missing + "/occurrences", nil},
+		{http.MethodGet, srv.URL + "/api/scenarios/" + missing + "/occurrences/2026-02-05/candidates", nil},
+		{http.MethodPut, srv.URL + "/api/scenarios/" + missing + "/occurrences/2026-02-05/reconciliation", map[string]any{"state": "detached"}},
+		{http.MethodDelete, srv.URL + "/api/scenarios/" + missing + "/occurrences/2026-02-05/reconciliation", nil},
 	} {
 		resp := doJSON(t, target.method, target.url, target.body)
 		if resp.StatusCode != 404 {
@@ -387,7 +387,7 @@ func TestOccurrenceEndpointsRejectAnUnknownCommitment(t *testing.T) {
 // explain that rather than claim the date is wrong.
 func TestReconcileRejectsAPausedCommitment(t *testing.T) {
 	f := newReconciliationFixture(t)
-	if resp := doJSON(t, http.MethodPatch, f.url+"/api/recurring-commitments/"+f.id,
+	if resp := doJSON(t, http.MethodPatch, f.url+"/api/recurring-scenarios/"+f.id,
 		map[string]any{"is_active": false}); resp.StatusCode != 200 {
 		t.Fatalf("pause status = %d, want 200", resp.StatusCode)
 	}
@@ -512,7 +512,7 @@ func TestListOccurrencesIgnoresTransactionsExcludedFromTotals(t *testing.T) {
 	}
 
 	resp := doJSON(t, http.MethodGet,
-		fmt.Sprintf("%s/api/recurring-commitments/%s/occurrences/2026-02-05/candidates", f.url, f.id), nil)
+		fmt.Sprintf("%s/api/scenarios/%s/occurrences/2026-02-05/candidates", f.url, f.id), nil)
 	var candidates []map[string]any
 	decodeJSON(t, resp, &candidates)
 	if len(candidates) != 0 {

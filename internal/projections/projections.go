@@ -1,7 +1,7 @@
 // Package projections is the read boundary between Scenario data and
 // consumers such as the financial Timeline. It deliberately returns one
 // event shape for plans, standalone scenarios, and recurring scenarios; the
-// Timeline does not need to know which legacy table supplied an event.
+// Timeline does not need to know which kind produced an event.
 package projections
 
 import (
@@ -15,8 +15,8 @@ import (
 	"github.com/shopspring/decimal"
 
 	"contadinho-go/internal/automation"
-	"contadinho-go/internal/categories"
 	"contadinho-go/internal/dates"
+	"contadinho-go/internal/db"
 	"contadinho-go/internal/money"
 	"contadinho-go/internal/recurrences"
 	"contadinho-go/internal/scenarios"
@@ -72,6 +72,12 @@ var ErrInvalidSelection = errors.New("invalid projection selection")
 // List reads all scenarios selected by query and delegates each kind to its
 // adapter. The result is sorted deterministically so callers can merge it
 // with real transactions without depending on table or adapter order.
+//
+// Every per-scenario read below is batched into one query for the whole
+// selection. This is the read behind the dashboard and the Timeline, and the
+// number of scenarios is user-controlled, so the round-trip count has to stay
+// flat in it: a query per scenario (or worse, a full transaction scan per
+// scenario) turns one screen into a load test.
 func List(ctx context.Context, q Querier, query ProjectionQuery) ([]PlannedTransaction, error) {
 	from, to := dates.Day(query.From), dates.Day(query.To)
 	if to.Before(from) {
@@ -81,23 +87,17 @@ func List(ctx context.Context, q Querier, query ProjectionQuery) ([]PlannedTrans
 	if err != nil {
 		return nil, err
 	}
+	planned, recurring := partitionByKind(selected)
 
-	var out []PlannedTransaction
-	plans, err := listPlanProjections(ctx, q, selected, from, to)
+	out, err := listPlannedTransactionProjections(ctx, q, planned, from, to)
 	if err != nil {
 		return nil, err
 	}
-	out = append(out, plans...)
-	standalone, err := listStandaloneProjections(ctx, q, selected, from, to)
+	occurrences, err := listRecurringProjections(ctx, q, recurring, from, to)
 	if err != nil {
 		return nil, err
 	}
-	out = append(out, standalone...)
-	recurring, err := listRecurringProjections(ctx, q, selected, from, to)
-	if err != nil {
-		return nil, err
-	}
-	out = append(out, recurring...)
+	out = append(out, occurrences...)
 
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Date.Equal(out[j].Date) {
@@ -106,6 +106,27 @@ func List(ctx context.Context, q Querier, query ProjectionQuery) ([]PlannedTrans
 		return out[i].Date.Before(out[j].Date)
 	})
 	return out, nil
+}
+
+// partitionByKind splits the selection in one pass. Plans and standalone
+// scenarios share a projector because they are the same shape — stored
+// installments with allocations — and differ only in tier and source.
+// Recurring scenarios are the other shape: a schedule that generates its
+// events on read.
+func partitionByKind(selected []scenarios.Scenario) (planned, recurring []scenarios.Scenario) {
+	for _, scenario := range selected {
+		switch scenario.Kind {
+		case scenarios.KindDebtPlan, scenarios.KindReceivablePlan:
+			if scenario.PayableID != nil {
+				planned = append(planned, scenario)
+			}
+		case scenarios.KindStandalone:
+			planned = append(planned, scenario)
+		case scenarios.KindRecurring:
+			recurring = append(recurring, scenario)
+		}
+	}
+	return planned, recurring
 }
 
 func selectScenarios(ctx context.Context, q Querier, selection SelectionMode, ids []string) ([]scenarios.Scenario, error) {
@@ -139,93 +160,96 @@ func unique(values []string) []string {
 	return out
 }
 
-func listPlanProjections(ctx context.Context, q Querier, selected []scenarios.Scenario, from, to time.Time) ([]PlannedTransaction, error) {
-	var out []PlannedTransaction
-	for _, scenario := range selected {
-		if scenario.Kind != scenarios.KindDebtPlan && scenario.Kind != scenarios.KindReceivablePlan {
-			continue
-		}
-		if scenario.PayableID == nil {
-			continue
-		}
-		transactions, err := scenarios.ListScenarioTransactions(ctx, q, scenario.ID)
-		if err != nil {
-			return nil, err
-		}
-		for _, planned := range transactions {
-			day := dates.Day(planned.ProjectedAt)
+// listPlannedTransactionProjections projects every stored installment of the
+// selection — payable-backed plans and standalone scenarios alike. The two
+// differ only in amount sign, tier and source, so they share one pass and,
+// more importantly, one batch of reads: the installments of the whole
+// selection in one query, their allocations in another.
+func listPlannedTransactionProjections(ctx context.Context, q Querier, planned []scenarios.Scenario, from, to time.Time) ([]PlannedTransaction, error) {
+	if len(planned) == 0 {
+		return nil, nil
+	}
+	scenarioIDs := make([]string, 0, len(planned))
+	for _, scenario := range planned {
+		scenarioIDs = append(scenarioIDs, scenario.ID)
+	}
+	installmentsByScenario, err := scenarios.ListScenarioTransactionsFor(ctx, q, scenarioIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Walk the window once, keeping the installments that survive it next to
+	// the scenario that owns them. The ids collected here are exactly the
+	// rows this projection will emit, which is what lets the allocation
+	// lookup be one query over precisely that set.
+	type inRange struct {
+		scenario    scenarios.Scenario
+		installment scenarios.ScenarioTransaction
+		day         time.Time
+	}
+	var (
+		selected []inRange
+		ids      []string
+	)
+	for _, scenario := range planned {
+		for _, installment := range installmentsByScenario[scenario.ID] {
+			day := dates.Day(installment.ProjectedAt)
 			if day.Before(from) || day.After(to) {
 				continue
 			}
-			realized, origin, err := allocationRealization(ctx, q, planned.ID)
-			if err != nil {
-				return nil, err
-			}
-			categoryName := noCategoryName
-			if planned.Category != nil && *planned.Category != "" {
-				categoryName = *planned.Category
-			}
-			out = append(out, PlannedTransaction{
-				ScenarioID:        scenario.ID,
-				EventKey:          transactionEventKey(scenario.ID, planned.ID),
-				ScenarioKind:      scenario.Kind,
-				Date:              day,
-				Description:       planned.Description,
-				Amount:            scenarios.SignedAmount(scenario.Kind, planned.Amount),
-				CategoryName:      categoryName,
-				Tier:              types.TierConfirmado,
-				Source:            types.SourcePayablePlan,
-				PayableID:         scenario.PayableID,
-				Realized:          realized,
-				RealizationOrigin: origin,
-			})
+			selected = append(selected, inRange{scenario: scenario, installment: installment, day: day})
+			ids = append(ids, installment.ID)
 		}
 	}
-	return out, nil
-}
+	allocations, err := allocationRealizations(ctx, q, ids)
+	if err != nil {
+		return nil, err
+	}
 
-func listStandaloneProjections(ctx context.Context, q Querier, selected []scenarios.Scenario, from, to time.Time) ([]PlannedTransaction, error) {
-	var out []PlannedTransaction
-	for _, scenario := range selected {
-		if scenario.Kind != scenarios.KindStandalone {
-			continue
+	out := make([]PlannedTransaction, 0, len(selected))
+	for _, one := range selected {
+		// A standalone scenario has no payable behind it: its amount already
+		// carries its own sign, and it never rises above hypothetical. A plan
+		// is anchored to a real target, so it is Confirmado and its magnitude
+		// is signed by the plan's direction.
+		tier, source := types.TierHipotetico, types.SourceScenario
+		amount := one.installment.Amount
+		if one.scenario.Kind != scenarios.KindStandalone {
+			tier, source = types.TierConfirmado, types.SourcePayablePlan
+			amount = scenarios.SignedAmount(one.scenario.Kind, one.installment.Amount)
 		}
-		transactions, err := scenarios.ListScenarioTransactions(ctx, q, scenario.ID)
-		if err != nil {
-			return nil, err
+		categoryName := noCategoryName
+		if one.installment.Category != nil && *one.installment.Category != "" {
+			categoryName = *one.installment.Category
 		}
-		for _, planned := range transactions {
-			day := dates.Day(planned.ProjectedAt)
-			if day.Before(from) || day.After(to) {
-				continue
-			}
-			realized, origin, err := allocationRealization(ctx, q, planned.ID)
-			if err != nil {
-				return nil, err
-			}
-			categoryName := noCategoryName
-			if planned.Category != nil && *planned.Category != "" {
-				categoryName = *planned.Category
-			}
-			out = append(out, PlannedTransaction{
-				ScenarioID:        scenario.ID,
-				EventKey:          transactionEventKey(scenario.ID, planned.ID),
-				ScenarioKind:      scenario.Kind,
-				Date:              day,
-				Description:       planned.Description,
-				Amount:            planned.Amount,
-				CategoryName:      categoryName,
-				Tier:              types.TierHipotetico,
-				Source:            types.SourceScenario,
-				Realized:          realized,
-				RealizationOrigin: origin,
-			})
-		}
+		allocation := allocations[one.installment.ID]
+		out = append(out, PlannedTransaction{
+			ScenarioID:        one.scenario.ID,
+			EventKey:          transactionEventKey(one.scenario.ID, one.installment.ID),
+			ScenarioKind:      one.scenario.Kind,
+			Date:              one.day,
+			Description:       one.installment.Description,
+			Amount:            amount,
+			CategoryName:      categoryName,
+			Tier:              tier,
+			Source:            source,
+			PayableID:         one.scenario.PayableID,
+			Realized:          allocation.realized,
+			RealizationOrigin: allocation.origin,
+		})
 	}
 	return out, nil
 }
 
 const noCategoryName = "Sem categoria"
+
+// isoDate is how every date column in this schema is stored.
+const isoDate = "2006-01-02"
+
+// allRowsPageSize asks transactions.Query for the whole result set. The
+// matcher this feeds is pure and reasons over a full period at once, so
+// paging it would only mean reassembling the pages here.
+const allRowsPageSize = 1_000_000
 
 func transactionEventKey(scenarioID, transactionID string) string {
 	return "scenario:" + scenarioID + ":transaction:" + transactionID
@@ -235,65 +259,54 @@ func occurrenceEventKey(scenarioID string, day time.Time) string {
 	return "scenario:" + scenarioID + ":occurrence:" + dates.Day(day).Format("2006-01-02")
 }
 
-// allocationRealization preserves the current ListPlanInstallments rule:
-// any positive allocation suppresses the complete planned event. Generic
-// rows are authoritative after migration; the old table is a compatibility
-// fallback for callers that still create an allocation through the legacy
-// endpoint.
-func allocationRealization(ctx context.Context, q Querier, scenarioTransactionID string) (bool, string, error) {
-	rows, err := q.QueryContext(ctx, `
-		SELECT state, origin, allocated_amount
-		FROM scenario_realizations
-		WHERE scenario_transaction_id = ? AND relation_type = 'allocation'
-		ORDER BY created_at DESC`, scenarioTransactionID)
-	if err != nil {
-		return false, "", err
-	}
-	found := false
-	origin := ""
-	realized := false
-	for rows.Next() {
-		found = true
-		var state, rowOrigin, amountRaw string
-		if err := rows.Scan(&state, &rowOrigin, &amountRaw); err != nil {
-			rows.Close()
-			return false, "", err
-		}
-		amount, parseErr := decimal.NewFromString(amountRaw)
-		if parseErr != nil {
-			rows.Close()
-			return false, "", parseErr
-		}
-		if state == "linked" && amount.GreaterThan(decimal.Zero) {
-			realized = true
-			if origin == "" {
-				origin = rowOrigin
-			}
-		}
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return false, "", err
-	}
-	rows.Close()
-	if found {
-		return realized, origin, nil
-	}
+// allocationSummary is the answer the projector needs about one installment:
+// whether any allocation realized it, and who made the most recent one that
+// did — the rows arrive newest first, and the first origin seen wins.
+type allocationSummary struct {
+	realized bool
+	origin   string
+}
 
-	// Legacy table rows may exist when the compatibility API is used against
-	// a database that predates the generic write path.
-	var amountRaw string
-	err = q.QueryRowContext(ctx, `
-		SELECT allocated_amount FROM scenario_transaction_realizations
-		WHERE scenario_transaction_id = ? ORDER BY created_at DESC LIMIT 1`, scenarioTransactionID).Scan(&amountRaw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, "", nil
+// allocationRealizations preserves the current ListPlanInstallments rule —
+// any positive allocation suppresses the complete planned event — for a whole
+// batch of installments in one query. Installments with no allocation are
+// simply absent from the map, and the zero allocationSummary is the right
+// answer for them.
+func allocationRealizations(ctx context.Context, q Querier, scenarioTransactionIDs []string) (map[string]allocationSummary, error) {
+	result := make(map[string]allocationSummary, len(scenarioTransactionIDs))
+	if len(scenarioTransactionIDs) == 0 {
+		return result, nil
 	}
+	in, args := db.InClause(scenarioTransactionIDs)
+	rows, err := q.QueryContext(ctx, `
+		SELECT scenario_transaction_id, state, origin, allocated_amount
+		FROM scenario_realizations
+		WHERE scenario_transaction_id IN (`+in+`) AND relation_type = 'allocation'
+		ORDER BY created_at DESC`, args...)
 	if err != nil {
-		return false, "", err
+		return nil, err
 	}
-	amount, err := decimal.NewFromString(amountRaw)
-	return amount.GreaterThan(decimal.Zero), "manual", err
+	defer rows.Close()
+	for rows.Next() {
+		var installmentID, state, origin, amountRaw string
+		if err := rows.Scan(&installmentID, &state, &origin, &amountRaw); err != nil {
+			return nil, err
+		}
+		amount, err := decimal.NewFromString(amountRaw)
+		if err != nil {
+			return nil, err
+		}
+		if state != "linked" || !amount.GreaterThan(decimal.Zero) {
+			continue
+		}
+		summary := result[installmentID]
+		summary.realized = true
+		if summary.origin == "" {
+			summary.origin = origin
+		}
+		result[installmentID] = summary
+	}
+	return result, rows.Err()
 }
 
 type scheduleRow struct {
@@ -301,38 +314,53 @@ type scheduleRow struct {
 	categoryName string
 }
 
-func loadSchedule(ctx context.Context, q Querier, scenario scenarios.Scenario) (scheduleRow, error) {
-	var (
-		cashflowKind, amountRaw, cadence, startRaw string
-		categoryID, accountID                      sql.NullString
-		dayOfMonth                                 int
-		monthOfYear                                sql.NullInt64
-		endRaw, categoryName                       sql.NullString
-	)
-	err := q.QueryRowContext(ctx, `
-		SELECT s.cashflow_kind, s.amount, s.category_id, s.account_id, s.cadence,
+// loadSchedules reads the schedules of a whole batch of recurring scenarios
+// in one query. A recurring Scenario without a schedule row cannot be
+// projected at all, so its absence from the map is an error the caller
+// raises rather than a silent empty projection.
+func loadSchedules(ctx context.Context, q Querier, scenarioIDs []string) (map[string]scheduleRow, error) {
+	result := make(map[string]scheduleRow, len(scenarioIDs))
+	if len(scenarioIDs) == 0 {
+		return result, nil
+	}
+	in, args := db.InClause(scenarioIDs)
+	rows, err := q.QueryContext(ctx, `
+		SELECT s.scenario_id, s.cashflow_kind, s.amount, s.category_id, s.account_id, s.cadence,
 		       s.day_of_month, s.month_of_year, s.start_date, s.end_date,
 		       COALESCE(c.name, '')
 		FROM scenario_recurring_schedules s
 		LEFT JOIN categories c ON c.id = s.category_id
-		WHERE s.scenario_id = ?`, scenario.ID).Scan(
-		&cashflowKind, &amountRaw, &categoryID, &accountID, &cadence,
-		&dayOfMonth, &monthOfYear, &startRaw, &endRaw, &categoryName,
-	)
-	if err == nil {
-		amount, parseErr := decimal.NewFromString(amountRaw)
-		if parseErr != nil {
-			return scheduleRow{}, parseErr
+		WHERE s.scenario_id IN (`+in+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			scenarioID, cashflowKind, amountRaw, cadence, startRaw string
+			categoryID, accountID, endRaw, categoryName            sql.NullString
+			dayOfMonth                                             int
+			monthOfYear                                            sql.NullInt64
+		)
+		if err := rows.Scan(
+			&scenarioID, &cashflowKind, &amountRaw, &categoryID, &accountID, &cadence,
+			&dayOfMonth, &monthOfYear, &startRaw, &endRaw, &categoryName,
+		); err != nil {
+			return nil, err
 		}
-		start, parseErr := time.Parse("2006-01-02", startRaw)
-		if parseErr != nil {
-			return scheduleRow{}, parseErr
+		amount, err := decimal.NewFromString(amountRaw)
+		if err != nil {
+			return nil, err
+		}
+		start, err := time.Parse(isoDate, startRaw)
+		if err != nil {
+			return nil, err
 		}
 		var end *time.Time
 		if endRaw.Valid {
-			parsed, parseErr := time.Parse("2006-01-02", endRaw.String)
-			if parseErr != nil {
-				return scheduleRow{}, parseErr
+			parsed, err := time.Parse(isoDate, endRaw.String)
+			if err != nil {
+				return nil, err
 			}
 			end = &parsed
 		}
@@ -349,32 +377,13 @@ func loadSchedule(ctx context.Context, q Querier, scenario scenarios.Scenario) (
 		if accountID.Valid {
 			account = &accountID.String
 		}
-		return scheduleRow{schedule: recurrences.RecurringSchedule{
+		result[scenarioID] = scheduleRow{schedule: recurrences.RecurringSchedule{
 			CashflowKind: recurrences.Kind(cashflowKind), Amount: amount,
 			CategoryID: category, AccountID: account, Cadence: recurrences.Cadence(cadence),
 			DayOfMonth: dayOfMonth, MonthOfYear: month, StartDate: start, EndDate: end,
-		}, categoryName: categoryName.String}, nil
+		}, categoryName: categoryName.String}
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return scheduleRow{}, err
-	}
-	// Transitional fallback: a legacy row can still be projected even if its
-	// schedule was not backfilled (for example in a hand-created test DB).
-	var commitmentID string
-	if err := q.QueryRowContext(ctx,
-		`SELECT recurring_commitment_id FROM recurring_commitment_scenario_map WHERE scenario_id = ?`, scenario.ID,
-	).Scan(&commitmentID); err != nil {
-		return scheduleRow{}, err
-	}
-	commitment, err := recurrences.Get(ctx, q, commitmentID)
-	if err != nil {
-		return scheduleRow{}, err
-	}
-	cat, err := categories.Get(ctx, q, commitment.CategoryID)
-	if err != nil {
-		return scheduleRow{}, err
-	}
-	return scheduleRow{schedule: commitment.Schedule(), categoryName: cat.Name}, nil
+	return result, rows.Err()
 }
 
 type occurrenceRealization struct {
@@ -382,87 +391,65 @@ type occurrenceRealization struct {
 	transactionID *string
 }
 
-func occurrenceRealizations(ctx context.Context, q Querier, scenarioID string, from, to time.Time) (map[time.Time]occurrenceRealization, error) {
-	result := map[time.Time]occurrenceRealization{}
-	rows, err := q.QueryContext(ctx, `
-		SELECT occurrence_date, state, origin, transaction_id
-		FROM scenario_realizations
-		WHERE scenario_id = ? AND relation_type = 'reconciliation'
-		  AND occurrence_date >= ? AND occurrence_date <= ?`,
-		scenarioID, from.Format("2006-01-02"), to.Format("2006-01-02"),
-	)
+func listRecurringProjections(ctx context.Context, q Querier, recurring []scenarios.Scenario, from, to time.Time) ([]PlannedTransaction, error) {
+	if len(recurring) == 0 {
+		return nil, nil
+	}
+	scenarioIDs := make([]string, 0, len(recurring))
+	for _, scenario := range recurring {
+		scenarioIDs = append(scenarioIDs, scenario.ID)
+	}
+	schedules, err := loadSchedules(ctx, q, scenarioIDs)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var dateRaw, state, origin string
-		var transactionID sql.NullString
-		if err := rows.Scan(&dateRaw, &state, &origin, &transactionID); err != nil {
-			return nil, err
-		}
-		day, err := time.Parse("2006-01-02", dateRaw)
-		if err != nil {
-			return nil, err
-		}
-		one := occurrenceRealization{state: state, origin: origin}
-		if transactionID.Valid {
-			one.transactionID = &transactionID.String
-		}
-		result[dates.Day(day)] = one
-	}
-	return result, rows.Err()
-}
 
-func listRecurringProjections(ctx context.Context, q Querier, selected []scenarios.Scenario, from, to time.Time) ([]PlannedTransaction, error) {
+	// The manual decisions are read once, for every scenario, over the
+	// widened window ManualLinkReachDays demands. They serve both readers
+	// below: the override layer that wins over the rule, and the matcher's
+	// own input — same rows, one query, so the two can never disagree.
+	overrideFrom := from.AddDate(0, 0, -recurrences.ManualLinkReachDays)
+	overrideTo := to.AddDate(0, 0, recurrences.ManualLinkReachDays)
+	overrides, err := recurrences.ListOverrides(ctx, q, scenarioIDs, overrideFrom, overrideTo)
+	if err != nil {
+		return nil, err
+	}
+	resolvedByRule, err := resolveAutomaticOccurrences(ctx, q, recurring, schedules, overrides, from, to)
+	if err != nil {
+		return nil, err
+	}
+
 	var out []PlannedTransaction
-	for _, scenario := range selected {
-		if scenario.Kind != scenarios.KindRecurring {
-			continue
+	for _, scenario := range recurring {
+		loaded, ok := schedules[scenario.ID]
+		if !ok {
+			return nil, fmt.Errorf("recurring scenario %s has no schedule", scenario.ID)
 		}
-		loaded, err := loadSchedule(ctx, q, scenario)
-		if err != nil {
-			return nil, err
-		}
-		occurrences := recurrences.OccurrencesInRange(loaded.schedule, from, to)
-		manual, err := occurrenceRealizations(ctx, q, scenario.ID,
-			from.AddDate(0, 0, -recurrences.ManualLinkReachDays),
-			to.AddDate(0, 0, recurrences.ManualLinkReachDays))
-		if err != nil {
-			return nil, err
-		}
-		legacy, err := legacyCommitmentForScenario(ctx, q, scenario.ID)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return nil, err
-		}
-		if errors.Is(err, sql.ErrNoRows) {
-			// A canonical recurring Scenario may outlive the legacy
-			// recurring_commitments row. Reconstruct the small DTO needed by
-			// the existing pure matcher directly from its schedule; this keeps
-			// automation keyed by scenario_id from depending on the old table.
-			legacy = commitmentFromScenario(scenario, loaded.schedule)
-		}
-		resolvedByRule, err := resolveLegacyAutomaticOccurrences(ctx, q, scenario.ID, legacy, from, to)
-		if err != nil {
-			return nil, err
+		manual := make(map[time.Time]occurrenceRealization, len(overrides[scenario.ID]))
+		for _, override := range overrides[scenario.ID] {
+			one := occurrenceRealization{
+				state:         string(override.State),
+				origin:        string(override.Origin),
+				transactionID: override.TransactionID,
+			}
+			manual[dates.Day(override.OccurrenceDate)] = one
 		}
 		categoryName := loaded.categoryName
 		if categoryName == "" {
 			categoryName = noCategoryName
 		}
-		for _, occurrence := range occurrences {
+		for _, occurrence := range recurrences.OccurrencesInRange(loaded.schedule, from, to) {
 			day := dates.Day(occurrence.Date)
 			resolution := occurrenceRealization{}
 			if override, ok := manual[day]; ok {
 				resolution = override
-			} else if automatic, ok := resolvedByRule[day]; ok {
+			} else if automatic, ok := resolvedByRule[scenario.ID][day]; ok {
 				resolution = automatic
 			}
 			amount := occurrence.ExpectedAmount
 			if loaded.schedule.CashflowKind == recurrences.KindExpense {
 				amount = amount.Neg()
 			}
-			categoryID := loaded.schedule.CategoryID
 			out = append(out, PlannedTransaction{
 				ScenarioID:        scenario.ID,
 				EventKey:          occurrenceEventKey(scenario.ID, day),
@@ -470,7 +457,7 @@ func listRecurringProjections(ctx context.Context, q Querier, selected []scenari
 				Date:              day,
 				Description:       scenario.Name,
 				Amount:            amount,
-				CategoryID:        categoryID,
+				CategoryID:        loaded.schedule.CategoryID,
 				CategoryName:      categoryName,
 				Tier:              types.TierProjetado,
 				Source:            types.SourceRecurring,
@@ -496,56 +483,79 @@ func commitmentFromScenario(scenario scenarios.Scenario, schedule recurrences.Re
 	}
 }
 
-func legacyCommitmentForScenario(ctx context.Context, q Querier, scenarioID string) (recurrences.RecurringCommitment, error) {
-	var commitmentID string
-	if err := q.QueryRowContext(ctx,
-		`SELECT recurring_commitment_id FROM recurring_commitment_scenario_map WHERE scenario_id = ?`, scenarioID,
-	).Scan(&commitmentID); err != nil {
-		return recurrences.RecurringCommitment{}, err
-	}
-	return recurrences.Get(ctx, q, commitmentID)
-}
-
-func resolveLegacyAutomaticOccurrences(ctx context.Context, q Querier, scenarioID string, commitment recurrences.RecurringCommitment, from, to time.Time) (map[time.Time]occurrenceRealization, error) {
-	result := map[time.Time]occurrenceRealization{}
-	targets, err := automation.ListActiveScenarioReconcileTargets(ctx, q)
+// resolveAutomaticOccurrences applies the reconcile rules targeting the
+// selection, keyed by scenario id. It runs the same pure matcher the
+// occurrence endpoint uses, fed the same widened override window, so the
+// Timeline and the reconciliation screen can never disagree about who claimed
+// a transaction.
+//
+// The two expensive inputs — the active rules and the eligible transactions —
+// depend on the period, not on the scenario, so they are read once for the
+// whole batch. The candidate scan is skipped entirely when no scenario in the
+// selection is targeted by a rule, which is the common case for a Timeline
+// made only of plans and standalone scenarios.
+func resolveAutomaticOccurrences(
+	ctx context.Context,
+	q Querier,
+	recurring []scenarios.Scenario,
+	schedules map[string]scheduleRow,
+	overrides map[string][]recurrences.Override,
+	from, to time.Time,
+) (map[string]map[time.Time]occurrenceRealization, error) {
+	result := map[string]map[time.Time]occurrenceRealization{}
+	targets, err := automation.ListActiveReconcileTargets(ctx, q)
 	if err != nil {
 		return nil, err
 	}
-	target, ok := targets[scenarioID]
-	if !ok {
+	targeted := make([]scenarios.Scenario, 0, len(recurring))
+	for _, scenario := range recurring {
+		if _, ok := targets[scenario.ID]; ok {
+			targeted = append(targeted, scenario)
+		}
+	}
+	if len(targeted) == 0 {
 		return result, nil
 	}
-	items, err := eligibleCandidates(ctx, q, from.AddDate(0, 0, -recurrences.ManualLinkReachDays), to.AddDate(0, 0, recurrences.ManualLinkReachDays))
+	items, err := eligibleCandidates(ctx, q,
+		from.AddDate(0, 0, -recurrences.ManualLinkReachDays),
+		to.AddDate(0, 0, recurrences.ManualLinkReachDays))
 	if err != nil {
 		return nil, err
 	}
-	overrides := map[string][]recurrences.Override{}
-	if commitment.ID != "" {
-		overrides, err = recurrences.ListOverrides(ctx, q, []string{commitment.ID},
-			from.AddDate(0, 0, -recurrences.ManualLinkReachDays), to.AddDate(0, 0, recurrences.ManualLinkReachDays))
-		if err != nil {
-			return nil, err
+	for _, scenario := range targeted {
+		loaded, ok := schedules[scenario.ID]
+		if !ok {
+			return nil, fmt.Errorf("recurring scenario %s has no schedule", scenario.ID)
 		}
-	}
-	legacyCopy := commitment
-	legacyCopy.IsActive = true
-	reconciler := recurrences.NewReconciler(legacyCopy, target.Conditions, target.LogicOperator, true, overrides[commitment.ID], items)
-	for _, resolved := range reconciler.ResolveRange(from, to) {
-		if resolved.Reconciled() {
-			result[dates.Day(resolved.Occurrence.Date)] = occurrenceRealization{
-				state: "linked", origin: string(resolved.Origin), transactionID: resolved.TransactionID,
+		target := targets[scenario.ID]
+		// The caller already decided this scenario participates; IsActive
+		// only gates OccurrencesInRange, which the caller runs itself.
+		commitment := commitmentFromScenario(scenario, loaded.schedule)
+		reconciler := recurrences.NewReconciler(
+			commitment, target.Conditions, target.LogicOperator, true, overrides[scenario.ID], items)
+		resolved := map[time.Time]occurrenceRealization{}
+		for _, one := range reconciler.ResolveRange(from, to) {
+			if one.Reconciled() {
+				resolved[dates.Day(one.Occurrence.Date)] = occurrenceRealization{
+					state: "linked", origin: string(one.Origin), transactionID: one.TransactionID,
+				}
 			}
 		}
+		result[scenario.ID] = resolved
 	}
 	return result, nil
 }
 
+// eligibleCandidates loads every transaction in [from, to] that could satisfy
+// an occurrence: considered for totals, with an effective amount and a date.
+// The matcher is pure and needs the whole window in memory, so this is a
+// deliberate full read of the period — which is exactly why the caller does
+// it once per request instead of once per scenario.
 func eligibleCandidates(ctx context.Context, q Querier, from, to time.Time) ([]transactions.Item, error) {
 	fromDate := money.Date{Year: from.Year(), Month: from.Month(), Day: from.Day()}
 	toDate := money.Date{Year: to.Year(), Month: to.Month(), Day: to.Day()}
 	result, err := transactions.Query(ctx, q, transactions.QueryRequest{
-		Timezone: "UTC", GroupBy: money.GroupNone, Page: 1, PageSize: 1_000_000,
+		Timezone: "UTC", GroupBy: money.GroupNone, Page: 1, PageSize: allRowsPageSize,
 		Filters: transactions.Filters{DateFrom: &fromDate, DateTo: &toDate},
 	})
 	if err != nil {

@@ -26,14 +26,12 @@ func occurrenceDate(year int, month time.Month, dayOfMonth int) time.Time {
 	return time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
 }
 
-// OccurrencesInRange is pure: it accepts either the legacy
-// RecurringCommitment DTO or a RecurringSchedule and generates every
-// occurrence within [from, to] (inclusive). The compatibility-shaped input
-// keeps old callers source-compatible while the data model moves schedules
-// under Scenario.
-func OccurrencesInRange(input any, from, to time.Time) []Occurrence {
-	schedule, active, ok := normalizeSchedule(input)
-	if !ok || !active || to.Before(from) {
+// OccurrencesInRange is pure: it generates every occurrence of schedule
+// within [from, to] (inclusive). A schedule is a calendar and nothing else —
+// it has no notion of being paused, which is why the paused-state gate lives on
+// RecurringCommitment.Occurrences instead of here.
+func OccurrencesInRange(schedule RecurringSchedule, from, to time.Time) []Occurrence {
+	if to.Before(from) {
 		return nil
 	}
 
@@ -62,25 +60,4 @@ func OccurrencesInRange(input any, from, to time.Time) []Occurrence {
 		cursor = cursor.AddDate(0, 1, 0)
 	}
 	return occurrences
-}
-
-func normalizeSchedule(input any) (RecurringSchedule, bool, bool) {
-	switch value := input.(type) {
-	case RecurringCommitment:
-		return value.Schedule(), value.IsActive, true
-	case *RecurringCommitment:
-		if value == nil {
-			return RecurringSchedule{}, false, false
-		}
-		return value.Schedule(), value.IsActive, true
-	case RecurringSchedule:
-		return value, true, true
-	case *RecurringSchedule:
-		if value == nil {
-			return RecurringSchedule{}, false, false
-		}
-		return *value, true, true
-	default:
-		return RecurringSchedule{}, false, false
-	}
 }
