@@ -86,6 +86,55 @@ func TestProjectedEntryDateNoMetadataFallsBackToNextInferredDueDate(t *testing.T
 	}
 }
 
+// The days between a bill closing and falling due are the trap: the bill is
+// still the nearest due date on the calendar, but it no longer accepts
+// purchases, so dating a purchase there projects cash leaving on a bill
+// that already closed — usually a date in the past, which drops the cost
+// out of any forward-looking projection entirely.
+func TestProjectedEntryDateSkipsBillAlreadyClosed(t *testing.T) {
+	f := newFixture(t)
+	account := f.addAccount(account{CurrencyCode: strp("BRL")})
+	f.addBill(bill{
+		AccountID: account, ExternalID: "bill-1",
+		ClosingDate: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC),
+		DueDate:     time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC),
+	})
+
+	dueDates, err := transactions.FetchCardDueDates(context.Background(), f.conn)
+	if err != nil {
+		t.Fatalf("FetchCardDueDates: %v", err)
+	}
+	// Bought on the 9th: the bill due on the 10th closed a week earlier, so
+	// this lands on the next cycle (inferred: closes 09-02, due 09-10).
+	occurredAt, _ := time.Parse("2006-01-02", "2026-08-09")
+	got := dueDates.ProjectedEntryDate(account, occurredAt, nil)
+	want, _ := time.Parse("2006-01-02", "2026-09-10")
+	if !got.Equal(want) {
+		t.Errorf("ProjectedEntryDate = %s, want %s (next cycle, the open one)", got, want)
+	}
+}
+
+func TestProjectedEntryDateUsesBillStillOpenAtPurchase(t *testing.T) {
+	f := newFixture(t)
+	account := f.addAccount(account{CurrencyCode: strp("BRL")})
+	f.addBill(bill{
+		AccountID: account, ExternalID: "bill-1",
+		ClosingDate: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC),
+		DueDate:     time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC),
+	})
+
+	dueDates, err := transactions.FetchCardDueDates(context.Background(), f.conn)
+	if err != nil {
+		t.Fatalf("FetchCardDueDates: %v", err)
+	}
+	occurredAt, _ := time.Parse("2006-01-02", "2026-07-28")
+	got := dueDates.ProjectedEntryDate(account, occurredAt, nil)
+	want, _ := time.Parse("2006-01-02", "2026-08-10")
+	if !got.Equal(want) {
+		t.Errorf("ProjectedEntryDate = %s, want %s (the cycle open on the purchase day)", got, want)
+	}
+}
+
 func TestCreditAccountIDs(t *testing.T) {
 	f := newFixture(t)
 	checking := f.addAccount(account{CurrencyCode: strp("BRL")})

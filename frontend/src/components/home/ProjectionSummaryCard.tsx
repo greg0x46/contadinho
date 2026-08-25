@@ -98,6 +98,13 @@ export function ProjectionSummaryCard() {
               <Card size="small">
                 <Statistic title="Saldo hoje" value={formatBRL(base.starting_balance)} />
               </Card>
+              <Card size="small">
+                <Statistic
+                  title={`Menor saldo em ${formatDateOnly(base.lowest_balance.date)}`}
+                  value={formatBRL(base.lowest_balance.balance)}
+                  valueStyle={negativeValueStyle(base.lowest_balance.balance)}
+                />
+              </Card>
               {finalPoint && (
                 <Card size="small">
                   <Statistic
@@ -107,13 +114,6 @@ export function ProjectionSummaryCard() {
                   />
                 </Card>
               )}
-              <Card size="small">
-                <Statistic
-                  title={`Menor saldo em ${formatDateOnly(base.lowest_balance.date)}`}
-                  value={formatBRL(base.lowest_balance.balance)}
-                  valueStyle={negativeValueStyle(base.lowest_balance.balance)}
-                />
-              </Card>
             </div>
           </div>
           <ProjectionTimeline series={base} referenceDate={params.referenceDate} height={280} />

@@ -79,20 +79,26 @@ func (f *fixture) addAccount(a account) string {
 
 // bill is the input to addBill.
 type bill struct {
-	AccountID  string
-	ExternalID string
-	DueDate    time.Time
+	AccountID   string
+	ExternalID  string
+	DueDate     time.Time
+	ClosingDate time.Time // zero stays NULL, matching a provider that reported none
 }
 
 func (f *fixture) addBill(b bill) string {
 	f.t.Helper()
 	id := uuid.NewString()
 	now := db.FormatTime(time.Now())
+	var closing *string
+	if !b.ClosingDate.IsZero() {
+		formatted := db.FormatTime(b.ClosingDate)
+		closing = &formatted
+	}
 	f.exec(`INSERT INTO financial_bills (
-			id, source_id, account_id, external_id, due_date,
+			id, source_id, account_id, external_id, due_date, closing_date,
 			current_raw_import_id, normalized_hash, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, 'hash', ?, ?)`,
-		id, f.sourceID, b.AccountID, b.ExternalID, db.FormatTime(b.DueDate), f.rawImportID, now, now)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, 'hash', ?, ?)`,
+		id, f.sourceID, b.AccountID, b.ExternalID, db.FormatTime(b.DueDate), closing, f.rawImportID, now, now)
 	return id
 }
 

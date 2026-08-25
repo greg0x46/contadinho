@@ -173,7 +173,13 @@ func BuildSeries(ctx context.Context, q Querier, params BuildParams) (Series, er
 		return Series{}, err
 	}
 
-	items, err := eligibleRealItems(ctx, q, from, to, params.AccountIDs, params.CategoryIDs, params.CardNumbers)
+	// The fetch reaches back before from because a credit-card purchase is
+	// re-dated to its bill's due date (see realEntries): a purchase made in
+	// the cycle or two before the window is paid inside it, and querying
+	// only [from, to] would leave that bill — real money about to leave the
+	// account — out of the projection. Entries whose projected date still
+	// falls outside the window are dropped by withinWindow below.
+	items, err := eligibleRealItems(ctx, q, from.AddDate(0, -2, 0), to, params.AccountIDs, params.CategoryIDs, params.CardNumbers)
 	if err != nil {
 		return Series{}, err
 	}
@@ -207,6 +213,8 @@ func BuildSeries(ctx context.Context, q Querier, params BuildParams) (Series, er
 		})
 	}
 
+	entries = withinWindow(entries, from, to)
+
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Date.Before(entries[j].Date) })
 
 	points := buildPoints(entries, balance, from, to, reference)
@@ -219,6 +227,27 @@ func BuildSeries(ctx context.Context, q Querier, params BuildParams) (Series, er
 		LowestBalance:   lowest,
 		FirstNegative:   firstNegative,
 	}, nil
+}
+
+// withinWindow drops entries whose date falls outside [from, to]. Only a
+// real credit-card entry can land there: it is re-dated from occurred_at to
+// its bill's due date (see realEntries), which can sit before from or past
+// to even though the purchase itself was inside the queried window. Such an
+// entry belongs to another window's series, and leaving it here would do
+// more than list a row the chart cannot show: buildPoints anchors the
+// balance by subtracting every entry dated on or before reference, so an
+// entry before from would be subtracted from the anchor and never added
+// back by any day in the loop — shifting every single point, and with them
+// LowestBalance, away from the real balance.
+func withinWindow(entries []Entry, from, to time.Time) []Entry {
+	kept := entries[:0]
+	for _, e := range entries {
+		if e.Date.Before(from) || e.Date.After(to) {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	return kept
 }
 
 // buildPoints produces one DayPoint per calendar day in [from, to],
