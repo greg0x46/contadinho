@@ -47,14 +47,8 @@ export function AutomationRulesPage() {
 
   const openEditRule = (rule: AutomationRule) => {
     const target = rule.actions.find((action) => action.type === "reconcile");
-    const linkedCommitment = target
-      ? commitments.commitments.find(
-          (commitment) =>
-            (target.recurring_commitment_id !== null && commitment.id === target.recurring_commitment_id) ||
-            (target.scenario_id !== undefined &&
-              target.scenario_id !== null &&
-              commitment.scenario_id === target.scenario_id),
-        ) ?? null
+    const linkedCommitment = target?.scenario_id
+      ? commitments.commitments.find((commitment) => commitment.id === target.scenario_id) ?? null
       : null;
     setEditingEntry({ rule, linkedCommitment });
     setSaveError(null);
@@ -71,10 +65,10 @@ export function AutomationRulesPage() {
 
       const actions: AutomationAction[] = [];
       if (payload.actionTypes.includes("ignore")) {
-        actions.push({ type: "ignore", recurring_commitment_id: null, category_id: null });
+        actions.push({ type: "ignore", scenario_id: null, category_id: null });
       }
       if (payload.actionTypes.includes("set_category") && payload.categoryId) {
-        actions.push({ type: "set_category", recurring_commitment_id: null, category_id: payload.categoryId });
+        actions.push({ type: "set_category", scenario_id: null, category_id: payload.categoryId });
       }
       if (payload.actionTypes.includes("reconcile") && payload.reconcile) {
         const { reconcile } = payload;
@@ -87,15 +81,11 @@ export function AutomationRulesPage() {
                 })
               )
             : await commitments.createCommitment(reconcile.commitment);
-        const reconcileAction: AutomationAction = {
+        actions.push({
           type: "reconcile",
-          recurring_commitment_id: savedCommitment.id,
+          scenario_id: savedCommitment.id,
           category_id: null,
-        };
-        if (savedCommitment.scenario_id !== undefined) {
-          reconcileAction.scenario_id = savedCommitment.scenario_id;
-        }
-        actions.push(reconcileAction);
+        });
       }
 
       const write = {

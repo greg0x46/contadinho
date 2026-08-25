@@ -37,7 +37,7 @@ func linkedOverride(t *testing.T, occurrence, transactionID string) recurrences.
 	t.Helper()
 	id := transactionID
 	return recurrences.Override{
-		ID: "override-" + occurrence, RecurringCommitmentID: "commitment-1",
+		ID: "override-" + occurrence, ScenarioID: "scenario-1",
 		OccurrenceDate: date(t, occurrence), State: recurrences.StateLinked, TransactionID: &id,
 	}
 }
@@ -45,7 +45,7 @@ func linkedOverride(t *testing.T, occurrence, transactionID string) recurrences.
 func detachedOverride(t *testing.T, occurrence string) recurrences.Override {
 	t.Helper()
 	return recurrences.Override{
-		ID: "override-" + occurrence, RecurringCommitmentID: "commitment-1",
+		ID: "override-" + occurrence, ScenarioID: "scenario-1",
 		OccurrenceDate: date(t, occurrence), State: recurrences.StateDetached,
 	}
 }

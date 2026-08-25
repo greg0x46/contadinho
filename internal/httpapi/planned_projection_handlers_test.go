@@ -85,7 +85,7 @@ func TestPlannedTransactionRealizationSuppressesProjectionOverHTTP(t *testing.T)
 
 func TestScenarioActivationControlsDefaultTimelineOnly(t *testing.T) {
 	srv, _ := newTestServer(t)
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/recurring-commitments", map[string]any{
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/recurring-scenarios", map[string]any{
 		"name": "Aluguel", "kind": "expense", "amount": "100.00",
 		"category_id": "000433b6-3094-5a9c-87df-465b70574a4b", "account_id": nil,
 		"cadence": "monthly", "day_of_month": 15, "month_of_year": nil,
@@ -96,7 +96,7 @@ func TestScenarioActivationControlsDefaultTimelineOnly(t *testing.T) {
 	}
 	var commitment map[string]any
 	decodeJSON(t, resp, &commitment)
-	scenarioID := commitment["scenario_id"].(string)
+	scenarioID := commitment["id"].(string)
 
 	timelineURL := srv.URL + "/api/timeline?reference_date=2026-08-01&from=2026-08-01&to=2026-08-31"
 	containsRecurring := func() bool {

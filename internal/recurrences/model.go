@@ -39,14 +39,12 @@ const (
 	CadenceAnnual  Cadence = "annual"
 )
 
-// RecurringCommitment mirrors the recurring_commitments table.
+// RecurringCommitment is a Scenario of kind 'recurring' joined with its
+// scenario_recurring_schedules row: ID is the Scenario's, which is the
+// identity every projection, automation target and occurrence decision is
+// addressed by.
 type RecurringCommitment struct {
-	ID string
-	// ScenarioID is the canonical projection identity during the
-	// compatibility period in which the old recurring_commitments DTO is
-	// still exposed. It is not stored on recurring_commitments; the mapping
-	// table owns it.
-	ScenarioID  *string
+	ID          string
 	Name        string
 	Kind        Kind
 	Amount      decimal.Decimal // magnitude, always positive
@@ -78,8 +76,21 @@ type RecurringSchedule struct {
 	EndDate      *time.Time
 }
 
-// Schedule converts the legacy DTO into the schedule used by the unified
-// occurrence generator.
+// Occurrences returns the commitment's occurrences in [from, to], or none at
+// all when it is paused. The pause lives on the commitment, not on the
+// calendar it carries, so this is the only place that gate is applied — a
+// caller holding a bare RecurringSchedule is asking about the calendar and
+// gets every date it emits.
+func (c RecurringCommitment) Occurrences(from, to time.Time) []Occurrence {
+	if !c.IsActive {
+		return nil
+	}
+	return OccurrencesInRange(c.Schedule(), from, to)
+}
+
+// Schedule projects the commitment's calendar fields into the shape the
+// occurrence generator takes, so a caller holding a whole commitment does not
+// have to unpack it field by field.
 func (c RecurringCommitment) Schedule() RecurringSchedule {
 	categoryID := c.CategoryID
 	return RecurringSchedule{

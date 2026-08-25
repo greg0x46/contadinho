@@ -175,3 +175,50 @@ func TestCreateRealizationRejectsUnknownDebtLink(t *testing.T) {
 		t.Error("CreateRealization() with an unknown debt_link_id should fail the FK constraint")
 	}
 }
+
+// TestAccountingSettlementsCatchUpWithEarlierLinks pins the ordering the
+// product actually allows: POST /api/payables creates a payable with no
+// scenario, POST /api/payables/{id}/links can link a transaction to it right
+// away, and only POST /api/payables/{id}/scenarios creates the plan that
+// becomes the accounting source. A link made in that gap has no scenario to
+// settle against yet, so the settlement is written when the plan appears.
+//
+// This is a permanent lifecycle, not a migration window: without the
+// catch-up, money linked before the plan existed would never count toward
+// the payable's balance.
+func TestAccountingSettlementsCatchUpWithEarlierLinks(t *testing.T) {
+	conn := newTestDB(t)
+	ctx := context.Background()
+	d := newDebt(t, conn)
+
+	link := linkFixture(t, conn, d.ID, "-150.00")
+
+	var before int
+	if err := conn.QueryRow(`
+		SELECT COUNT(1) FROM scenario_realizations
+		WHERE relation_type = 'settlement' AND transaction_id = ?`, link.TransactionID).Scan(&before); err != nil {
+		t.Fatalf("count before: %v", err)
+	}
+	if before != 0 {
+		t.Fatalf("settlements before the plan existed = %d, want 0", before)
+	}
+
+	s, err := scenarios.CreateScenario(ctx, conn, scenarios.KindDebtPlan, "Plano", &d.ID)
+	if err != nil {
+		t.Fatalf("CreateScenario: %v", err)
+	}
+	if !s.IsAccountingSource {
+		t.Fatal("the first plan of a payable must become its accounting source")
+	}
+
+	var after int
+	if err := conn.QueryRow(`
+		SELECT COUNT(1) FROM scenario_realizations
+		WHERE relation_type = 'settlement' AND scenario_id = ? AND transaction_id = ?`,
+		s.ID, link.TransactionID).Scan(&after); err != nil {
+		t.Fatalf("count after: %v", err)
+	}
+	if after != 1 {
+		t.Errorf("settlements after the plan appeared = %d, want 1 — the earlier link must catch up", after)
+	}
+}

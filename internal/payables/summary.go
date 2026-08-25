@@ -23,9 +23,10 @@ type LinkSummary struct {
 	EffectiveAmount decimal.Decimal
 	Transaction     LinkedTransactionSummary
 	// CountsAsSettlement is true only when the real transaction is linked
-	// to the payable's accounting scenario through a generic settlement.
-	// Legacy link rows remain visible for compatibility, but allocations in
-	// other scenarios must never affect the official payable balance.
+	// to the payable's accounting scenario through a settlement. A link with
+	// no settlement behind it stays visible — it is a real link, just one
+	// made before the payable had a plan — but allocations in other scenarios
+	// must never affect the official payable balance.
 	CountsAsSettlement bool
 }
 

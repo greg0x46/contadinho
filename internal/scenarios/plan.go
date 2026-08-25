@@ -53,7 +53,7 @@ func ListPlanInstallments(ctx context.Context, q Querier, from, to time.Time) ([
 		backed = append(backed, plan)
 		planIDs = append(planIDs, plan.ID)
 	}
-	installmentsByPlan, err := scenarioTransactionsFor(ctx, q, planIDs)
+	installmentsByPlan, err := ListScenarioTransactionsFor(ctx, q, planIDs)
 	if err != nil {
 		return nil, err
 	}

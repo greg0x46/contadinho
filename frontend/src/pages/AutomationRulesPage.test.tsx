@@ -25,7 +25,7 @@ const rule: AutomationRule = {
   is_active: true,
   logic_operator: "or",
   conditions: [{ field: "description", operator: "contains", value: "taxa" }],
-  actions: [{ type: "ignore", recurring_commitment_id: null, category_id: null }],
+  actions: [{ type: "ignore", scenario_id: null, category_id: null }],
   created_at: "2026-07-30T12:00:00Z",
   updated_at: "2026-07-30T12:00:00Z",
 };
@@ -64,7 +64,7 @@ const reconcileRule: AutomationRule = {
   is_active: true,
   logic_operator: "and",
   conditions: [{ field: "amount", operator: "within_percent", value: "10" }],
-  actions: [{ type: "reconcile", recurring_commitment_id: commitmentId, category_id: null }],
+  actions: [{ type: "reconcile", scenario_id: commitmentId, category_id: null }],
   created_at: "2026-07-30T12:00:00Z",
   updated_at: "2026-07-30T12:00:00Z",
 };
@@ -119,7 +119,7 @@ describe("AutomationRulesPage", () => {
         is_active: true,
         logic_operator: "or",
         conditions: [{ field: "description", operator: "contains", value: "taxa" }],
-        actions: [{ type: "ignore", recurring_commitment_id: null, category_id: null }],
+        actions: [{ type: "ignore", scenario_id: null, category_id: null }],
         apply_retroactively: false,
       }),
     );
@@ -161,7 +161,7 @@ describe("AutomationRulesPage", () => {
       expect(automationRulesApi.createAutomationRule).toHaveBeenCalledWith(
         expect.objectContaining({
           name: "Concilia aluguel",
-          actions: [{ type: "reconcile", recurring_commitment_id: commitmentId, category_id: null }],
+          actions: [{ type: "reconcile", scenario_id: commitmentId, category_id: null }],
         }),
       ),
     );

@@ -13,7 +13,7 @@ import (
 
 // seedTransaction inserts the minimum chain of rows a
 // financial_transactions row needs (data source, sync run, raw import,
-// account), so the FK on recurrence_reconciliations.transaction_id holds.
+// account), so the FK on scenario_realizations.transaction_id holds.
 // The ids are deterministic per connection, so repeat calls only add the
 // transaction.
 func seedTransaction(t *testing.T, conn *sql.DB, id string) string {
@@ -223,8 +223,8 @@ func TestOverrideForTransactionFindsTheOccurrenceItSettles(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("OverrideForTransaction: ok=%v err=%v", ok, err)
 	}
-	if found.RecurringCommitmentID != commitment.ID {
-		t.Errorf("commitment = %s, want %s", found.RecurringCommitmentID, commitment.ID)
+	if found.ScenarioID != commitment.ID {
+		t.Errorf("scenario = %s, want %s", found.ScenarioID, commitment.ID)
 	}
 }
 
@@ -261,7 +261,8 @@ func TestDeletingACommitmentCascadesItsOverrides(t *testing.T) {
 	ctx := context.Background()
 	commitment := newCommitment(t, conn)
 
-	if _, err := recurrences.PutOverride(ctx, conn, commitment.ID, date(t, "2026-02-05"), recurrences.StateDetached, nil); err != nil {
+	scenarioID := commitment.ID
+	if _, err := recurrences.PutOverride(ctx, conn, scenarioID, date(t, "2026-02-05"), recurrences.StateDetached, nil); err != nil {
 		t.Fatalf("PutOverride: %v", err)
 	}
 	if err := recurrences.Delete(ctx, conn, commitment.ID); err != nil {
@@ -269,7 +270,7 @@ func TestDeletingACommitmentCascadesItsOverrides(t *testing.T) {
 	}
 	var remaining int
 	if err := conn.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM recurrence_reconciliations WHERE recurring_commitment_id = ?`, commitment.ID,
+		`SELECT COUNT(*) FROM scenario_realizations WHERE relation_type = 'reconciliation' AND scenario_id = ?`, scenarioID,
 	).Scan(&remaining); err != nil {
 		t.Fatalf("count: %v", err)
 	}

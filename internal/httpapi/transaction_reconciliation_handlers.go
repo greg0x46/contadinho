@@ -107,14 +107,14 @@ func handleGetTransactionReconciliation(conn *sql.DB) http.HandlerFunc {
 			recurrenceReconciliationUnavailableProblem(w)
 			return
 		}
-		commitmentIDs := make([]string, len(commitments))
+		scenarioIDs := make([]string, len(commitments))
 		for i, commitment := range commitments {
-			commitmentIDs[i] = commitment.ID
+			scenarioIDs[i] = commitment.ID
 		}
 		// Same widening the Timeline and reconcilerFor apply: a link on an
 		// occurrence just outside the window still decides whether the rule
 		// may reuse its transaction.
-		overrides, err := recurrences.ListOverrides(ctx, conn, commitmentIDs,
+		overrides, err := recurrences.ListOverrides(ctx, conn, scenarioIDs,
 			from.AddDate(0, 0, -candidateWindowDays), to.AddDate(0, 0, candidateWindowDays))
 		if err != nil {
 			recurrenceReconciliationUnavailableProblem(w)

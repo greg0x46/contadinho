@@ -290,10 +290,16 @@ func handleGetScenario(conn *sql.DB) http.HandlerFunc {
 
 func handleDeleteScenario(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if err := scenarios.DeleteScenario(r.Context(), conn, r.PathValue("id")); errors.Is(err, scenarios.ErrScenarioNotFound) {
+		err := scenarios.DeleteScenario(r.Context(), conn, r.PathValue("id"))
+		if errors.Is(err, scenarios.ErrScenarioNotFound) {
 			scenarioNotFoundProblem(w)
 			return
-		} else if err != nil {
+		}
+		if errors.Is(err, scenarios.ErrScenarioLinkedToAutomationRule) {
+			recurringCommitmentLinkedProblem(w)
+			return
+		}
+		if err != nil {
 			scenariosUnavailableProblem(w)
 			return
 		}

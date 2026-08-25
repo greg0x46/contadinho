@@ -58,10 +58,10 @@ type RealizationWrite struct {
 	Origin          string
 }
 
-// ListRealizations is the compatibility/read API for all generic relations
-// owned by one scenario. It intentionally returns the normalized relation
-// shape instead of exposing one of the legacy allocation/reconciliation
-// tables.
+// ListRealizations is the read API for every relation owned by one scenario,
+// whatever its kind. It returns the normalized relation shape, which is what
+// lets a caller treat a settlement, an allocation and an occurrence decision
+// as the one thing they are: this scenario met reality here.
 func ListRealizations(ctx context.Context, q Querier, scenarioID string) ([]GenericRealization, error) {
 	rows, err := q.QueryContext(ctx, `
 		SELECT id, scenario_id, scenario_transaction_id, occurrence_date, transaction_id,
@@ -127,8 +127,7 @@ func ListRealizations(ctx context.Context, q Querier, scenarioID string) ([]Gene
 }
 
 // RealizeEvent creates or replaces the realization for one stable event key.
-// It is the service used by both the new generic endpoint and compatibility
-// handlers. A linked event always references a real financial transaction;
+// It is the single write path behind every endpoint that records one. A linked event always references a real financial transaction;
 // a detached event explicitly carries no transaction and blocks automatic
 // recurrence matching.
 func RealizeEvent(ctx context.Context, conn *sql.DB, scenarioID, eventKey string, write RealizationWrite) (GenericRealization, error) {
@@ -218,23 +217,10 @@ func RealizeEvent(ctx context.Context, conn *sql.DB, scenarioID, eventKey string
 			scenarioID, *scenarioTransactionID); err != nil {
 			return GenericRealization{}, err
 		}
-		// Keep the old installment detail endpoint coherent while it is
-		// still supported. A new generic write replaces the old allocation
-		// rows for this event; the generic table remains authoritative.
-		if _, err := tx.ExecContext(ctx,
-			`DELETE FROM scenario_transaction_realizations WHERE scenario_transaction_id = ?`, *scenarioTransactionID); err != nil {
-			return GenericRealization{}, err
-		}
 	} else {
 		if _, err := tx.ExecContext(ctx, `
 			DELETE FROM scenario_realizations
 			WHERE scenario_id = ? AND relation_type = 'reconciliation' AND occurrence_date = ?`,
-			scenarioID, formatDate(*occurrenceDate)); err != nil {
-			return GenericRealization{}, err
-		}
-		if _, err := tx.ExecContext(ctx, `
-			DELETE FROM recurrence_reconciliations
-			WHERE scenario_id = ? AND occurrence_date = ?`,
 			scenarioID, formatDate(*occurrenceDate)); err != nil {
 			return GenericRealization{}, err
 		}
@@ -271,54 +257,16 @@ func RealizeEvent(ctx context.Context, conn *sql.DB, scenarioID, eventKey string
 		}
 		return GenericRealization{}, err
 	}
-	if relation == RelationAllocation && write.State == RealizationStateLinked && scenario.PayableID != nil {
-		var payableLinkID string
-		linkErr := tx.QueryRowContext(ctx, `
-			SELECT id FROM payable_transaction_links
-			WHERE payable_id = ? AND transaction_id = ?`, *scenario.PayableID, *write.TransactionID).Scan(&payableLinkID)
-		if linkErr == nil {
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO scenario_transaction_realizations (
-					id, scenario_transaction_id, payable_link_id, allocated_amount, created_at
-				) VALUES (?, ?, ?, ?, ?)`, row.ID, *scenarioTransactionID, payableLinkID,
-				money.CanonicalDecimal(*row.AllocatedAmount), db.FormatTime(now)); err != nil {
-				return GenericRealization{}, err
-			}
-		} else if !errors.Is(linkErr, sql.ErrNoRows) {
-			return GenericRealization{}, linkErr
-		}
-	}
-	if relation == RelationReconciliation {
-		var commitmentID string
-		mapErr := tx.QueryRowContext(ctx, `
-			SELECT recurring_commitment_id
-			FROM recurring_commitment_scenario_map
-			WHERE scenario_id = ?`, scenarioID).Scan(&commitmentID)
-		if mapErr == nil {
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO recurrence_reconciliations (
-					id, recurring_commitment_id, scenario_id, occurrence_date, state, transaction_id, created_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?)`, row.ID, commitmentID, scenarioID,
-				formatDate(*occurrenceDate), row.State, row.TransactionID, db.FormatTime(now)); err != nil {
-				if isCompleteEventTransactionConflict(err) {
-					return GenericRealization{}, ErrTransactionAlreadyRealized
-				}
-				return GenericRealization{}, err
-			}
-		} else if !errors.Is(mapErr, sql.ErrNoRows) {
-			return GenericRealization{}, mapErr
-		}
-	}
 	if err := tx.Commit(); err != nil {
 		return GenericRealization{}, err
 	}
 	return row, nil
 }
 
-// validateRecurringTransaction keeps the canonical event endpoint aligned
-// with the legacy occurrence handler: a recurring occurrence can only be
-// satisfied by a considered BRL transaction flowing in the schedule's
-// direction. The database constraint still handles the cross-occurrence
+// validateRecurringTransaction keeps the generic event endpoint aligned with
+// the occurrence handler: a recurring occurrence can only be satisfied by a
+// considered BRL transaction flowing in the schedule's direction. The
+// database constraint still handles the cross-occurrence
 // uniqueness race; this check supplies the domain-level rejection for an
 // ignored, wrong-direction, or non-BRL transaction before opening the write
 // transaction.
@@ -329,18 +277,7 @@ func validateRecurringTransaction(ctx context.Context, q Querier, scenarioID, tr
 		FROM scenario_recurring_schedules
 		WHERE scenario_id = ?`, scenarioID).Scan(&kindRaw)
 	if errors.Is(err, sql.ErrNoRows) {
-		var commitmentID string
-		if lookupErr := q.QueryRowContext(ctx, `
-			SELECT recurring_commitment_id
-			FROM recurring_commitment_scenario_map
-			WHERE scenario_id = ?`, scenarioID).Scan(&commitmentID); lookupErr != nil {
-			return fmt.Errorf("%w: recurring schedule not found", ErrInvalidRealization)
-		}
-		commitment, lookupErr := recurrences.Get(ctx, q, commitmentID)
-		if lookupErr != nil {
-			return fmt.Errorf("%w: recurring schedule not found", ErrInvalidRealization)
-		}
-		kindRaw = string(commitment.Kind)
+		return fmt.Errorf("%w: recurring schedule not found", ErrInvalidRealization)
 	} else if err != nil {
 		return err
 	}
@@ -358,15 +295,15 @@ func validateRecurringTransaction(ctx context.Context, q Querier, scenarioID, tr
 	return nil
 }
 
+// isCompleteEventTransactionConflict recognises exactly one constraint: the
+// partial unique index that lets a transaction satisfy at most one complete
+// event. Every other failure of that INSERT — an unknown scenario, a bad
+// state — is a real error and must not be reported to the user as "pick a
+// different transaction".
 func isCompleteEventTransactionConflict(err error) bool {
-	if err == nil {
-		return false
-	}
-	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "scenario_realizations.transaction_id") ||
-		strings.Contains(message, "uq_scenario_realizations_one_complete_event_transaction") ||
-		strings.Contains(message, "recurrence_reconciliations.transaction_id") ||
-		strings.Contains(message, "duplicate key") && strings.Contains(message, "transaction_id")
+	return db.IsUniqueViolationOn(err,
+		db.ConstraintOneCompleteEventTransactionSQLite,
+		db.ConstraintOneCompleteEventTransactionPostgres)
 }
 
 func eventIdentity(ctx context.Context, q Querier, scenario Scenario, eventKey string) (RealizationRelation, *string, *time.Time, *string, error) {
@@ -413,8 +350,8 @@ func eventIdentity(ctx context.Context, q Querier, scenario Scenario, eventKey s
 // isRecurringOccurrence keeps the generic event endpoint from persisting a
 // realization for a date that the schedule can never emit. Occurrence dates
 // are derived identities, so accepting an arbitrary date would create a row
-// that neither the projector nor the compatibility reconciliation API could
-// ever observe.
+// that neither the projector nor the occurrence endpoints could ever
+// observe.
 func isRecurringOccurrence(ctx context.Context, q Querier, scenarioID string, date time.Time) bool {
 	var (
 		cashflowKind, amountRaw, cadence, startRaw string
@@ -537,19 +474,6 @@ func DeletePlannedEventRealization(ctx context.Context, q Querier, scenarioID, e
 	}
 	if err != nil {
 		return err
-	}
-	if relation == RelationAllocation {
-		if _, err := q.ExecContext(ctx,
-			`DELETE FROM scenario_transaction_realizations WHERE scenario_transaction_id = ?`, *transaction); err != nil {
-			return err
-		}
-	}
-	if relation == RelationReconciliation {
-		if _, err := q.ExecContext(ctx, `
-			DELETE FROM recurrence_reconciliations
-			WHERE scenario_id = ? AND occurrence_date = ?`, scenarioID, formatDate(*occurrence)); err != nil {
-			return err
-		}
 	}
 	if n, _ := result.RowsAffected(); n == 0 {
 		return ErrPlannedRealizationNotFound

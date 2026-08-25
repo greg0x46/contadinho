@@ -638,9 +638,9 @@ func CreateLink(ctx context.Context, conn *sql.DB, kind Kind, payableID, transac
 }
 
 // createSettlement mirrors a payable link in the accounting scenario. A
-// legacy payable may not have a primary scenario yet; in that transition
-// window the compatibility link remains authoritative until CreateScenario
-// backfills it.
+// payable has no scenario until someone creates a plan for it, so a link made
+// before that has nothing to settle against yet and writes no settlement row;
+// scenarios.CreateScenario catches those up when the plan appears.
 func createSettlement(ctx context.Context, q Querier, link Link) error {
 	var scenarioID string
 	err := q.QueryRowContext(ctx, `

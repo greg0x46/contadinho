@@ -133,22 +133,27 @@ flag gravada.
 
 **Pacote:** `internal/timeline`
 
-O motor de fusão: junta lançamentos reais, ocorrências de recorrências e
-transações de cenários numa única `Series`, com um `CertaintyTier`
-explícito por `Entry` (Realizado / Confirmado / Projetado / Hipotético).
-Toda camada de apresentação (cards, gráfico, drill-down, comparação
-base×simulação) lê dessa mesma `Series` — nunca recalcula localmente.
+O motor de fusão: junta lançamentos reais e o fluxo unificado de projeção de
+cenários numa única `Series`, com um `CertaintyTier` explícito por `Entry`
+(Realizado / Confirmado / Projetado / Hipotético). Toda camada de
+apresentação (cards, gráfico, drill-down) lê dessa mesma `Series` — nunca
+recalcula localmente.
 
-Fontes hoje: Lançamentos, Recorrências, Cenários (3). O motor **não**
-conhece Payables diretamente — o vínculo com um `Payable` fica encapsulado
-dentro de Cenários (`Scenario.PayableID`/`Kind`), e é isso que decide se
-uma `ScenarioTransaction` vira tier Confirmado (presa a um Payable) ou
+Fontes hoje: Lançamentos + Cenários (**2**). A nota de direção futura que
+esta seção trazia se concretizou: recorrência deixou de ser entidade
+paralela com motor de ocorrência próprio e virou `Scenario{Kind:
+recurring}`, então `BuildSeries` fala com uma fonte de planejamento só
+(`projections.List`). O motor **não** conhece Payables diretamente — o
+vínculo com um `Payable` fica encapsulado dentro de Cenários
+(`Scenario.PayableID`/`Kind`), e é isso que decide se uma
+`ScenarioTransaction` vira tier Confirmado (presa a um Payable) ou
 Hipotético (`standalone`).
 
-**Nota de direção futura:** se Recorrências passar a se construir a partir
-de Cenários (ver seção seguinte), a Timeline colapsa para **2** fontes —
-Lançamentos + Cenários — porque recorrência deixaria de ser uma entidade
-paralela com motor de ocorrência próprio.
+**Nota de divergência:** o `CertaintyTier` é produzido e transportado até a
+API, mas nenhuma tela o exibe hoje — ver
+`.specs/contextos/relatorio-financeiro/reference.md`, seção Notas. O
+princípio 4 abaixo continua valendo como régua de domínio; o que falta é a
+expressão dele na interface.
 
 ## Não são motores (features/entidades que compõem os motores acima)
 
@@ -158,13 +163,14 @@ paralela com motor de ocorrência próprio.
   Automação (uma `Rule` com ação `reconcile` aponta pro compromisso; sem
   essa regra e sem decisão manual, ele nunca reconcilia). A decisão manual
   do usuário vence a regra — ver `.specs/contextos/recorrencias/
-  reference.md`, seção "Conciliação manual". *Nota de refactor futuro:* a
-  concepção original era recorrências serem construídas a partir de
-  Cenários (cenário como "possibilidade futura" que vira recorrência); o
-  código foi implementado de forma diferente (campos de agendamento
-  próprios, sem relação com `scenarios`). Vale avaliar essa composição num
-  refactor futuro — ver nota na seção Timeline acima sobre o impacto se
-  isso acontecer.
+  reference.md`, seção "Conciliação manual". A concepção original —
+  recorrências construídas a partir de Cenários — é o que o código faz
+  hoje: um compromisso recorrente **é** um `Scenario{Kind: recurring}` mais
+  sua linha em `scenario_recurring_schedules`, e o id do cenário é a
+  identidade que projeção, alvo de automação e decisões de ocorrência
+  compartilham. O pacote `recurrences` continua existindo como o motor de
+  ocorrência e conciliação (calendário, `Reconciler`), não mais como uma
+  entidade paralela com tabela própria.
 - **Categorização** (`internal/categories`): catálogo de categorias +
   histórico. Muito referenciado, mas é um catálogo passivo, sem lógica de
   match/cálculo/fusão própria — não qualifica pelo critério 2.
@@ -186,14 +192,14 @@ paralela com motor de ocorrência próprio.
 2. **Isolar dado externo de anotação local.** Nenhuma entidade de
    planejamento (`ScenarioTransaction`, `RecurringCommitment`) tem FK dura
    para lançamentos reais. O vínculo, quando existe, é uma tabela de
-   ligação explícita (`payable_transaction_links`,
-   `scenario_transaction_realizations`, `recurrence_reconciliations`) —
-   nunca o lançamento real "sabe" que está sendo usado para planejamento.
-   `recurrence_reconciliations` é o caso-limite que mostra o princípio 1
-   junto: o que ela grava é a *decisão* do usuário sobre uma ocorrência
-   (conciliar com X, ou desconciliar), não o estado de conciliação — esse
-   segue recomputado a cada leitura, agora consultando a decisão antes da
-   regra de automação.
+   ligação explícita (`payable_transaction_links` e `scenario_realizations`,
+   esta última cobrindo as três formas — `settlement`, `allocation`,
+   `reconciliation`) — nunca o lançamento real "sabe" que está sendo usado
+   para planejamento. A linha `reconciliation` é o caso-limite que mostra o
+   princípio 1 junto: o que ela grava é a *decisão* do usuário sobre uma
+   ocorrência (conciliar com X, ou desconciliar), não o estado de
+   conciliação — esse segue recomputado a cada leitura, consultando a
+   decisão antes da regra de automação.
 3. **Hipotético é opt-in explícito, nunca ambiente global.** Cenário e
    projeção só entram num relatório quando o parâmetro pede — nunca uma
    flag "modo simulação" ligada globalmente.
@@ -222,8 +228,9 @@ paralela com motor de ocorrência próprio.
 
 1. Nome definitivo para o motor de Lançamentos.
 2. Nome definitivo para Payables generalizado (dívida/recebível/meta).
-3. Se/quando Recorrências passa a se construir a partir de Cenários —
-   impacto direto: Timeline colapsa de 3 para 2 fontes.
+3. ~~Se/quando Recorrências passa a se construir a partir de Cenários —
+   impacto direto: Timeline colapsa de 3 para 2 fontes.~~ **Resolvido:**
+   feito, e a Timeline colapsou. Ver seção Timeline.
 4. Se Payables generalizado exige `Kind` fechado crescendo (`goal` como
    mais um valor) ou um modelo de elegibilidade de vínculo mais aberto —
    não decidido nesta conversa.

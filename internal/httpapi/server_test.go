@@ -384,7 +384,7 @@ func createRecurringCommitmentForAutomation(t *testing.T, srv *httptest.Server) 
 	decodeJSON(t, resp, &category)
 	categoryID := category["id"].(string)
 
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/recurring-commitments", map[string]any{
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/recurring-scenarios", map[string]any{
 		"name": "Aluguel", "kind": "expense", "amount": "1500.00",
 		"category_id": categoryID, "cadence": "monthly", "day_of_month": 5, "start_date": "2026-01-01",
 		"is_active": true,
@@ -401,7 +401,7 @@ func TestCreateAutomationRuleWithReconcileActionLinksCommitment(t *testing.T) {
 	body := map[string]any{
 		"name": "Concilia aluguel", "is_active": true, "logic_operator": "and",
 		"conditions": []map[string]string{{"field": "amount", "operator": "within_percent", "value": "10"}},
-		"actions":    []map[string]any{{"type": "reconcile", "recurring_commitment_id": commitmentID}},
+		"actions":    []map[string]any{{"type": "reconcile", "scenario_id": commitmentID}},
 	}
 	resp := doJSON(t, http.MethodPost, srv.URL+"/api/automation-rules", body)
 	if resp.StatusCode != 201 {
@@ -415,7 +415,7 @@ func TestCreateAutomationRuleWithReconcileActionLinksCommitment(t *testing.T) {
 		t.Fatalf("actions = %+v, want 1", actions)
 	}
 	action := actions[0].(map[string]any)
-	if action["type"] != "reconcile" || action["recurring_commitment_id"] != commitmentID {
+	if action["type"] != "reconcile" || action["scenario_id"] != commitmentID {
 		t.Errorf("action = %+v", action)
 	}
 }
@@ -425,7 +425,7 @@ func TestCreateAutomationRuleReconcileActionRejectsUnknownCommitment(t *testing.
 	body := map[string]any{
 		"name": "Concilia inexistente", "is_active": true, "logic_operator": "and",
 		"conditions": []map[string]string{{"field": "amount", "operator": "within_percent", "value": "10"}},
-		"actions":    []map[string]any{{"type": "reconcile", "recurring_commitment_id": "does-not-exist"}},
+		"actions":    []map[string]any{{"type": "reconcile", "scenario_id": "does-not-exist"}},
 	}
 	resp := doJSON(t, http.MethodPost, srv.URL+"/api/automation-rules", body)
 	resp.Body.Close()
@@ -441,7 +441,7 @@ func TestDeleteRecurringCommitmentLinkedToRuleReturns409(t *testing.T) {
 	body := map[string]any{
 		"name": "Concilia aluguel", "is_active": true, "logic_operator": "and",
 		"conditions": []map[string]string{{"field": "amount", "operator": "within_percent", "value": "10"}},
-		"actions":    []map[string]any{{"type": "reconcile", "recurring_commitment_id": commitmentID}},
+		"actions":    []map[string]any{{"type": "reconcile", "scenario_id": commitmentID}},
 	}
 	resp := doJSON(t, http.MethodPost, srv.URL+"/api/automation-rules", body)
 	if resp.StatusCode != 201 {
@@ -449,7 +449,7 @@ func TestDeleteRecurringCommitmentLinkedToRuleReturns409(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	resp = doJSON(t, http.MethodDelete, srv.URL+"/api/recurring-commitments/"+commitmentID, nil)
+	resp = doJSON(t, http.MethodDelete, srv.URL+"/api/recurring-scenarios/"+commitmentID, nil)
 	resp.Body.Close()
 	if resp.StatusCode != 409 {
 		t.Errorf("delete status = %d, want 409", resp.StatusCode)

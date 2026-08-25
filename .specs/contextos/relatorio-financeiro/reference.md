@@ -6,18 +6,22 @@
 
 ## O que é
 
-Navegação temporal única: Realizado → Hoje → Projeção Base → Simulação.
-Responde quanto o usuário terá numa data futura, qual seu menor saldo até
-lá, e como cenários hipotéticos mudam essa resposta — cards, gráfico e
+Retrospectiva mensal: quanto entrou, quanto saiu e onde o usuário mais
+gastou no mês selecionado, e como isso se acumula no ano — cards, gráfico e
 drill-down todos lendo da mesma série, nunca recalculando localmente.
+
+O **futuro** saiu desta tela: a projeção de saldo vive na Home
+(`ProjectionSummaryCard`), e a edição de cenários em Cenários. A `Series`
+por trás das duas é a mesma; o que muda é a janela que cada tela pede.
 
 ## Backend
 
 `internal/timeline` — `Series{Points, Entries, StartingBalance,
 LowestBalance, FirstNegative}`, `Entry` com `CertaintyTier`
-(`realizado`/`confirmado`/`projetado`/`hipotetico`). `BuildSeries` funde 3
-fontes: Lançamentos, Cenários e Recorrências. Os 4 tiers são todos
-produzidos hoje:
+(`realizado`/`confirmado`/`projetado`/`hipotetico`). `BuildSeries` funde **2
+fontes**: Lançamentos e o fluxo unificado de projeção de Cenários
+(`projections.List`) — recorrência deixou de ser fonte paralela e virou
+`Scenario{Kind: recurring}`. Os 4 tiers continuam todos produzidos:
 
 - **Realizado** — transação real; um lançamento de cartão vira
   **Confirmado**, redatado para o vencimento da fatura.
@@ -49,18 +53,32 @@ fica encapsulado em `internal/scenarios` (`Scenario.PayableID`/`Kind`, via
 ## Frontend
 
 `/relatorio-financeiro`:
-- `TimeNavigator` (navegação mensal) + `ScenarioMultiSelect` (seleção de
-  cenários ativos, estado na URL via `filterUrl.ts`).
-- Cards de saldo atual/projetado/mínimo.
-- `ProjectionTimeline` (base × simulação, Recharts) e
-  `BaseVsSimulationCompare`.
-- Comparativos mês-a-mês/ano-a-ano (`ComparisonStatistic`).
-- `MonthlyEvolutionChart`, `AccumulatedResultCard`.
+- `TimeNavigator` (navegação mensal, mês na URL via `?mes=`).
+- `SummaryCards` (mês selecionado × acumulado no ano).
+- Comparativos mês-a-mês/ano-a-ano (`ComparisonStatistic`, local à página).
+- `AccumulatedResultCard`.
 - Drill-down por categoria: `CategoryImpactList` → `CategoryEvolutionChart`.
-- `ProjectionComposition` — detalhamento de impacto por cenário, painel
-  colapsável quando há `scenarioImpacts`.
+
+Home (`/`):
+- `ProjectionSummaryCard` — saldo hoje, saldo no fim do horizonte, menor
+  saldo, mais `ProjectionTimeline`. Horizonte selecionável (fim do mês, 3,
+  6, 12 meses; 3 por padrão).
 
 ## Notas
 
-Se Recorrências passar a se construir a partir de Cenários (ver contexto
-de Recorrências), a Timeline colapsa de 3 para 2 fontes.
+A Timeline já colapsou de 3 para 2 fontes: Recorrências passou a se
+construir a partir de Cenários, como a nota antiga previa.
+
+**Simulação de cenários não tem entrada na UI hoje.** `GET /api/timeline`
+continua aceitando `scenario_ids` e devolvendo `simulation` e
+`scenario_impacts` — o backend está inteiro —, mas nenhuma tela os
+consome desde que a projeção migrou para a Home, que é deliberadamente só a
+base ("sem cenários hipotéticos"). Os componentes que faziam essa leitura
+(`ScenarioMultiSelect`, `BaseVsSimulationCompare`, `ProjectionComposition`)
+foram removidos por estarem mortos; recuperá-los do histórico é o caminho
+se a simulação voltar para a tela.
+
+Pelo mesmo motivo o `CertaintyTier` não aparece mais em lugar nenhum da
+interface — o vocabulário de certeza (princípio 4 de
+`.specs/motores-de-dominio.md`) vive só no backend hoje. O badge que o
+exibia (`EntryOriginBadge`) e o mapa de rótulos que ele usava saíram junto.

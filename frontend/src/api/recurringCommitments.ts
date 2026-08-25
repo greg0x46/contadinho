@@ -63,7 +63,7 @@ async function send<T>(
 
 export function listRecurringCommitments(signal?: AbortSignal): Promise<RecurringCommitment[]> {
   return send(
-    "/api/recurring-commitments",
+    "/api/recurring-scenarios",
     { method: "GET", headers: { Accept: "application/json" }, signal },
     200,
     parseRecurringCommitmentList,
@@ -74,7 +74,7 @@ export function createRecurringCommitment(
   write: RecurringCommitmentWrite,
 ): Promise<RecurringCommitment> {
   return send(
-    "/api/recurring-commitments",
+    "/api/recurring-scenarios",
     {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -90,7 +90,7 @@ export function updateRecurringCommitment(
   write: RecurringCommitmentWrite,
 ): Promise<RecurringCommitment> {
   return send(
-    `/api/recurring-commitments/${encodeURIComponent(commitmentId)}`,
+    `/api/recurring-scenarios/${encodeURIComponent(commitmentId)}`,
     {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -106,7 +106,7 @@ export function setRecurringCommitmentActive(
   isActive: boolean,
 ): Promise<RecurringCommitment> {
   return send(
-    `/api/recurring-commitments/${encodeURIComponent(commitmentId)}`,
+    `/api/recurring-scenarios/${encodeURIComponent(commitmentId)}`,
     {
       method: "PATCH",
       headers: { "content-type": "application/json" },
@@ -119,7 +119,7 @@ export function setRecurringCommitmentActive(
 
 export function deleteRecurringCommitment(commitmentId: string): Promise<void> {
   return send(
-    `/api/recurring-commitments/${encodeURIComponent(commitmentId)}`,
+    `/api/recurring-scenarios/${encodeURIComponent(commitmentId)}`,
     { method: "DELETE" },
     204,
     null,
@@ -127,12 +127,12 @@ export function deleteRecurringCommitment(commitmentId: string): Promise<void> {
 }
 
 /**
- * An occurrence's address: the commitment plus the calendar day. Occurrences
- * have no stored id — the schedule generates them — so every reconciliation
- * write is keyed this way.
+ * An occurrence's address: the recurring Scenario plus the calendar day.
+ * Occurrences have no stored id — the schedule generates them — so every
+ * reconciliation write is keyed this way.
  */
 function occurrenceBase(commitmentId: string, occurrenceDate: string): string {
-  return `/api/recurring-commitments/${encodeURIComponent(commitmentId)}/occurrences/${encodeURIComponent(occurrenceDate)}`;
+  return `/api/scenarios/${encodeURIComponent(commitmentId)}/occurrences/${encodeURIComponent(occurrenceDate)}`;
 }
 
 export function listRecurrenceOccurrences(
@@ -140,7 +140,7 @@ export function listRecurrenceOccurrences(
   signal?: AbortSignal,
 ): Promise<RecurrenceOccurrence[]> {
   return send(
-    `/api/recurring-commitments/${encodeURIComponent(commitmentId)}/occurrences`,
+    `/api/scenarios/${encodeURIComponent(commitmentId)}/occurrences`,
     { method: "GET", headers: { Accept: "application/json" }, signal },
     200,
     parseRecurrenceOccurrenceList,

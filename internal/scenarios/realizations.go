@@ -17,70 +17,36 @@ import (
 // realization id has no matching row.
 var ErrRealizationNotFound = errors.New("scenario transaction realization not found")
 
-// CreateRealization mirrors allocating (part of) a
-// payable_transaction_links row's amount to scenarioTransactionID.
-// Callers are responsible for validating that both ids exist and belong to
-// the same payable before calling this — the schema's FKs (ON DELETE
-// CASCADE both ways) are the only enforcement at this layer.
-func CreateRealization(ctx context.Context, q Querier, scenarioTransactionID string, payableLinkID *string, allocatedAmount decimal.Decimal) (ScenarioTransactionRealization, error) {
-	now := time.Now().UTC()
-	r := ScenarioTransactionRealization{
-		ID: uuid.NewString(), ScenarioTransactionID: scenarioTransactionID, PayableLinkID: payableLinkID,
-		AllocatedAmount: allocatedAmount, CreatedAt: now,
-	}
-	_, err := q.ExecContext(ctx, `
-		INSERT INTO scenario_transaction_realizations (id, scenario_transaction_id, payable_link_id, allocated_amount, created_at)
-		VALUES (?, ?, ?, ?, ?)`,
-		r.ID, r.ScenarioTransactionID, r.PayableLinkID, money.CanonicalDecimal(r.AllocatedAmount), db.FormatTime(now),
-	)
-	if err != nil {
-		return ScenarioTransactionRealization{}, err
-	}
-	// Keep the generic projection relation in sync with the compatibility row.
-	// The legacy endpoint remains usable, but the Timeline reads the unified
-	// table so the same write must be visible to both readers.
-	var scenarioID, transactionID string
-	err = q.QueryRowContext(ctx, `
-		SELECT st.scenario_id, l.transaction_id
-		FROM scenario_transactions st
-		JOIN payable_transaction_links l ON l.id = ?
-		WHERE st.id = ?`, r.PayableLinkID, r.ScenarioTransactionID).Scan(&scenarioID, &transactionID)
-	if err == nil {
-		_, err = q.ExecContext(ctx, `
-			INSERT INTO scenario_realizations (
-				id, scenario_id, scenario_transaction_id, transaction_id, relation_type,
-				state, origin, allocated_amount, created_at
-			) VALUES (?, ?, ?, ?, 'allocation', 'linked', 'manual', ?, ?)`,
-			r.ID, scenarioID, r.ScenarioTransactionID, transactionID,
-			money.CanonicalDecimal(r.AllocatedAmount), db.FormatTime(r.CreatedAt),
-		)
-	}
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return ScenarioTransactionRealization{}, err
-	}
-	return r, nil
-}
+// allocationSelect projects an allocation row of scenario_realizations back
+// into the installment-allocation shape the plan endpoints speak.
+//
+// PayableLinkID is recovered by matching the realized transaction against the
+// scenario's payable rather than stored: scenario_realizations references the
+// real financial transaction, and payable_transaction_links.transaction_id is
+// UNIQUE, so the join yields at most one link and never duplicates a row. A
+// standalone scenario has no payable and therefore no link id, which is why
+// the column stays nullable in the DTO.
+const allocationSelect = `
+	SELECT sr.id, sr.scenario_transaction_id, l.id, sr.allocated_amount, sr.created_at
+	FROM scenario_realizations sr
+	JOIN scenarios s ON s.id = sr.scenario_id
+	LEFT JOIN payable_transaction_links l
+		ON l.payable_id = s.payable_id AND l.transaction_id = sr.transaction_id
+	WHERE sr.relation_type = 'allocation'`
 
-// GetRealization mirrors reading a single allocation by id — callers that
-// need to scope it to a specific scenario_transaction (the HTTP layer's
-// delete endpoint) check ScenarioTransactionID themselves, the same
-// pattern payables.GetLink/DeleteLink uses.
-func GetRealization(ctx context.Context, q Querier, id string) (ScenarioTransactionRealization, error) {
-	var r ScenarioTransactionRealization
-	var payableLinkID sql.NullString
-	var allocatedAmountRaw, createdAtRaw string
-	err := q.QueryRowContext(ctx,
-		`SELECT id, scenario_transaction_id, payable_link_id, allocated_amount, created_at FROM scenario_transaction_realizations WHERE id = ?`, id,
-	).Scan(&r.ID, &r.ScenarioTransactionID, &payableLinkID, &allocatedAmountRaw, &createdAtRaw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return ScenarioTransactionRealization{}, ErrRealizationNotFound
-	}
-	if err != nil {
+func scanAllocation(scan func(dest ...any) error) (ScenarioTransactionRealization, error) {
+	var (
+		r                                ScenarioTransactionRealization
+		payableLinkID                    sql.NullString
+		allocatedAmountRaw, createdAtRaw string
+	)
+	if err := scan(&r.ID, &r.ScenarioTransactionID, &payableLinkID, &allocatedAmountRaw, &createdAtRaw); err != nil {
 		return ScenarioTransactionRealization{}, err
 	}
 	if payableLinkID.Valid {
 		r.PayableLinkID = &payableLinkID.String
 	}
+	var err error
 	if r.AllocatedAmount, err = decimal.NewFromString(allocatedAmountRaw); err != nil {
 		return ScenarioTransactionRealization{}, err
 	}
@@ -90,29 +56,66 @@ func GetRealization(ctx context.Context, q Querier, id string) (ScenarioTransact
 	return r, nil
 }
 
-// DeleteRealization mirrors removing a single allocation, undoing it
-// without touching the scenario_transaction or the debt_transaction_link
-// it referenced.
-func DeleteRealization(ctx context.Context, q Querier, id string) error {
-	r, err := GetRealization(ctx, q, id)
-	if err != nil {
-		return err
+// CreateRealization allocates (part of) a payable_transaction_links row's
+// amount to scenarioTransactionID. Callers are responsible for validating
+// that both ids exist and belong to the same payable before calling this.
+//
+// The row lands in scenario_realizations as relation_type = 'allocation':
+// the same table the Timeline projects from, so an allocation created here
+// and one created through the generic event endpoint are the same fact.
+func CreateRealization(ctx context.Context, q Querier, scenarioTransactionID string, payableLinkID *string, allocatedAmount decimal.Decimal) (ScenarioTransactionRealization, error) {
+	now := time.Now().UTC()
+	r := ScenarioTransactionRealization{
+		ID: uuid.NewString(), ScenarioTransactionID: scenarioTransactionID, PayableLinkID: payableLinkID,
+		AllocatedAmount: allocatedAmount, CreatedAt: now,
 	}
-	res, err := q.ExecContext(ctx, `DELETE FROM scenario_transaction_realizations WHERE id = ?`, id)
+	var scenarioID, transactionID string
+	if err := q.QueryRowContext(ctx, `
+		SELECT st.scenario_id, l.transaction_id
+		FROM scenario_transactions st
+		JOIN payable_transaction_links l ON l.id = ?
+		WHERE st.id = ?`, r.PayableLinkID, r.ScenarioTransactionID).Scan(&scenarioID, &transactionID); err != nil {
+		return ScenarioTransactionRealization{}, err
+	}
+	if _, err := q.ExecContext(ctx, `
+		INSERT INTO scenario_realizations (
+			id, scenario_id, scenario_transaction_id, transaction_id, relation_type,
+			state, origin, allocated_amount, created_at
+		) VALUES (?, ?, ?, ?, 'allocation', 'linked', 'manual', ?, ?)`,
+		r.ID, scenarioID, r.ScenarioTransactionID, transactionID,
+		money.CanonicalDecimal(r.AllocatedAmount), db.FormatTime(r.CreatedAt),
+	); err != nil {
+		return ScenarioTransactionRealization{}, err
+	}
+	return r, nil
+}
+
+// GetRealization reads a single allocation by id — callers that need to
+// scope it to a specific scenario_transaction (the HTTP layer's delete
+// endpoint) check ScenarioTransactionID themselves, the same pattern
+// payables.GetLink/DeleteLink uses.
+func GetRealization(ctx context.Context, q Querier, id string) (ScenarioTransactionRealization, error) {
+	row := q.QueryRowContext(ctx, allocationSelect+` AND sr.id = ?`, id)
+	r, err := scanAllocation(row.Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ScenarioTransactionRealization{}, ErrRealizationNotFound
+	}
+	if err != nil {
+		return ScenarioTransactionRealization{}, err
+	}
+	return r, nil
+}
+
+// DeleteRealization removes a single allocation, undoing it without touching
+// the scenario_transaction or the payable link it referenced.
+func DeleteRealization(ctx context.Context, q Querier, id string) error {
+	res, err := q.ExecContext(ctx,
+		`DELETE FROM scenario_realizations WHERE id = ? AND relation_type = 'allocation'`, id)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrRealizationNotFound
-	}
-	_, err = q.ExecContext(ctx, `
-		DELETE FROM scenario_realizations
-		WHERE id = ? OR (
-			scenario_transaction_id = ? AND relation_type = 'allocation'
-			AND allocated_amount = ? AND created_at = ?
-		)`, id, r.ScenarioTransactionID, money.CanonicalDecimal(r.AllocatedAmount), db.FormatTime(r.CreatedAt))
-	if err != nil {
-		return err
 	}
 	return nil
 }
@@ -161,32 +164,16 @@ func realizationsFor(ctx context.Context, q Querier, scenarioTransactionIDs []st
 		return result, nil
 	}
 	in, args := db.InClause(scenarioTransactionIDs)
-	rows, err := q.QueryContext(ctx, `
-		SELECT id, scenario_transaction_id, payable_link_id, allocated_amount, created_at
-		FROM scenario_transaction_realizations
-		WHERE scenario_transaction_id IN (`+in+`)
-		ORDER BY created_at DESC`, args...)
+	rows, err := q.QueryContext(ctx,
+		allocationSelect+` AND sr.scenario_transaction_id IN (`+in+`)
+		ORDER BY sr.created_at DESC`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var (
-			r                  ScenarioTransactionRealization
-			payableLinkID      sql.NullString
-			allocatedAmountRaw string
-			createdAtRaw       string
-		)
-		if err := rows.Scan(&r.ID, &r.ScenarioTransactionID, &payableLinkID, &allocatedAmountRaw, &createdAtRaw); err != nil {
-			return nil, err
-		}
-		if payableLinkID.Valid {
-			r.PayableLinkID = &payableLinkID.String
-		}
-		if r.AllocatedAmount, err = decimal.NewFromString(allocatedAmountRaw); err != nil {
-			return nil, err
-		}
-		if r.CreatedAt, err = db.ParseTime(createdAtRaw); err != nil {
+		r, err := scanAllocation(rows.Scan)
+		if err != nil {
 			return nil, err
 		}
 		result[r.ScenarioTransactionID] = append(result[r.ScenarioTransactionID], r)

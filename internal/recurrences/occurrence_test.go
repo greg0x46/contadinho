@@ -38,7 +38,7 @@ func baseCommitment(t *testing.T) recurrences.RecurringCommitment {
 
 func TestOccurrencesInRangeClampsDayInShortMonths(t *testing.T) {
 	c := baseCommitment(t)
-	occurrences := recurrences.OccurrencesInRange(c, date(t, "2026-01-01"), date(t, "2026-03-31"))
+	occurrences := c.Occurrences(date(t, "2026-01-01"), date(t, "2026-03-31"))
 	if len(occurrences) != 3 {
 		t.Fatalf("expected 3 occurrences, got %d", len(occurrences))
 	}
@@ -54,7 +54,7 @@ func TestOccurrencesInRangeRespectsStartAndEndDate(t *testing.T) {
 	end := date(t, "2026-05-20")
 	c.EndDate = &end
 
-	occurrences := recurrences.OccurrencesInRange(c, date(t, "2026-01-01"), date(t, "2026-12-31"))
+	occurrences := c.Occurrences(date(t, "2026-01-01"), date(t, "2026-12-31"))
 	if len(occurrences) != 3 {
 		t.Fatalf("expected occurrences for Mar/Apr/May only, got %d", len(occurrences))
 	}
@@ -66,7 +66,7 @@ func TestOccurrencesInRangeRespectsStartAndEndDate(t *testing.T) {
 func TestOccurrencesInRangeInactiveCommitmentYieldsNone(t *testing.T) {
 	c := baseCommitment(t)
 	c.IsActive = false
-	occurrences := recurrences.OccurrencesInRange(c, date(t, "2026-01-01"), date(t, "2026-12-31"))
+	occurrences := c.Occurrences(date(t, "2026-01-01"), date(t, "2026-12-31"))
 	if len(occurrences) != 0 {
 		t.Errorf("expected no occurrences for an inactive commitment, got %d", len(occurrences))
 	}
@@ -79,7 +79,7 @@ func TestOccurrencesInRangeAnnualCadenceOnlyEmitsInConfiguredMonth(t *testing.T)
 	c.MonthOfYear = &month
 	c.DayOfMonth = 10
 
-	occurrences := recurrences.OccurrencesInRange(c, date(t, "2026-01-01"), date(t, "2027-12-31"))
+	occurrences := c.Occurrences(date(t, "2026-01-01"), date(t, "2027-12-31"))
 	if len(occurrences) != 2 {
 		t.Fatalf("expected 2 yearly occurrences, got %d", len(occurrences))
 	}
@@ -92,7 +92,7 @@ func TestOccurrencesInRangeAnnualCadenceOnlyEmitsInConfiguredMonth(t *testing.T)
 
 func TestOccurrencesInRangeExpectedAmountMatchesCommitment(t *testing.T) {
 	c := baseCommitment(t)
-	occurrences := recurrences.OccurrencesInRange(c, date(t, "2026-01-01"), date(t, "2026-01-31"))
+	occurrences := c.Occurrences(date(t, "2026-01-01"), date(t, "2026-01-31"))
 	if len(occurrences) != 1 {
 		t.Fatalf("expected 1 occurrence, got %d", len(occurrences))
 	}

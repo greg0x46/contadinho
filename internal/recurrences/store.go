@@ -17,9 +17,9 @@ import (
 // matching row.
 var ErrNotFound = errors.New("recurring commitment not found")
 
-// ErrLinkedToAutomationRule is returned by Delete when the commitment is
-// still targeted by an automation rule's reconcile action (ON DELETE
-// RESTRICT on automation_rule_actions.recurring_commitment_id).
+// ErrLinkedToAutomationRule is returned by Delete when the scenario is still
+// targeted by an automation rule's reconcile action (ON DELETE RESTRICT on
+// automation_rule_actions.scenario_id).
 var ErrLinkedToAutomationRule = errors.New("recurring commitment is targeted by an automation rule's reconcile action")
 
 // Querier is satisfied by both *sql.DB and *sql.Tx.
@@ -36,8 +36,17 @@ const dateLayout = "2006-01-02"
 func formatDate(t time.Time) string         { return t.UTC().Format(dateLayout) }
 func parseDate(s string) (time.Time, error) { return time.Parse(dateLayout, s) }
 
-const columns = `id, name, kind, amount, category_id, account_id,
-	cadence, day_of_month, month_of_year, start_date, end_date, is_active, created_at, updated_at`
+// A recurring commitment is a Scenario of kind 'recurring' plus its row in
+// scenario_recurring_schedules: identity, name and activation on the scenario,
+// cash flow and calendar on the schedule. The two are always written together,
+// so every read here is that join.
+const selectCommitment = `
+	SELECT s.id, s.name, r.cashflow_kind, r.amount, COALESCE(r.category_id, ''), r.account_id,
+	       r.cadence, r.day_of_month, r.month_of_year, r.start_date, r.end_date,
+	       s.is_active, s.created_at, s.updated_at
+	FROM scenarios s
+	JOIN scenario_recurring_schedules r ON r.scenario_id = s.id
+	WHERE s.kind = 'recurring'`
 
 // Write is the fields a create/update request supplies.
 type Write struct {
@@ -54,9 +63,15 @@ type Write struct {
 	IsActive    bool
 }
 
-// Create inserts a new recurring commitment in one transaction. Callers are
-// responsible for calling RecurringCommitment.Validate() first (the HTTP
-// layer does this before ever reaching the store).
+// Create inserts a new recurring Scenario and its schedule in one
+// transaction. Callers are responsible for calling
+// RecurringCommitment.Validate() first (the HTTP layer does this before ever
+// reaching the store).
+//
+// It returns the struct it wrote rather than reading the row back, because a
+// create is the one write that supplies every field — including the
+// timestamps. Update and SetActive do read back, for the mirror reason: they
+// receive a partial write and would otherwise have to invent CreatedAt.
 func Create(ctx context.Context, conn *sql.DB, write Write) (RecurringCommitment, error) {
 	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
@@ -71,32 +86,27 @@ func Create(ctx context.Context, conn *sql.DB, write Write) (RecurringCommitment
 		DayOfMonth: write.DayOfMonth, MonthOfYear: write.MonthOfYear, StartDate: write.StartDate,
 		EndDate: write.EndDate, IsActive: write.IsActive, CreatedAt: now, UpdatedAt: now,
 	}
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO recurring_commitments (`+columns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.ID, c.Name, string(c.Kind), money.CanonicalDecimal(c.Amount),
-		c.CategoryID, c.AccountID, string(c.Cadence), c.DayOfMonth, c.MonthOfYear,
-		formatDate(c.StartDate), formatDatePtr(c.EndDate), boolToInt(c.IsActive),
-		db.FormatTime(now), db.FormatTime(now),
-	)
-	if err != nil {
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO scenarios (id, kind, name, payable_id, is_active, is_accounting_source, created_at, updated_at)
+		VALUES (?, 'recurring', ?, NULL, ?, 0, ?, ?)`,
+		c.ID, c.Name, boolToInt(c.IsActive), db.FormatTime(now), db.FormatTime(now),
+	); err != nil {
 		return RecurringCommitment{}, err
 	}
-	if err := createScenarioProjection(ctx, tx, c); err != nil {
+	if err := insertSchedule(ctx, tx, c); err != nil {
 		return RecurringCommitment{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return RecurringCommitment{}, err
 	}
-	// Return the compatibility DTO enriched with its canonical Scenario ID;
-	// old callers ignore the optional field, while new automation clients can
-	// target the scenario immediately after creation.
-	return Get(ctx, conn, c.ID)
+	return c, nil
 }
 
-// Update replaces every field of an existing commitment, including its
-// condition list (cleared and reinserted, same as internal/automation's
-// Update).
+// Update replaces every field of an existing commitment: the name and
+// activation on the Scenario, the cash flow and calendar on its schedule.
+// The schedule is one row per scenario, so it is updated in place — there is
+// no list to rebuild, and an UPDATE cannot leave the commitment scheduleless
+// the way a delete followed by a failing insert could.
 func Update(ctx context.Context, conn *sql.DB, id string, write Write) (RecurringCommitment, error) {
 	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
@@ -105,76 +115,82 @@ func Update(ctx context.Context, conn *sql.DB, id string, write Write) (Recurrin
 	defer tx.Rollback()
 
 	now := time.Now().UTC()
+	c := RecurringCommitment{
+		ID: id, Name: write.Name, Kind: write.Kind, Amount: write.Amount,
+		CategoryID: write.CategoryID, AccountID: write.AccountID, Cadence: write.Cadence,
+		DayOfMonth: write.DayOfMonth, MonthOfYear: write.MonthOfYear, StartDate: write.StartDate,
+		EndDate: write.EndDate, IsActive: write.IsActive, UpdatedAt: now,
+	}
 	res, err := tx.ExecContext(ctx, `
-		UPDATE recurring_commitments SET
-			name = ?, kind = ?, amount = ?, category_id = ?, account_id = ?,
-			cadence = ?, day_of_month = ?, month_of_year = ?, start_date = ?, end_date = ?, is_active = ?,
-			updated_at = ?
-		WHERE id = ?`,
-		write.Name, string(write.Kind), money.CanonicalDecimal(write.Amount),
-		write.CategoryID, write.AccountID, string(write.Cadence), write.DayOfMonth, write.MonthOfYear,
-		formatDate(write.StartDate), formatDatePtr(write.EndDate), boolToInt(write.IsActive),
-		db.FormatTime(now), id,
-	)
+		UPDATE scenarios SET name = ?, is_active = ?, updated_at = ?
+		WHERE id = ? AND kind = 'recurring'`,
+		c.Name, boolToInt(c.IsActive), db.FormatTime(now), id)
 	if err != nil {
 		return RecurringCommitment{}, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return RecurringCommitment{}, ErrNotFound
 	}
-	if err := syncScenarioProjection(ctx, tx, RecurringCommitment{
-		ID: id, Name: write.Name, Kind: write.Kind, Amount: write.Amount,
-		CategoryID: write.CategoryID, AccountID: write.AccountID, Cadence: write.Cadence,
-		DayOfMonth: write.DayOfMonth, MonthOfYear: write.MonthOfYear, StartDate: write.StartDate,
-		EndDate: write.EndDate, IsActive: write.IsActive, UpdatedAt: now,
-	}); err != nil {
+	res, err = tx.ExecContext(ctx, `
+		UPDATE scenario_recurring_schedules SET
+			cashflow_kind = ?, amount = ?, category_id = ?, account_id = ?, cadence = ?,
+			day_of_month = ?, month_of_year = ?, start_date = ?, end_date = ?
+		WHERE scenario_id = ?`,
+		string(c.Kind), money.CanonicalDecimal(c.Amount), c.CategoryID, c.AccountID,
+		string(c.Cadence), c.DayOfMonth, c.MonthOfYear, formatDate(c.StartDate),
+		formatDatePtr(c.EndDate), id,
+	)
+	if err != nil {
 		return RecurringCommitment{}, err
+	}
+	// A recurring Scenario whose schedule row is missing is not updatable —
+	// it is the same half-formed state loadSchedules refuses to project. Left
+	// unchecked this would commit the name change, then fail on the read-back
+	// below, reporting a 404 for a write that already happened.
+	if n, _ := res.RowsAffected(); n == 0 {
+		return RecurringCommitment{}, ErrNotFound
 	}
 	if err := tx.Commit(); err != nil {
 		return RecurringCommitment{}, err
 	}
+	// CreatedAt is the one field the write does not carry, so it comes from
+	// the row rather than being invented here.
 	return Get(ctx, conn, id)
 }
 
 // SetActive toggles is_active without touching any other field.
 func SetActive(ctx context.Context, q Querier, id string, isActive bool) (RecurringCommitment, error) {
-	now := db.FormatTime(time.Now())
-	res, err := q.ExecContext(ctx, `UPDATE recurring_commitments SET is_active = ?, updated_at = ? WHERE id = ?`,
-		boolToInt(isActive), now, id)
+	res, err := q.ExecContext(ctx, `
+		UPDATE scenarios SET is_active = ?, updated_at = ?
+		WHERE id = ? AND kind = 'recurring'`,
+		boolToInt(isActive), db.FormatTime(time.Now().UTC()), id)
 	if err != nil {
 		return RecurringCommitment{}, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return RecurringCommitment{}, ErrNotFound
 	}
-	if err := setScenarioProjectionActive(ctx, q, id, isActive); err != nil {
-		return RecurringCommitment{}, err
-	}
+	// Like Update: the caller supplied only the flag, so the rest of the
+	// commitment is read back rather than assumed.
 	return Get(ctx, q, id)
 }
 
-// Delete removes a commitment. Fails with ErrLinkedToAutomationRule if an
-// automation rule's reconcile action still targets it (ON DELETE RESTRICT
-// on automation_rule_actions.recurring_commitment_id) — remove or repoint
-// that rule's action first.
+// Delete removes a recurring Scenario, cascading its schedule and every
+// occurrence decision recorded against it. Fails with
+// ErrLinkedToAutomationRule if an automation rule's reconcile action still
+// targets it (ON DELETE RESTRICT on automation_rule_actions.scenario_id) —
+// remove or repoint that rule's action first.
 func Delete(ctx context.Context, q Querier, id string) error {
-	// New automation rules may retain only the canonical scenario_id. Check
-	// both target columns so the legacy endpoint reports the same actionable
-	// conflict regardless of which API created the rule.
 	var linked int
 	if err := q.QueryRowContext(ctx, `
-		SELECT COUNT(1)
-		FROM automation_rule_actions a
-		LEFT JOIN recurring_commitment_scenario_map m
-		  ON m.scenario_id = a.scenario_id
-		WHERE a.action_type = 'reconcile'
-		  AND (a.recurring_commitment_id = ? OR m.recurring_commitment_id = ?)`, id, id).Scan(&linked); err != nil {
+		SELECT COUNT(1) FROM automation_rule_actions
+		WHERE action_type = 'reconcile' AND scenario_id = ?`, id).Scan(&linked); err != nil {
 		return err
 	}
 	if linked > 0 {
 		return ErrLinkedToAutomationRule
 	}
-	res, err := q.ExecContext(ctx, `DELETE FROM recurring_commitments WHERE id = ?`, id)
+	res, err := q.ExecContext(ctx, `DELETE FROM scenarios WHERE id = ? AND kind = 'recurring'`, id)
 	if err != nil {
 		if db.IsForeignKeyViolation(err) {
 			return ErrLinkedToAutomationRule
@@ -239,9 +255,9 @@ func scanCommitment(scan func(dest ...any) error) (RecurringCommitment, error) {
 	return c, nil
 }
 
-// Get fetches a single commitment by id.
+// Get fetches a single commitment by its Scenario id.
 func Get(ctx context.Context, q Querier, id string) (RecurringCommitment, error) {
-	row := q.QueryRowContext(ctx, `SELECT `+columns+` FROM recurring_commitments WHERE id = ?`, id)
+	row := q.QueryRowContext(ctx, selectCommitment+` AND s.id = ?`, id)
 	c, err := scanCommitment(row.Scan)
 	if errors.Is(err, sql.ErrNoRows) {
 		return RecurringCommitment{}, ErrNotFound
@@ -249,22 +265,20 @@ func Get(ctx context.Context, q Querier, id string) (RecurringCommitment, error)
 	if err != nil {
 		return RecurringCommitment{}, err
 	}
-	if err := attachScenarioID(ctx, q, &c); err != nil {
-		return RecurringCommitment{}, err
-	}
 	return c, nil
 }
 
 func listWhere(ctx context.Context, q Querier, where string) ([]RecurringCommitment, error) {
-	query := `SELECT ` + columns + ` FROM recurring_commitments`
+	query := selectCommitment
 	if where != "" {
-		query += " WHERE " + where
+		query += " AND " + where
 	}
-	query += " ORDER BY name"
+	query += " ORDER BY s.name"
 	rows, err := q.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 	var commitments []RecurringCommitment
 	for rows.Next() {
 		c, err := scanCommitment(rows.Scan)
@@ -273,32 +287,7 @@ func listWhere(ctx context.Context, q Querier, where string) ([]RecurringCommitm
 		}
 		commitments = append(commitments, c)
 	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, err
-	}
-	rows.Close()
-	for i := range commitments {
-		if err := attachScenarioID(ctx, q, &commitments[i]); err != nil {
-			return nil, err
-		}
-	}
-	return commitments, nil
-}
-
-func attachScenarioID(ctx context.Context, q Querier, c *RecurringCommitment) error {
-	var scenarioID string
-	err := q.QueryRowContext(ctx,
-		`SELECT scenario_id FROM recurring_commitment_scenario_map WHERE recurring_commitment_id = ?`, c.ID,
-	).Scan(&scenarioID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	c.ScenarioID = &scenarioID
-	return nil
+	return commitments, rows.Err()
 }
 
 // List returns every commitment, ordered by name.
@@ -306,10 +295,10 @@ func List(ctx context.Context, q Querier) ([]RecurringCommitment, error) {
 	return listWhere(ctx, q, "")
 }
 
-// ListActive returns only commitments with is_active = 1 — the set
-// internal/timeline projects occurrences from.
+// ListActive returns only commitments whose Scenario is active — the set
+// internal/projections projects occurrences from.
 func ListActive(ctx context.Context, q Querier) ([]RecurringCommitment, error) {
-	return listWhere(ctx, q, "is_active = 1")
+	return listWhere(ctx, q, "s.is_active = 1")
 }
 
 func formatDatePtr(t *time.Time) any {
@@ -326,64 +315,13 @@ func boolToInt(b bool) int {
 	return 0
 }
 
-func createScenarioProjection(ctx context.Context, q Querier, c RecurringCommitment) error {
-	now := c.CreatedAt
-	scenarioID := uuid.NewString()
-	if _, err := q.ExecContext(ctx, `
-		INSERT INTO scenarios (id, kind, name, payable_id, is_active, is_accounting_source, created_at, updated_at)
-		VALUES (?, 'recurring', ?, NULL, ?, 0, ?, ?)`,
-		scenarioID, c.Name, boolToInt(c.IsActive), db.FormatTime(now), db.FormatTime(c.UpdatedAt),
-	); err != nil {
-		return err
-	}
-	if _, err := q.ExecContext(ctx, `
-		INSERT INTO recurring_commitment_scenario_map (recurring_commitment_id, scenario_id)
-		VALUES (?, ?)`, c.ID, scenarioID); err != nil {
-		return err
-	}
-	return insertScenarioSchedule(ctx, q, scenarioID, c)
-}
-
-func syncScenarioProjection(ctx context.Context, q Querier, c RecurringCommitment) error {
-	var scenarioID string
-	err := q.QueryRowContext(ctx,
-		`SELECT scenario_id FROM recurring_commitment_scenario_map WHERE recurring_commitment_id = ?`, c.ID,
-	).Scan(&scenarioID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if _, err := q.ExecContext(ctx,
-		`UPDATE scenarios SET name = ?, is_active = ?, updated_at = ? WHERE id = ?`,
-		c.Name, boolToInt(c.IsActive), db.FormatTime(c.UpdatedAt), scenarioID,
-	); err != nil {
-		return err
-	}
-	if _, err := q.ExecContext(ctx, `DELETE FROM scenario_recurring_schedules WHERE scenario_id = ?`, scenarioID); err != nil {
-		return err
-	}
-	return insertScenarioSchedule(ctx, q, scenarioID, c)
-}
-
-func setScenarioProjectionActive(ctx context.Context, q Querier, commitmentID string, active bool) error {
-	_, err := q.ExecContext(ctx, `
-		UPDATE scenarios SET is_active = ?, updated_at = ?
-		WHERE id = (SELECT scenario_id FROM recurring_commitment_scenario_map WHERE recurring_commitment_id = ?)`,
-		boolToInt(active), db.FormatTime(time.Now().UTC()), commitmentID,
-	)
-	return err
-}
-
-func insertScenarioSchedule(ctx context.Context, q Querier, scenarioID string, c RecurringCommitment) error {
-	categoryID := c.CategoryID
+func insertSchedule(ctx context.Context, q Querier, c RecurringCommitment) error {
 	_, err := q.ExecContext(ctx, `
 		INSERT INTO scenario_recurring_schedules (
 			scenario_id, cashflow_kind, amount, category_id, account_id, cadence,
 			day_of_month, month_of_year, start_date, end_date
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		scenarioID, string(c.Kind), money.CanonicalDecimal(c.Amount), categoryID, c.AccountID,
+		c.ID, string(c.Kind), money.CanonicalDecimal(c.Amount), c.CategoryID, c.AccountID,
 		string(c.Cadence), c.DayOfMonth, c.MonthOfYear, formatDate(c.StartDate), formatDatePtr(c.EndDate),
 	)
 	return err
