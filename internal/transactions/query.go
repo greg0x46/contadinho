@@ -69,10 +69,13 @@ type view struct {
 	included       bool
 	reason         *money.EligibilityReason
 	period         money.Period
-	// effectiveAt is the date period/matches bucket and filter this view by:
+	// effectiveAt is the date matches filters this view by — that is, the
+	// date that decides which requested period a transaction belongs to:
 	// row.occurredAt (the purchase date) normally, or — when the user's
 	// transactions.period_basis preference is "paid_at" and this is a credit
 	// card transaction — the date it's actually paid (see effectiveDate).
+	// Deciding period membership is all it does: period below buckets, and
+	// Query sorts, by the purchase date regardless of basis.
 	effectiveAt *time.Time
 }
 
@@ -272,7 +275,7 @@ func buildView(r row, query QueryRequest, periodBasis string, billDueDates map[s
 	included, reason := money.Eligibility(classification, r.providerStatus, effective, inclusionState)
 
 	effectiveAt := effectiveDate(r, periodBasis, billDueDates)
-	period, err := money.PeriodFor(effectiveAt, query.GroupBy, query.Timezone)
+	period, err := money.PeriodFor(r.occurredAt, query.GroupBy, query.Timezone)
 	if err != nil {
 		return view{}, err
 	}
@@ -411,14 +414,19 @@ func computeDateBounds(f Filters, timezone string) (*dateBounds, error) {
 }
 
 // Query mirrors query_transactions: it resolves every domain rule, filters,
-// sorts by effectiveAt desc — occurred_at for most transactions, but see
-// effectiveDate for the credit-card/paid_at case; sorting by the same date
-// period buckets by is what keeps each period's items contiguous in
-// filtered, which buildGroups' HasItemsBefore/HasItemsAfter relies on
-// (SQLite already treats NULL as least-than-any-value, so DESC naturally
-// sorts undated transactions last, matching the reference's explicit
-// nulls_last) — paginates, and computes per-bucket and overall currency
-// totals over eligible transactions only.
+// sorts by occurred_at (the purchase date) descending, paginates, and
+// computes per-bucket and overall currency totals over eligible transactions
+// only.
+//
+// Which period a transaction belongs to and how the list reads are two
+// separate questions, and the paid_at basis answers only the first. matches
+// filters by effectiveAt, so asking for August under that basis still means
+// "what you pay in August" — a July card purchase included. But the sort and
+// the buckets both key off occurred_at, so the list always runs newest
+// purchase first and each period's items stay contiguous in filtered, which
+// buildGroups' HasItemsBefore/HasItemsAfter relies on. (SQLite already treats
+// NULL as less-than-any-value, so DESC naturally sorts undated transactions
+// last, matching the reference's explicit nulls_last.)
 func Query(ctx context.Context, q Querier, query QueryRequest) (Result, error) {
 	if query.Page < 1 {
 		query.Page = 1
@@ -447,19 +455,19 @@ func Query(ctx context.Context, q Querier, query QueryRequest) (Result, error) {
 
 	sort.SliceStable(filtered, func(i, j int) bool {
 		a, b := filtered[i], filtered[j]
-		if a.effectiveAt == nil && b.effectiveAt == nil {
+		ao, bo := a.row.occurredAt, b.row.occurredAt
+		switch {
+		case ao == nil && bo == nil:
+			return a.row.id > b.row.id
+		case ao == nil:
+			return false // nil sorts last (equivalent to -infinity in DESC order)
+		case bo == nil:
+			return true
+		case !ao.Equal(*bo):
+			return ao.After(*bo)
+		default:
 			return a.row.id > b.row.id
 		}
-		if a.effectiveAt == nil {
-			return false // nil sorts last (equivalent to -infinity in DESC order)
-		}
-		if b.effectiveAt == nil {
-			return true
-		}
-		if !a.effectiveAt.Equal(*b.effectiveAt) {
-			return a.effectiveAt.After(*b.effectiveAt)
-		}
-		return a.row.id > b.row.id
 	})
 
 	totalItems := len(filtered)
