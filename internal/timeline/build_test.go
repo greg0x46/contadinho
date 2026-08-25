@@ -111,6 +111,74 @@ func TestBuildSeriesCreditCardEntryWithoutBillFallsBackToOccurredAt(t *testing.T
 	}
 }
 
+// A card purchase re-dated to a bill that already fell due lands outside
+// the window, where no DayPoint can carry it. Left in the series it would
+// not merely be an unrenderable row: buildPoints subtracts every entry
+// dated on or before the reference date when anchoring the balance, so this
+// one would be subtracted and never added back, lifting every point — and
+// the "menor saldo" the dashboard reports — above the real balance.
+func TestBuildSeriesEntryDatedBeforeWindowDoesNotShiftBalance(t *testing.T) {
+	f := newFixture(t)
+	f.addAccount("1000.00")
+	card := f.addCreditCardAccount("0")
+	f.addBill(card, "bill-1", "2026-08-10")
+	cat := categorySupermercado
+	metadata := `{"billId":"bill-1"}`
+	f.addTransaction(txn{
+		AccountID: card, Amount: "-800.00", OccurredAt: date(t, "2026-08-05"),
+		CategoryID: &cat, CreditCardMetadata: &metadata,
+	})
+
+	series, err := timeline.BuildSeries(context.Background(), f.conn, timeline.BuildParams{
+		From: date(t, "2026-08-25"), To: date(t, "2026-09-30"), ReferenceDate: date(t, "2026-08-25"),
+	})
+	if err != nil {
+		t.Fatalf("BuildSeries: %v", err)
+	}
+	if len(series.Entries) != 0 {
+		t.Errorf("Entries = %d, want 0 (the bill fell due before the window)", len(series.Entries))
+	}
+	if !series.Points[0].Balance.Equal(series.StartingBalance) {
+		t.Errorf("first point balance = %s, want %s (StartingBalance)", series.Points[0].Balance, series.StartingBalance)
+	}
+	if !series.LowestBalance.Balance.Equal(series.StartingBalance) {
+		t.Errorf("LowestBalance = %s, want %s (nothing in the window moves it)",
+			series.LowestBalance.Balance, series.StartingBalance)
+	}
+}
+
+// The mirror image: a purchase made before the window is paid inside it, so
+// its bill has to reach the projection even though occurred_at never enters
+// the queried range.
+func TestBuildSeriesIncludesBillFromPurchaseBeforeWindow(t *testing.T) {
+	f := newFixture(t)
+	f.addAccount("1000.00")
+	card := f.addCreditCardAccount("0")
+	f.addBill(card, "bill-1", "2026-09-10")
+	cat := categorySupermercado
+	metadata := `{"billId":"bill-1"}`
+	f.addTransaction(txn{
+		AccountID: card, Amount: "-800.00", OccurredAt: date(t, "2026-08-05"),
+		CategoryID: &cat, CreditCardMetadata: &metadata,
+	})
+
+	series, err := timeline.BuildSeries(context.Background(), f.conn, timeline.BuildParams{
+		From: date(t, "2026-08-25"), To: date(t, "2026-09-30"), ReferenceDate: date(t, "2026-08-25"),
+	})
+	if err != nil {
+		t.Fatalf("BuildSeries: %v", err)
+	}
+	if len(series.Entries) != 1 {
+		t.Fatalf("Entries = %d, want 1 (the bill due inside the window)", len(series.Entries))
+	}
+	if !series.Entries[0].Date.Equal(date(t, "2026-09-10")) {
+		t.Errorf("Date = %s, want 2026-09-10", series.Entries[0].Date)
+	}
+	if series.LowestBalance.Balance.String() != "200" {
+		t.Errorf("LowestBalance = %s, want 200 (1000 starting balance minus the bill)", series.LowestBalance.Balance)
+	}
+}
+
 func TestBuildSeriesRealEntriesOnlyIncludesEligibleTransactions(t *testing.T) {
 	f := newFixture(t)
 	account := f.addAccount("1000.00")
