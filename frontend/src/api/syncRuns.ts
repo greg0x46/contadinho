@@ -1,5 +1,4 @@
 import {
-  parseSyncRun,
   parseSyncRunDetail,
   parseSyncRunList,
   type SyncRun,
@@ -7,11 +6,21 @@ import {
 } from "./contracts";
 import { requestJson } from "./client";
 
-export function createSyncRun(signal?: AbortSignal): Promise<SyncRun> {
+/**
+ * Starts a run per connection and returns the ones actually started. With no
+ * sourceId it covers every active connection, skipping any already syncing;
+ * it rejects with a conflict only when nothing at all could be started.
+ */
+export function createSyncRun(sourceId?: string, signal?: AbortSignal): Promise<SyncRun[]> {
   return requestJson(
     "/api/sync-runs",
-    { method: "POST", headers: { Accept: "application/json" }, signal },
-    parseSyncRun,
+    {
+      method: "POST",
+      headers: { Accept: "application/json", "content-type": "application/json" },
+      body: JSON.stringify(sourceId === undefined ? {} : { source_id: sourceId }),
+      signal,
+    },
+    parseSyncRunList,
     202,
   );
 }

@@ -60,6 +60,11 @@ func NewServer(db *sql.DB, frontend fs.FS, session *settings.Session) http.Handl
 	mux.HandleFunc("PUT /api/transactions/{id}/category", handleSetTransactionCategory(db))
 	mux.HandleFunc("GET /api/transactions/{id}/reconciliation", handleGetTransactionReconciliation(db))
 
+	mux.HandleFunc("GET /api/data-sources", handleListDataSources(db))
+	mux.HandleFunc("GET /api/data-sources/{id}", handleGetDataSource(db))
+	mux.HandleFunc("POST /api/data-sources", handleCreateDataSource(db))
+	mux.HandleFunc("PATCH /api/data-sources/{id}", handleUpdateDataSource(db))
+
 	mux.HandleFunc("POST /api/sync-runs", handleCreateSyncRun(db))
 	mux.HandleFunc("GET /api/sync-runs", handleListSyncRuns(db))
 	mux.HandleFunc("GET /api/sync-runs/{id}", handleGetSyncRun(db))

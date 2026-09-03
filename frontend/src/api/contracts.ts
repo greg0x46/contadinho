@@ -23,6 +23,9 @@ export type FailureStage = (typeof failureStages)[number];
 export interface SyncRun {
   id: string;
   status: SyncStatus;
+  /** Which connection this run refreshed — with several banks, a run means nothing without it. */
+  source_id: string;
+  source_name: string;
   started_at: string;
   finished_at: string | null;
   accounts_processed: number;
@@ -42,6 +45,22 @@ export interface SyncFailure {
 
 export interface SyncRunDetail extends SyncRun {
   failures: SyncFailure[];
+}
+
+/** One provider connection (a Pluggy item): the unit that owns accounts and syncs. */
+export interface DataSource {
+  id: string;
+  provider: string;
+  external_item_id: string;
+  /** The institution reported by the last sync; overwritten on every run. */
+  display_name: string | null;
+  /** The user's own name for the connection, which wins over display_name. */
+  label: string | null;
+  /** What to show: label, else display_name, else the raw item id. */
+  name: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Problem {
@@ -1241,6 +1260,9 @@ export function parseSyncRun(value: unknown): SyncRun {
     !isRecord(value) ||
     typeof value.id !== "string" ||
     !isUuid(value.id) ||
+    typeof value.source_id !== "string" ||
+    !isUuid(value.source_id) ||
+    typeof value.source_name !== "string" ||
     !syncStatuses.includes(value.status as SyncStatus) ||
     !isValidDate(value.started_at) ||
     !(value.finished_at === null || isValidDate(value.finished_at)) ||
@@ -1255,6 +1277,8 @@ export function parseSyncRun(value: unknown): SyncRun {
   return {
     id: value.id,
     status: value.status as SyncStatus,
+    source_id: value.source_id,
+    source_name: value.source_name,
     started_at: value.started_at,
     finished_at: value.finished_at,
     accounts_processed: value.accounts_processed,
@@ -1299,6 +1323,43 @@ export function parseSyncRunList(value: unknown): SyncRun[] {
     throw new TypeError("Lista de execuções inválida.");
   }
   return value.map(parseSyncRun);
+}
+
+export function parseDataSource(value: unknown): DataSource {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    !isUuid(value.id) ||
+    typeof value.provider !== "string" ||
+    typeof value.external_item_id !== "string" ||
+    !isNullableString(value.display_name) ||
+    !isNullableString(value.label) ||
+    typeof value.name !== "string" ||
+    typeof value.is_active !== "boolean" ||
+    !isValidDate(value.created_at) ||
+    !isValidDate(value.updated_at)
+  ) {
+    throw new TypeError("Conexão inválida.");
+  }
+
+  return {
+    id: value.id,
+    provider: value.provider,
+    external_item_id: value.external_item_id,
+    display_name: value.display_name,
+    label: value.label,
+    name: value.name,
+    is_active: value.is_active,
+    created_at: value.created_at,
+    updated_at: value.updated_at,
+  };
+}
+
+export function parseDataSourceList(value: unknown): DataSource[] {
+  if (!Array.isArray(value)) {
+    throw new TypeError("Lista de conexões inválida.");
+  }
+  return value.map(parseDataSource);
 }
 
 export const payableKinds = ["debt", "receivable"] as const;

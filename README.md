@@ -104,10 +104,12 @@ binário:
 
 - Go 1.26+
 - Node.js 24+
-- Uma conta na [Pluggy](https://pluggy.ai) com um client ID/secret e um
-  `item_id` da conta que você quer sincronizar — veja o guia da Pluggy
+- Uma conta na [Pluggy](https://pluggy.ai) com um client ID/secret e ao menos
+  um `item_id` da conta que você quer sincronizar — veja o guia da Pluggy
   [Get your API keys](https://docs.pluggy.ai/docs/get-your-api-keys), e a
-  seção [Open Finance & Pluggy](#open-finance--pluggy) abaixo.
+  seção [Open Finance & Pluggy](#open-finance--pluggy) abaixo. Bancos
+  adicionais são cadastrados depois, em `/open-banking`, colando o `item_id`
+  de cada um — o client ID/secret é o mesmo para todos.
 
 ### Rodar a build de produção (binário único)
 
