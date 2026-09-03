@@ -22,6 +22,12 @@ regra a um `recurrences.RecurringCommitment` sem afetar a transação
 diretamente — regras reconcile-only são puladas pelo fluxo normal de
 aplicação (`isReconcileOnlyRule`).
 
+`set_category` aceita qualquer categoria ativa, inclusive as de
+`kind='transfer'` — é assim que se tira transferências dos totais em
+massa, sem recorrer a `ignore` (ver contexto de Categorias). O seletor de
+categoria da recorrência, no mesmo formulário, segue escondendo as de
+transferência: um compromisso recorrente projeta receita ou despesa.
+
 A regra `reconcile` deixou de ser a palavra final: o usuário pode
 desconciliar uma ocorrência ou conciliá-la com outra transação, e essa
 decisão vence a regra na resolução (`recurrences.Reconciler`). A regra

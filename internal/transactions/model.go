@@ -83,6 +83,24 @@ type TotalsEligibility struct {
 	Reason   *money.EligibilityReason
 }
 
+// MovesCash reports whether this transaction moved real money in or out of
+// the account it sits on, which is not the same question as whether it counts
+// toward income/expense totals.
+//
+// The two answers diverge on exactly one case: a transaction categorized as a
+// transfer between the user's own accounts is kept out of the totals (both
+// legs would otherwise count the same money twice) while still being a real
+// withdrawal from the origin account — possibly to an account this app does
+// not track at all.
+//
+// Every consumer that reconstructs or projects a *balance* must filter on
+// this instead of on Included. Consumers that report income/expense flows —
+// Totals, SpendingByCategory, the financial report — must keep using
+// Included. See money.MovedCash for the rule itself.
+func (e TotalsEligibility) MovesCash() bool {
+	return e.Included || money.MovedCash(e.Reason)
+}
+
 // CardInfo is the subset of Pluggy's opaque credit_card_metadata JSON that's
 // useful for display: which card a purchase was made on, and — for
 // installment purchases — which parcela this row is.

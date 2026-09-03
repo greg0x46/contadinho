@@ -276,3 +276,116 @@ func TestBuildSeriesFirstNegativeWhenStartingBalanceIsAlreadyNegative(t *testing
 		t.Errorf("FirstNegative = %v, want 2026-08-15", series.FirstNegative)
 	}
 }
+
+// TestBuildSeriesKeepsTransferCategorizedCashMovement is the regression test
+// for the transfer rule's blast radius. A transfer category keeps a
+// transaction out of income/expense totals, but the money still left the
+// account — and buildPoints anchors the curve by subtracting past entries
+// from today's real balance, so dropping the entry makes every day *before*
+// it read short by the transfer's full amount. On an account-filtered series
+// the counterpart leg is not even in the set, so nothing cancels the error
+// out.
+func TestBuildSeriesKeepsTransferCategorizedCashMovement(t *testing.T) {
+	f := newFixture(t)
+	origin := f.addAccount("700.00")
+	transfer := categoryTransferencia
+	f.addTransaction(txn{
+		AccountID: origin, Amount: "-300.00", OccurredAt: date(t, "2026-08-10"),
+		CategoryID: &transfer,
+	})
+
+	series, err := timeline.BuildSeries(context.Background(), f.conn, timeline.BuildParams{
+		From: date(t, "2026-08-01"), To: date(t, "2026-08-20"), ReferenceDate: date(t, "2026-08-15"),
+		AccountIDs: []string{origin},
+	})
+	if err != nil {
+		t.Fatalf("BuildSeries: %v", err)
+	}
+
+	// 700 today, so 1000 before the 300 left on the 10th.
+	if got := series.Points[0].Balance.String(); got != "1000" {
+		t.Errorf("balance before the transfer = %s, want 1000 — the money really did leave the account", got)
+	}
+	last := series.Points[len(series.Points)-1]
+	if got := last.Balance.String(); got != "700" {
+		t.Errorf("balance after the transfer = %s, want 700", got)
+	}
+}
+
+// ...while an ignored transaction stays out: "ignored" says the row should
+// not be here at all (a reversal, a duplicate), so it never moved cash and
+// the anchor must not reverse it.
+func TestBuildSeriesStillDropsIgnoredTransactions(t *testing.T) {
+	f := newFixture(t)
+	account := f.addAccount("700.00")
+	id := f.addTransaction(txn{
+		AccountID: account, Amount: "-300.00", OccurredAt: date(t, "2026-08-10"),
+	})
+	f.exec(`INSERT INTO transaction_inclusion_decisions (transaction_id, state, revision, changed_at, origin)
+		VALUES (?, 'ignored', 1, ?, 'manual')`, id, "2026-08-11T00:00:00.000000000Z")
+
+	series, err := timeline.BuildSeries(context.Background(), f.conn, timeline.BuildParams{
+		From: date(t, "2026-08-01"), To: date(t, "2026-08-20"), ReferenceDate: date(t, "2026-08-15"),
+		AccountIDs: []string{account},
+	})
+	if err != nil {
+		t.Fatalf("BuildSeries: %v", err)
+	}
+	if got := series.Points[0].Balance.String(); got != "700" {
+		t.Errorf("balance = %s, want a flat 700 — an ignored transaction never moved cash", got)
+	}
+}
+
+// TestBuildSeriesDropsAnUnsettledTransfer is the other edge of the transfer
+// rule. MovesCash treats "transfer_category" as "the money really did leave
+// the account", so that reason must never be reached by a transaction the
+// provider has not settled — money.Eligibility checks the transfer category
+// last for exactly this reason. Reversing an unsettled transfer out of the
+// anchor made every day before it read high by its full amount.
+func TestBuildSeriesDropsAnUnsettledTransfer(t *testing.T) {
+	f := newFixture(t)
+	account := f.addAccount("700.00")
+	transfer := categoryTransferencia
+	id := f.addTransaction(txn{
+		AccountID: account, Amount: "-300.00", OccurredAt: date(t, "2026-08-10"),
+		CategoryID: &transfer,
+	})
+	f.exec(`UPDATE financial_transactions SET provider_status = 'PROCESSING' WHERE id = ?`, id)
+
+	series, err := timeline.BuildSeries(context.Background(), f.conn, timeline.BuildParams{
+		From: date(t, "2026-08-01"), To: date(t, "2026-08-20"), ReferenceDate: date(t, "2026-08-15"),
+		AccountIDs: []string{account},
+	})
+	if err != nil {
+		t.Fatalf("BuildSeries: %v", err)
+	}
+	if got := series.Points[0].Balance.String(); got != "700" {
+		t.Errorf("balance = %s, want a flat 700 — an unsettled transfer has not moved cash yet", got)
+	}
+}
+
+// ...and the same for a transfer whose movement type cannot be classified.
+// realEntries takes an entry's direction from the classification, not from
+// the value's sign, so an unclassified transfer used to be added as a credit:
+// the balance came out wrong by twice the amount rather than merely short.
+func TestBuildSeriesDropsAnUnclassifiedTransfer(t *testing.T) {
+	f := newFixture(t)
+	account := f.addAccount("700.00")
+	transfer := categoryTransferencia
+	id := f.addTransaction(txn{
+		AccountID: account, Amount: "-300.00", OccurredAt: date(t, "2026-08-10"),
+		CategoryID: &transfer,
+	})
+	f.exec(`UPDATE financial_transactions SET movement_type = 'SOMETHING_NEW' WHERE id = ?`, id)
+
+	series, err := timeline.BuildSeries(context.Background(), f.conn, timeline.BuildParams{
+		From: date(t, "2026-08-01"), To: date(t, "2026-08-20"), ReferenceDate: date(t, "2026-08-15"),
+		AccountIDs: []string{account},
+	})
+	if err != nil {
+		t.Fatalf("BuildSeries: %v", err)
+	}
+	if got := series.Points[0].Balance.String(); got != "700" {
+		t.Errorf("balance = %s, want a flat 700 — an unclassified movement has no direction to apply", got)
+	}
+}

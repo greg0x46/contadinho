@@ -13,6 +13,7 @@ import (
 	"os"
 
 	"contadinho-go/internal/automation"
+	"contadinho-go/internal/categories"
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/httpapi"
 	"contadinho-go/internal/payables"
@@ -36,6 +37,25 @@ func main() {
 		log.Fatalf("open database: %v", err)
 	}
 	defer conn.Close()
+
+	// Same-person transfers synced before that label was mapped (see
+	// categories.SourceCategoryMapping) still count as income in every total.
+	// The fix travels with the binary, not with the schema, so it runs here
+	// instead of as a migration: the mapping is Go code, and goose only has
+	// SQL migrations to apply. BackfillAutomatic never touches a transaction
+	// that already has a category, so running it on every start is a no-op
+	// once the old rows are done.
+	//
+	// Logged rather than fatal: this pass fixes how old rows are *reported*,
+	// so failing it is not a reason to refuse to start — and taking the
+	// binary down would also take down the HTTP server that is the only way
+	// to see what went wrong. The next start retries it.
+	if applied, err := categories.BackfillAutomatic(context.Background(), conn, categories.SamePersonTransferLabel); err != nil {
+		log.Printf("backfill %q categories failed, leaving those rows uncategorized: %v",
+			categories.SamePersonTransferLabel, err)
+	} else if applied > 0 {
+		log.Printf("categorized %d %q transactions as transfers", applied, categories.SamePersonTransferLabel)
+	}
 
 	frontend, err := webui.DistFS()
 	if err != nil {

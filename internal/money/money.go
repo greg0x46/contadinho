@@ -86,8 +86,12 @@ func isTruthyCurrency(s *string) bool {
 	return s != nil && *s != ""
 }
 
-// CategoryKind is the internal category's role, used for display and
-// category management only — it no longer affects totals eligibility.
+// CategoryKind is the internal category's role. Expense/Income are labels
+// only; Transfer is the one kind that carries a rule with it — a transaction
+// categorized as a transfer between the user's own accounts is excluded from
+// income/expense totals, because otherwise the same money is counted twice
+// (an outflow on the origin account and an inflow on the destination one).
+// See Eligibility for the exact scope of that exclusion.
 type CategoryKind string
 
 const (
@@ -106,6 +110,9 @@ const (
 	ReasonIneligibleStatus EligibilityReason = "ineligible_status"
 	ReasonMissingMoneyPair EligibilityReason = "missing_money_pair"
 	ReasonZeroValue        EligibilityReason = "zero_value"
+	// Listed last to match Eligibility's check order, which is load-bearing:
+	// see the ordering note there and MovedCash below.
+	ReasonTransferCategory EligibilityReason = "transfer_category"
 )
 
 var eligibleProviderStatuses = map[string]bool{"POSTED": true, "PENDING": true}
@@ -113,14 +120,46 @@ var eligibleProviderStatuses = map[string]bool{"POSTED": true, "PENDING": true}
 // Eligibility mirrors rules.eligibility: the checks run in a fixed order (an
 // ignored transaction is reported as "ignored" even if it would also fail a
 // later check), because only the first failing reason is ever shown to the
-// user. Category assignment plays no part here — categories exist to label a
-// transaction, not to gate whether it counts toward totals; only an explicit
-// "ignored" inclusion decision excludes a transaction that way.
+// user.
+//
+// Two things keep a transaction out of totals, and they are not the same
+// claim. An "ignored" inclusion decision means "this shouldn't be here at
+// all" (a reversal, a duplicate). A Transfer categoryKind means "this is
+// here, and it is real, but it is my own money moving between my own
+// accounts" — counting it would double-count the same money. Ignored is
+// checked first because it is the user's most explicit statement, and
+// because the frontend contract requires an ignored transaction to report
+// exactly "ignored" (see totals_eligibility in frontend/src/api/contracts.ts).
+//
+// The transfer check is deliberately *last*, after every check that asks
+// whether money moved at all. MovedCash reads ReasonTransferCategory as "the
+// money really did leave the account", so that reason must never be reached
+// by a transaction the later checks would have rejected: a transfer the
+// provider has not settled, or one whose movement type cannot be classified
+// into a direction, moved nothing yet, and reporting it as cash movement made
+// every day before it read wrong in the timeline and in net worth (a
+// PROCESSING transfer was reversed out of the anchor; an unclassified one was
+// reversed out with the sign flipped). Ordering it last makes
+// "transfer_category" mean exactly what MovedCash claims: otherwise eligible,
+// excluded only because both legs would count the same money twice.
+//
+// categoryKind is the kind of the transaction's assigned internal category,
+// or "" when it has none. Callers that compute *balances* rather than
+// income/expense flows must pass "" — the transfer rule is a reporting
+// decision and never corrects an account balance. See the comments at the
+// call sites in networth/backfill.go and transactions/cardtotal.go, which
+// pass Considered for the very same reason.
+//
+// Callers that receive an already-evaluated result instead of calling this
+// themselves face the same distinction, and must not read the boolean as
+// "this money did not move": see MovedCash below, and the
+// transactions.TotalsEligibility.MovesCash method built on it.
 func Eligibility(
 	classification Classification,
 	providerStatus *string,
 	money *EffectiveMoney,
 	inclusionState InclusionState,
+	categoryKind CategoryKind,
 ) (bool, *EligibilityReason) {
 	reason := func(r EligibilityReason) (bool, *EligibilityReason) { return false, &r }
 
@@ -139,7 +178,35 @@ func Eligibility(
 	if money.Value.IsZero() {
 		return reason(ReasonZeroValue)
 	}
+	// Last on purpose — see the ordering note above.
+	if categoryKind == Transfer {
+		return reason(ReasonTransferCategory)
+	}
 	return true, nil
+}
+
+// MovedCash reports whether a transaction Eligibility excluded still moved
+// real money in or out of the account it sits on.
+//
+// Only the transfer category does. Every other reason describes a
+// transaction that never moved cash in the first place (no amount, a zero
+// amount, an unclassified movement, a status the provider has not settled)
+// or one the user declared should not be here at all (ignored: a reversal, a
+// duplicate). A transfer is the odd one out precisely because it is real —
+// it is excluded from income/expense totals only to stop the same money
+// being counted on both legs, and the money still left the origin account.
+//
+// This only holds because Eligibility runs the transfer check last: a
+// transfer that would also fail one of those other checks is reported under
+// that check's reason instead, and so never claims to have moved cash.
+//
+// Anything reconstructing a *balance* from transactions must consult this
+// rather than the included flag, or every day before a transfer comes out
+// short by its full amount. That is the same trap the direct Eligibility
+// callers in networth/backfill.go and transactions/cardtotal.go sidestep by
+// passing an empty categoryKind.
+func MovedCash(reason *EligibilityReason) bool {
+	return reason != nil && *reason == ReasonTransferCategory
 }
 
 // CanonicalDecimal renders value the way the reference API does: fixed-point

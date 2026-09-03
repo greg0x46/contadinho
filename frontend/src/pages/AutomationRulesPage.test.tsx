@@ -18,6 +18,7 @@ const ruleId = "33333333-3333-4333-8333-333333333333";
 const reconcileRuleId = "66666666-6666-4666-8666-666666666666";
 const commitmentId = "55555555-5555-4555-8555-555555555555";
 const categoryId = "44444444-4444-4444-8444-444444444444";
+const transferCategoryId = "77777777-7777-4777-8777-777777777777";
 
 const rule: AutomationRule = {
   id: ruleId,
@@ -37,6 +38,20 @@ const category: Category = {
   is_active: true,
   icon: "home",
   color: "#495057",
+  created_at: "2026-07-30T12:00:00Z",
+  updated_at: "2026-07-30T12:00:00Z",
+};
+
+// A transfer category must be offered by the rule's set_category action (that
+// is how a transfer is kept out of totals without abusing "ignore") but never
+// by the recurring commitment, which projects an expense or an income.
+const transferCategory: Category = {
+  id: transferCategoryId,
+  name: "Transferência entre Contas Próprias",
+  kind: "transfer",
+  is_active: true,
+  icon: "swap",
+  color: "#2a78d6",
   created_at: "2026-07-30T12:00:00Z",
   updated_at: "2026-07-30T12:00:00Z",
 };
@@ -85,7 +100,7 @@ describe("AutomationRulesPage", () => {
       accounts: ["ultraviolet-black"],
       cards: ["1139", "2848"],
     });
-    vi.mocked(categoriesApi.listCategories).mockResolvedValue([category]);
+    vi.mocked(categoriesApi.listCategories).mockResolvedValue([category, transferCategory]);
     vi.mocked(recurringCommitmentsApi.listRecurringCommitments).mockResolvedValue([]);
     vi.mocked(automationRulesApi.listAutomationRules).mockResolvedValue([]);
   });
@@ -232,5 +247,42 @@ describe("AutomationRulesPage", () => {
       expect(automationRulesApi.deleteAutomationRule).toHaveBeenCalledWith(reconcileRuleId),
     );
     expect(recurringCommitmentsApi.deleteRecurringCommitment).not.toHaveBeenCalled();
+  });
+  it("offers a transfer category to set_category, so a transfer can be kept out of totals by rule", async () => {
+    const user = userEvent.setup();
+    vi.mocked(automationRulesApi.createAutomationRule).mockResolvedValue({
+      rule,
+      retroactive_apply: null,
+    });
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "Nova automação" }));
+    await user.type(screen.getByLabelText("Nome da automação"), "Transferências fora dos totais");
+    await user.click(screen.getByRole("checkbox", { name: "Ignorar transação" }));
+    await user.click(screen.getByRole("checkbox", { name: "Aplicar categoria" }));
+
+    await user.click(screen.getByRole("combobox", { name: "Categoria a aplicar" }));
+    await user.click(await screen.findByText("Transferência: Transferência entre Contas Próprias"));
+    await user.type(screen.getByLabelText("Valor"), "transferencia");
+    await user.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() =>
+      expect(automationRulesApi.createAutomationRule).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actions: [{ type: "set_category", scenario_id: null, category_id: transferCategoryId }],
+        }),
+      ),
+    );
+  });
+
+  it("keeps the transfer category out of the recurring commitment's own category select", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "Nova automação" }));
+    await user.click(screen.getByRole("checkbox", { name: "Ignorar transação" }));
+    await user.click(screen.getByRole("checkbox", { name: "Conciliar recorrência" }));
+
+    await user.click(screen.getByRole("combobox", { name: "Categoria" }));
+    expect(await screen.findByText("Moradia")).toBeInTheDocument();
+    expect(screen.queryByText("Transferência entre Contas Próprias")).not.toBeInTheDocument();
   });
 });

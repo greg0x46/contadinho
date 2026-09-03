@@ -22,6 +22,7 @@ export function inclusionOriginLabel(inclusion: TransactionItem["inclusion"]): s
 
 export const exclusionReasonLabel = {
   ignored: "Fora dos totais: transação ignorada",
+  transfer_category: "Fora dos totais: transferência entre contas próprias",
   unclassified: "Fora dos totais: tipo não classificado",
   ineligible_status: "Fora dos totais: situação não elegível",
   missing_money_pair: "Fora dos totais: valor e moeda incompletos",

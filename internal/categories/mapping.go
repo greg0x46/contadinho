@@ -1,12 +1,30 @@
 package categories
 
+// SamePersonTransferLabel is Pluggy's label (categoryId 04000000) for a
+// transfer between two accounts held by the same person — the provider
+// already recognizes these by matching the payer's and receiver's tax id.
+// Named because BackfillAutomatic has to address it explicitly.
+const SamePersonTransferLabel = "Same person transfer"
+
 // SourceCategoryMapping maps a provider's source_category label to the
-// internal category it is automatically assigned to. Kept verbatim from the
+// internal category it is automatically assigned to. Kept close to the
 // Python reference's app/categories/mapping.py (and duplicated again in this
-// project's 00004_categories.sql seed, per its own comment) — deliberately
-// excludes labels that indicate a transfer, investment, or credit-card
-// payment between the user's own accounts, since those must stay
-// uncategorized rather than be miscounted as expense/income.
+// project's 00004_categories.sql seed, per its own comment).
+//
+// A transfer between the user's own accounts is mapped here on purpose, to
+// the seeded transfer-kind category: money.Eligibility drops a transfer-kind
+// transaction out of income/expense totals (ReasonTransferCategory) while
+// TotalsEligibility.MovesCash keeps it in balance reconstruction, which is
+// exactly what "my own money changing banks" needs. Leaving it uncategorized
+// does the opposite — no category at all is eligible, so the same money lands
+// in the totals as income on one leg and expense on the other. That transfer
+// kind did not exist when this map was first ported, which is why the label
+// used to be excluded.
+//
+// The remaining self-directed labels ("Investments", "Third party
+// transfers", "Credit card payment") are still left out: each one needs its
+// own decision about which internal category it belongs to, and none of them
+// is simply a transfer between the user's own accounts.
 var SourceCategoryMapping = map[string]string{
 	"Groceries":                   "000433b6-3094-5a9c-87df-465b70574a4b",
 	"Alimentação":                 "12cdb9e7-3f28-5fcf-a675-a2195a732bf1",
@@ -46,4 +64,5 @@ var SourceCategoryMapping = map[string]string{
 	"Services":                    "aec4034c-f5a2-59a0-a1f9-1d737e4f1f3f",
 	"Tax on financial operations": "2231c10d-ff72-59af-9513-72516f9f452e",
 	"Cashback":                    "be4336bf-2090-58cd-babe-c7755e035619",
+	SamePersonTransferLabel:       "533d9187-99b6-542b-a2f3-6eb9cbb299ce", // Transferência entre Contas Próprias, kind=transfer
 }

@@ -135,4 +135,8 @@ func date(t *testing.T, s string) time.Time {
 const (
 	categorySupermercado = "000433b6-3094-5a9c-87df-465b70574a4b" // expense
 	categorySalario      = "3c5a9586-2a11-556d-b014-692ed51c3997" // income
+	// categoryTransferencia is the seeded "Transferência entre Contas
+	// Próprias" (00004_categories.sql): the one kind excluded from
+	// income/expense totals while still moving real cash.
+	categoryTransferencia = "533d9187-99b6-542b-a2f3-6eb9cbb299ce"
 )

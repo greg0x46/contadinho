@@ -131,7 +131,9 @@ func toOccurrenceDTO(resolved recurrences.Reconciliation) recurrenceOccurrenceDT
 // both sides, so if this layer accepted a transaction the Timeline rejects —
 // an ignored one, say — the same occurrence would read as "Conciliada
 // (automática)" on screen while still projecting in the report. The two
-// views would disagree about the same fact.
+// views would disagree about the same fact. That is also why the test is
+// MovesCash rather than Included: the Timeline moved to it for balance
+// correctness, and this layer has to move with it.
 func realItemsIn(ctx context.Context, conn *sql.DB, from, to time.Time) ([]transactions.Item, error) {
 	fromDate := money.Date{Year: from.Year(), Month: from.Month(), Day: from.Day()}
 	toDate := money.Date{Year: to.Year(), Month: to.Month(), Day: to.Day()}
@@ -147,7 +149,7 @@ func realItemsIn(ctx context.Context, conn *sql.DB, from, to time.Time) ([]trans
 	}
 	eligible := make([]transactions.Item, 0, len(result.Items))
 	for _, item := range result.Items {
-		if !item.TotalsEligibility.Included || item.EffectiveMoney == nil || item.OccurredAt == nil {
+		if !item.TotalsEligibility.MovesCash() || item.EffectiveMoney == nil || item.OccurredAt == nil {
 			continue
 		}
 		eligible = append(eligible, item)

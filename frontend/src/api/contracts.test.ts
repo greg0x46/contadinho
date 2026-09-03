@@ -81,6 +81,33 @@ describe("transaction inclusion contracts", () => {
     ).toMatchObject({ state: "ignored" });
   });
 
+  it("accepts a transfer-category exclusion, which stays considered", () => {
+    const payload = {
+      ...transactionResult,
+      items: [
+        {
+          ...transactionResult.items[0]!,
+          totals_eligibility: { included: false, reason: "transfer_category" },
+        },
+      ],
+    };
+    expect(parseTransactionQueryResult(payload)).toEqual(payload);
+  });
+
+  it("rejects a transfer-category exclusion that claims to be included", () => {
+    expect(() =>
+      parseTransactionQueryResult({
+        ...transactionResult,
+        items: [
+          {
+            ...transactionResult.items[0]!,
+            totals_eligibility: { included: true, reason: "transfer_category" },
+          },
+        ],
+      }),
+    ).toThrow();
+  });
+
   it.each([
     {
       ...transactionResult,

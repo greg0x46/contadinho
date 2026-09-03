@@ -108,6 +108,25 @@ describe("TransactionDetailDrawer", () => {
     expect(await screen.findByText("Fora dos totais: tipo não classificado")).toBeVisible();
   });
 
+  it("renders the transfer-category exclusion reason, with the transaction still considered", async () => {
+    const user = userEvent.setup();
+    renderWithRouter(
+      <TransactionDetailDrawer
+        item={{
+          ...transactionResult.items[0]!,
+          inclusion: { state: "considered", changed_at: null, origin: "manual", rule_name: null },
+          totals_eligibility: { included: false, reason: "transfer_category" },
+        }}
+        categories={activeCategories}
+        onClose={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByText("Informações técnicas"));
+    expect(
+      await screen.findByText("Fora dos totais: transferência entre contas próprias"),
+    ).toBeVisible();
+  });
+
   it("shows Sem categoria as a placeholder when no internal category is assigned", () => {
     renderWithRouter(
       <TransactionDetailDrawer

@@ -7,6 +7,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	"contadinho-go/internal/categories"
 	"contadinho-go/internal/money"
 	"contadinho-go/internal/transactions"
 )
@@ -30,8 +31,10 @@ func TestQueryEligibilityAndTotals(t *testing.T) {
 	})
 	f.setCategory(inflowID, categorySalario)
 
-	// Uncategorized: categories only label a transaction, they don't gate
-	// totals eligibility, so this still counts toward the outflow total.
+	// Uncategorized: having no category never gates totals eligibility, so
+	// this still counts toward the outflow total. The transfer kind is the
+	// one exception where a category does gate — see
+	// TestQueryExcludesTransferCategoryFromTotals.
 	uncategorizedID := f.addTransaction(txn{
 		AccountID: acc, Description: strp("Sem categoria"), Amount: strp("-5.00"),
 		AmountInAccountCurrency: strp("-5.00"), CurrencyCode: strp("BRL"),
@@ -273,4 +276,179 @@ func mustDecimal(t *testing.T, s string) *decimal.Decimal {
 		t.Fatal(err)
 	}
 	return &d
+}
+
+// TestQueryExcludesTransferCategoryFromTotals covers the double-counting this
+// rule exists to stop: the same money leaving one tracked account and landing
+// on another would otherwise show up as both an expense and an income of the
+// full amount. Both legs must drop out of the totals while staying in the
+// list — the money really did move, and hiding the rows would misrepresent
+// the ledger.
+func TestQueryExcludesTransferCategoryFromTotals(t *testing.T) {
+	f := newFixture(t)
+	origin := f.addAccount(account{CurrencyCode: strp("BRL")})
+	destination := f.addAccount(account{CurrencyCode: strp("BRL")})
+	occurred := time.Now().UTC()
+
+	groceries := f.addTransaction(txn{
+		AccountID: origin, Description: strp("Mercado"), Amount: strp("-30.00"),
+		AmountInAccountCurrency: strp("-30.00"), CurrencyCode: strp("BRL"),
+		OccurredAt: &occurred, ProviderStatus: strp("POSTED"), MovementType: strp("DEBIT"),
+	})
+	f.setCategory(groceries, categorySupermercado)
+
+	sent := f.addTransaction(txn{
+		AccountID: origin, Description: strp("Transferencia enviada"), Amount: strp("-500.00"),
+		AmountInAccountCurrency: strp("-500.00"), CurrencyCode: strp("BRL"),
+		OccurredAt: &occurred, ProviderStatus: strp("POSTED"), MovementType: strp("DEBIT"),
+	})
+	f.setCategory(sent, categoryTransferencia)
+
+	received := f.addTransaction(txn{
+		AccountID: destination, Description: strp("Transferencia recebida"), Amount: strp("500.00"),
+		AmountInAccountCurrency: strp("500.00"), CurrencyCode: strp("BRL"),
+		OccurredAt: &occurred, ProviderStatus: strp("POSTED"), MovementType: strp("CREDIT"),
+	})
+	f.setCategory(received, categoryTransferencia)
+
+	result, err := transactions.Query(context.Background(), f.conn, transactions.QueryRequest{
+		Timezone: "UTC", GroupBy: money.GroupNone, Page: 1, PageSize: 50,
+	})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+
+	if len(result.Items) != 3 {
+		t.Fatalf("len(Items) = %d, want 3 — transfers stay in the ledger", len(result.Items))
+	}
+	if len(result.Totals) != 1 {
+		t.Fatalf("len(Totals) = %d, want 1", len(result.Totals))
+	}
+	totals := result.Totals[0]
+	if totals.Inflow != "0" || totals.Outflow != "30.00" || totals.Balance != "-30.00" {
+		t.Errorf("Totals = %+v, want only the groceries outflow", totals)
+	}
+
+	for _, item := range result.Items {
+		switch item.ID {
+		case sent, received:
+			if item.TotalsEligibility.Included {
+				t.Errorf("transfer %s should be excluded from totals", item.ID)
+			}
+			if item.TotalsEligibility.Reason == nil || *item.TotalsEligibility.Reason != money.ReasonTransferCategory {
+				t.Errorf("transfer %s: reason = %v, want %v", item.ID, item.TotalsEligibility.Reason, money.ReasonTransferCategory)
+			}
+			// The exclusion is a categorization outcome, not an inclusion
+			// decision — the inclusion state must stay untouched, or the
+			// user loses the distinction between "ignored" and "transfer".
+			if item.Inclusion.State != money.Considered {
+				t.Errorf("transfer %s: inclusion state = %v, want considered", item.ID, item.Inclusion.State)
+			}
+		case groceries:
+			if !item.TotalsEligibility.Included {
+				t.Errorf("groceries should still count toward totals")
+			}
+		}
+	}
+}
+
+// TestQueryExcludesAutomaticSamePersonTransferFromTotals runs the provider's
+// own label through the automatic mapping and out the other end of Query:
+// money the user moved between two of their own banks must stop counting as
+// income (both legs, so the pair nets to zero) without disappearing from the
+// ledger — MovesCash is what keeps it in the balance reconstruction that
+// timeline and net worth build on (see
+// timeline.TestBuildSeriesKeepsTransferCategorizedCashMovement).
+func TestQueryExcludesAutomaticSamePersonTransferFromTotals(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	origin := f.addAccount(account{CurrencyCode: strp("BRL")})
+	destination := f.addAccount(account{CurrencyCode: strp("BRL")})
+	occurred := time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC)
+	label := categories.SamePersonTransferLabel
+
+	salary := f.addTransaction(txn{
+		AccountID: destination, Description: strp("Salario"), Amount: strp("100.00"),
+		AmountInAccountCurrency: strp("100.00"), CurrencyCode: strp("BRL"),
+		OccurredAt: &occurred, ProviderStatus: strp("POSTED"), MovementType: strp("CREDIT"),
+	})
+	f.setCategory(salary, categorySalario)
+
+	sent := f.addTransaction(txn{
+		AccountID: origin, Description: strp("TED Itau -> Nubank"), Amount: strp("-1500.00"),
+		AmountInAccountCurrency: strp("-1500.00"), CurrencyCode: strp("BRL"),
+		OccurredAt: &occurred, ProviderStatus: strp("POSTED"), MovementType: strp("DEBIT"),
+		SourceCategory: &label,
+	})
+	received := f.addTransaction(txn{
+		AccountID: destination, Description: strp("TED recebida"), Amount: strp("1500.00"),
+		AmountInAccountCurrency: strp("1500.00"), CurrencyCode: strp("BRL"),
+		OccurredAt: &occurred, ProviderStatus: strp("POSTED"), MovementType: strp("CREDIT"),
+		SourceCategory: &label,
+	})
+	for _, id := range []string{sent, received} {
+		if err := categories.ApplyAutomatic(ctx, f.conn, id, &label); err != nil {
+			t.Fatalf("ApplyAutomatic(%s): %v", id, err)
+		}
+	}
+
+	result, err := transactions.Query(ctx, f.conn, transactions.QueryRequest{
+		Timezone: "UTC", GroupBy: money.GroupNone, Page: 1, PageSize: 50,
+	})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+
+	if len(result.Items) != 3 {
+		t.Fatalf("len(Items) = %d, want 3 — the transfer legs stay in the ledger", len(result.Items))
+	}
+	totals := result.Totals[0]
+	if totals.Inflow != "100.00" || totals.Outflow != "0" {
+		t.Errorf("Totals = %+v, want only the salary — the transfer is the user's own money", totals)
+	}
+
+	for _, item := range result.Items {
+		switch item.ID {
+		case sent, received:
+			if item.TotalsEligibility.Included {
+				t.Errorf("transfer leg %s should be excluded from totals", item.ID)
+			}
+			if item.TotalsEligibility.Reason == nil || *item.TotalsEligibility.Reason != money.ReasonTransferCategory {
+				t.Errorf("transfer leg %s: reason = %v, want %v", item.ID, item.TotalsEligibility.Reason, money.ReasonTransferCategory)
+			}
+			if !item.TotalsEligibility.MovesCash() {
+				t.Errorf("transfer leg %s: MovesCash() = false — the money really did change accounts", item.ID)
+			}
+		case salary:
+			if !item.TotalsEligibility.Included {
+				t.Errorf("salary should still count toward totals")
+			}
+		}
+	}
+}
+
+// TestSpendingByCategoryExcludesTransfers keeps transfers out of the
+// financial report's spending breakdown, which reads the same eligibility.
+func TestSpendingByCategoryExcludesTransfers(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(account{CurrencyCode: strp("BRL")})
+	occurred := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+
+	groceries := f.addTransaction(txn{AccountID: acc, Amount: strp("-30.00"), AmountInAccountCurrency: strp("-30.00"), CurrencyCode: strp("BRL"), OccurredAt: &occurred, ProviderStatus: strp("POSTED"), MovementType: strp("DEBIT")})
+	f.setCategory(groceries, categorySupermercado)
+	transfer := f.addTransaction(txn{AccountID: acc, Amount: strp("-500.00"), AmountInAccountCurrency: strp("-500.00"), CurrencyCode: strp("BRL"), OccurredAt: &occurred, ProviderStatus: strp("POSTED"), MovementType: strp("DEBIT")})
+	f.setCategory(transfer, categoryTransferencia)
+
+	from := money.Date{Year: 2026, Month: time.March, Day: 1}
+	to := money.Date{Year: 2026, Month: time.March, Day: 31}
+	items, err := transactions.SpendingByCategory(context.Background(), f.conn, transactions.Filters{DateFrom: &from, DateTo: &to}, "UTC")
+	if err != nil {
+		t.Fatalf("SpendingByCategory: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1 — the transfer must not appear as spending: %+v", len(items), items)
+	}
+	if items[0].Amount != "30.00" {
+		t.Errorf("Amount = %s, want 30.00", items[0].Amount)
+	}
 }

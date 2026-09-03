@@ -164,6 +164,7 @@ export interface TransactionItem {
     included: boolean;
     reason:
       | "ignored"
+      | "transfer_category"
       | "unclassified"
       | "ineligible_status"
       | "missing_money_pair"
@@ -450,6 +451,7 @@ function parseTransactionItem(value: unknown): TransactionItem {
   ]);
   const reasons = [
     "ignored",
+    "transfer_category",
     "unclassified",
     "ineligible_status",
     "missing_money_pair",

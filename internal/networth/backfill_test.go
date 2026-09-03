@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"contadinho-go/internal/categories"
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/networth"
 	"contadinho-go/internal/payables"
@@ -15,6 +16,17 @@ func (f *fixture) setIgnored(transactionID string) {
 	f.t.Helper()
 	if _, err := transactions.SetInclusion(context.Background(), f.conn, transactionID, "ignored", transactions.InclusionOriginManual, nil, nil, nil); err != nil {
 		f.t.Fatalf("SetInclusion: %v", err)
+	}
+}
+
+// categoryTransferencia is the seeded "Transferência entre Contas Próprias"
+// category (00004_categories.sql), the one kind that gates totals.
+const categoryTransferencia = "533d9187-99b6-542b-a2f3-6eb9cbb299ce"
+
+func (f *fixture) setCategory(transactionID, categoryID string) {
+	f.t.Helper()
+	if _, err := categories.AssignManual(context.Background(), f.conn, transactionID, categoryID); err != nil {
+		f.t.Fatalf("AssignManual: %v", err)
 	}
 }
 
@@ -245,4 +257,40 @@ func TestBackfillReconstructsPayablesDebtFromLinkedTransactionDate(t *testing.T)
 		t.Fatalf("no snapshot for paymentDay")
 	}
 	assertDecimalEqual(t, "paymentDay.PayablesDebt", onPaymentDay.Breakdown.PayablesDebt, "150")
+}
+
+// TestBackfillReversesTransferCategorizedTransactions is the guard rail for
+// the transfer rule's blast radius. Categorizing a transaction as a transfer
+// keeps it out of income/expense totals, but it must never reach balance
+// reconstruction: the money really did leave this account — possibly to an
+// account that isn't tracked at all — so today's synced balance already
+// reflects it, and every day before it has to reverse it out. If the rule
+// ever leaks into networth, each day before a transfer ends up off by its
+// full amount.
+func TestBackfillReversesTransferCategorizedTransactions(t *testing.T) {
+	f := newFixture(t)
+	accountID := f.addAccount("", "1000.00")
+
+	today := time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC)
+	twoDaysAgo := today.AddDate(0, 0, -2)
+	oneDayAgo := today.AddDate(0, 0, -1)
+
+	// An anchor on the older day, so twoDaysAgo is within backfill coverage.
+	// A day's snapshot only reverses what happened *after* it, so the
+	// transfer has to sit on the later day to be reversed out of this one.
+	f.addCardTransaction(accountID, twoDaysAgo, "-1.00", "DEBIT")
+
+	transferID := f.addCardTransaction(accountID, oneDayAgo, "-300.00", "DEBIT")
+	f.setCategory(transferID, categoryTransferencia)
+
+	if err := networth.Backfill(context.Background(), f.conn, today); err != nil {
+		t.Fatalf("Backfill: %v", err)
+	}
+
+	snap, ok := snapshotFor(t, f, twoDaysAgo)
+	if !ok {
+		t.Fatalf("no snapshot for twoDaysAgo")
+	}
+	// 1000 today + 300 reversed back out = 1300 before the transfer left.
+	assertDecimalEqual(t, "twoDaysAgo.CashBalance", snap.Breakdown.CashBalance, "1300")
 }

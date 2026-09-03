@@ -11,13 +11,22 @@ manual (ex.: ignorar um estorno ou duplicata) e categorização. Também
 expõe contas, cartões e investimentos — dados adjacentes servidos pelos
 mesmos handlers de apresentação.
 
+Categorizar como transferência entre contas próprias (`kind='transfer'`)
+também tira o lançamento dos totais, com motivo próprio
+(`transfer_category`) e sem marcá-lo como ignorado — ver a nota sobre as
+duas vias em `.specs/motores-de-dominio.md` seção 1.
+
 ## Backend
 
 - `internal/transactions` — `QueryRequest`/`Filters`/`Item`/`Page`/`Group`,
   mutação de inclusão/categoria.
 - `internal/money` — as regras que decidem o que conta pra total:
-  `Classify`, `SelectEffectiveMoney`, `Considered`/`Ignored`. Agnóstico de
-  origem (hoje só Pluggy popula, mas o motor em si não presume isso).
+  `Classify`, `SelectEffectiveMoney`, `Considered`/`Ignored`, e o
+  `CategoryKind` `transfer`. Agnóstico de origem (hoje só Pluggy popula,
+  mas o motor em si não presume isso). `Eligibility` recebe o kind da
+  categoria atribuída; quem calcula *saldo* em vez de fluxo passa `""` para
+  a regra de transferência não vazar (`networth/backfill.go`,
+  `transactions/cardtotal.go`).
 - Cartão de crédito (`cardflow.go`/`cardtotal.go`, vindos de
   `internal/payables`): `CardDueDates`/`ProjectedEntryDate` (a data em que
   uma compra no cartão vira saída de caixa — o vencimento da fatura, não o
