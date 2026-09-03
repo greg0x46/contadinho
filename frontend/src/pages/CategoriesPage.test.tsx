@@ -67,7 +67,6 @@ describe("CategoriesPage", () => {
         kind: "expense",
         icon: "ellipsis",
         color: "#2a78d6",
-        is_active: true,
       }),
     );
     expect(screen.queryByRole("button", { name: "Salvar" })).not.toBeInTheDocument();

@@ -49,7 +49,12 @@ export function CategoriesPage() {
           write: { name: draft.name, icon: draft.icon, color: draft.color, is_active: draft.is_active },
         });
       } else {
-        await categories.createCategory(draft);
+        await categories.createCategory({
+          name: draft.name,
+          kind: draft.kind,
+          icon: draft.icon,
+          color: draft.color,
+        });
       }
       setFormOpen(false);
     } catch (error) {
