@@ -7,6 +7,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 )
@@ -128,4 +129,81 @@ func TestPostgresPayablesMigrationPreservesData(t *testing.T) {
 			t.Errorf("expected table %s to be dropped, got err=%v", table, err)
 		}
 	}
+}
+
+// TestPostgresConnectionsMigrationCarriesTheConfiguredItem mirrors
+// TestConnectionsMigrationCarriesTheConfiguredItem on the other dialect,
+// where the id has to come from gen_random_uuid() rather than randomblob.
+func TestPostgresConnectionsMigrationCarriesTheConfiguredItem(t *testing.T) {
+	conn, provider := postgresMigrationProviderAt(t, 30)
+	ctx := context.Background()
+
+	mustExec(t, conn, `INSERT INTO settings (key, value, is_encrypted, updated_at)
+		VALUES ('pluggy.item_id', 'item-1', 0, '2026-01-01T00:00:00.000000000Z')`)
+
+	if _, err := provider.UpTo(ctx, 31); err != nil {
+		t.Fatalf("migrate up to 31: %v", err)
+	}
+
+	var id string
+	var isActive int
+	if err := conn.QueryRow(
+		`SELECT id, is_active FROM data_sources WHERE provider = 'pluggy' AND external_item_id = 'item-1'`,
+	).Scan(&id, &isActive); err != nil {
+		t.Fatalf("read carried-over connection: %v", err)
+	}
+	if isActive != 1 {
+		t.Errorf("is_active = %d, want the carried-over connection to keep syncing", isActive)
+	}
+	if _, err := uuid.Parse(id); err != nil {
+		t.Errorf("generated connection id %q is not a uuid: %v", id, err)
+	}
+
+	var leftover int
+	if err := conn.QueryRow(`SELECT COUNT(*) FROM settings WHERE key = 'pluggy.item_id'`).Scan(&leftover); err != nil {
+		t.Fatalf("count settings: %v", err)
+	}
+	if leftover != 0 {
+		t.Errorf("pluggy.item_id survived the migration; data_sources is the single source of truth now")
+	}
+}
+
+// postgresMigrationProviderAt resets the public schema and migrates it up to
+// version, skipping the test when no Postgres is configured.
+func postgresMigrationProviderAt(t *testing.T, version int64) (*sql.DB, *goose.Provider) {
+	t.Helper()
+	dsn := os.Getenv("CONTADINHO_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("CONTADINHO_TEST_POSTGRES_DSN not set; skipping Postgres integration test")
+	}
+
+	raw, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("open raw pgx connection: %v", err)
+	}
+	if _, err := raw.Exec("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"); err != nil {
+		raw.Close()
+		t.Fatalf("reset public schema: %v", err)
+	}
+	raw.Close()
+
+	connector, err := newPGConnector(dsn)
+	if err != nil {
+		t.Fatalf("new pg connector: %v", err)
+	}
+	conn := sql.OpenDB(connector)
+	t.Cleanup(func() { conn.Close() })
+
+	migrations, err := fs.Sub(postgresMigrationsFS, "migrations/postgres")
+	if err != nil {
+		t.Fatalf("root migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectPostgres, conn, migrations)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	if _, err := provider.UpTo(context.Background(), version); err != nil {
+		t.Fatalf("migrate up to %d: %v", version, err)
+	}
+	return conn, provider
 }

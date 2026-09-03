@@ -46,6 +46,24 @@ const (
 	ConstraintOneCompleteEventTransactionPostgres = "uq_scenario_realizations_one_complete_event_transaction"
 )
 
+// The partial unique index that allows one in-progress run per connection.
+// Hitting it is the expected answer to "sync this bank" while that bank is
+// already syncing, so the caller has to tell it apart from any other insert
+// failure on the same table.
+const (
+	ConstraintActiveSyncRunSQLite   = "sync_runs.source_id"
+	ConstraintActiveSyncRunPostgres = "uq_sync_runs_active_source"
+)
+
+// data_sources' UNIQUE (provider, external_item_id): the same Pluggy item may
+// only be registered once, since a second row would give its accounts a
+// second identity rather than a second connection. Postgres names the
+// implicit constraint after the table and columns; SQLite lists the columns.
+const (
+	ConstraintDataSourceItemSQLite   = "data_sources.external_item_id"
+	ConstraintDataSourceItemPostgres = "data_sources_provider_external_item_id_key"
+)
+
 // IsUniqueViolation reports whether err is a unique-constraint violation, so
 // a store can tell "someone else already claims this" apart from every other
 // insert failure — including the foreign-key violation an unknown parent id

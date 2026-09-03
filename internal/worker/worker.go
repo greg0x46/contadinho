@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"contadinho-go/internal/datasources"
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/pluggy"
 	"contadinho-go/internal/settings"
@@ -77,27 +78,27 @@ func ClaimNextRun(ctx context.Context, conn *sql.DB, workerID string) (syncRunID
 	return syncRunID, sourceID, true, nil
 }
 
-// pluggyCredentials reads the decrypted Pluggy config from settings; returns
-// ok=false if the session is locked or setup hasn't run yet, in which case
-// the caller should wait rather than fail the run.
-func pluggyCredentials(ctx context.Context, conn *sql.DB, session *settings.Session) (clientID, clientSecret, itemID string, ok bool) {
+// pluggyCredentials reads the decrypted Pluggy API credentials from settings;
+// returns ok=false if the session is locked or setup hasn't run yet, in which
+// case the caller should wait rather than fail the run.
+//
+// These are application-wide: every connection is an item under the same
+// Pluggy application. Which item a run covers is not read here — it comes
+// from the run's own source_id, see ProcessClaim.
+func pluggyCredentials(ctx context.Context, conn *sql.DB, session *settings.Session) (clientID, clientSecret string, ok bool) {
 	key, unlocked := session.Key()
 	if !unlocked {
-		return "", "", "", false
+		return "", "", false
 	}
 	clientID, found, err := settings.Get(ctx, conn, "pluggy.client_id", key)
 	if err != nil || !found {
-		return "", "", "", false
+		return "", "", false
 	}
 	clientSecret, found, err = settings.Get(ctx, conn, "pluggy.client_secret", key)
 	if err != nil || !found {
-		return "", "", "", false
+		return "", "", false
 	}
-	itemID, found, err = settings.Get(ctx, conn, "pluggy.item_id", nil)
-	if err != nil || !found {
-		return "", "", "", false
-	}
-	return clientID, clientSecret, itemID, true
+	return clientID, clientSecret, true
 }
 
 // ProcessClaim mirrors process_claim (minus the heartbeat-maintaining
@@ -105,14 +106,21 @@ func pluggyCredentials(ctx context.Context, conn *sql.DB, session *settings.Sess
 // but stuck — not needed here since a hung sync in this process would hang
 // the whole binary, which is its own, more visible, failure mode).
 func ProcessClaim(ctx context.Context, conn *sql.DB, session *settings.Session, cfg Config, syncRunID, sourceID string) error {
-	clientID, clientSecret, itemID, ok := pluggyCredentials(ctx, conn, session)
+	clientID, clientSecret, ok := pluggyCredentials(ctx, conn, session)
 	if !ok {
 		return fmt.Errorf("pluggy credentials unavailable (locked or not configured)")
+	}
+	// The item comes from the connection this run was created for, not from
+	// global config: with several connections registered, reading a single
+	// configured item id here would sync one bank's data into another's run.
+	source, err := datasources.Get(ctx, conn, sourceID)
+	if err != nil {
+		return fmt.Errorf("resolve data source %s: %w", sourceID, err)
 	}
 	pluggyConfig := cfg.Pluggy
 	pluggyConfig.ClientID = clientID
 	pluggyConfig.ClientSecret = clientSecret
-	pluggyConfig.ItemID = itemID
+	pluggyConfig.ItemID = source.ExternalItemID
 
 	writer := &syncsvc.RawImportWriter{DB: conn, SyncRunID: syncRunID, SourceID: sourceID}
 	adapter := pluggy.NewAdapter(pluggyConfig, writer, &http.Client{Timeout: pluggyConfig.ConnectTimeout + pluggyConfig.ReadTimeout})
@@ -150,7 +158,7 @@ func Run(ctx context.Context, conn *sql.DB, session *settings.Session, cfg Confi
 		// ClaimNextRun only looks at unclaimed rows. Waiting to claim until
 		// we can actually proceed keeps every claimed run either running or
 		// finished.
-		if _, _, _, ok := pluggyCredentials(ctx, conn, session); !ok {
+		if _, _, ok := pluggyCredentials(ctx, conn, session); !ok {
 			sleep(ctx, cfg.PollInterval)
 			continue
 		}

@@ -14,6 +14,7 @@ export function SyncRunHistory({ runs }: { runs: SyncRun[] }) {
       dataIndex: "started_at",
       render: (_, run) => <time dateTime={run.started_at}>{formatDate(run.started_at)}</time>,
     },
+    { title: "Conexão", dataIndex: "source_name" },
     {
       title: "Situação",
       dataIndex: "status",

@@ -230,9 +230,9 @@ func TestSetupAndUnlockFlow(t *testing.T) {
 }
 
 func TestSyncRunLifecycleOverHTTP(t *testing.T) {
-	srv, conn := newTestServer(t)
+	srv, _ := newTestServer(t)
 
-	// No item_id configured yet: creating a run should fail clearly rather
+	// No connection registered yet: creating a run should fail clearly rather
 	// than silently creating a data_source with an empty external_item_id.
 	resp := doJSON(t, http.MethodPost, srv.URL+"/api/sync-runs", nil)
 	resp.Body.Close()
@@ -240,22 +240,27 @@ func TestSyncRunLifecycleOverHTTP(t *testing.T) {
 		t.Fatalf("unconfigured create status = %d, want 409", resp.StatusCode)
 	}
 
-	if err := settings.Set(context.Background(), conn, "pluggy.item_id", "item-1", false, nil); err != nil {
-		t.Fatalf("Set item_id: %v", err)
-	}
+	registerConnection(t, srv, "item-1", nil)
 
 	resp = doJSON(t, http.MethodPost, srv.URL+"/api/sync-runs", nil)
 	if resp.StatusCode != 202 {
 		t.Fatalf("create status = %d, want 202", resp.StatusCode)
 	}
 	if loc := resp.Header.Get("Location"); loc == "" {
-		t.Error("expected a Location header")
+		t.Error("expected a Location header when exactly one run was started")
 	}
-	var created map[string]any
-	decodeJSON(t, resp, &created)
+	var createdRuns []map[string]any
+	decodeJSON(t, resp, &createdRuns)
+	if len(createdRuns) != 1 {
+		t.Fatalf("created %d runs, want 1", len(createdRuns))
+	}
+	created := createdRuns[0]
 	runID := created["id"].(string)
 	if created["status"] != "in_progress" {
 		t.Errorf("status = %v, want in_progress", created["status"])
+	}
+	if created["source_name"] != "item-1" {
+		t.Errorf("source_name = %v, want the item id a never-synced connection falls back to", created["source_name"])
 	}
 
 	// A second run while the first is still in_progress must conflict.

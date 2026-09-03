@@ -49,7 +49,7 @@ type accountDTO struct {
 }
 
 const accountSelectColumns = `
-	fa.id, fa.external_id, ds.display_name, fa.institution, fa.name, fa.number,
+	fa.id, fa.external_id, ` + connectionNameColumn + `, fa.institution, fa.name, fa.number,
 	fa.account_type, fa.account_subtype, fa.balance, fa.credit_limit,
 	fa.available_credit_limit, fa.currency_code, fa.balance_close_date,
 	fa.balance_due_date, fa.manual_closing_day, fa.provider_updated_at, fa.updated_at`

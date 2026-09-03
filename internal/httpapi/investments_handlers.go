@@ -47,7 +47,7 @@ type investmentDTO struct {
 }
 
 const investmentSelectColumns = `
-	fi.id, fi.external_id, ds.display_name, fi.investment_type, fi.subtype, fi.name,
+	fi.id, fi.external_id, ` + connectionNameColumn + `, fi.investment_type, fi.subtype, fi.name,
 	fi.balance, fi.currency_code, fi.quantity, fi.value, fi.amount, fi.amount_profit,
 	fi.amount_withdrawal, fi.rate, fi.rate_type, fi.fixed_annual_rate, fi.annual_rate,
 	fi.last_twelve_months_rate, fi.issuer, fi.due_date, fi.as_of_date, fi.provider_updated_at`

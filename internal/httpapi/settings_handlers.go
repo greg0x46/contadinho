@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"contadinho-go/internal/datasources"
 	"contadinho-go/internal/settings"
 )
 
@@ -33,11 +34,13 @@ type setupRequest struct {
 }
 
 // handleSetup runs the one-time setup screen: sets the passphrase that
-// derives the at-rest encryption key, and stores the initial Pluggy
-// credentials (client_id/client_secret encrypted, item_id plain — it
-// identifies a connection rather than authenticating one). It unlocks the
-// session immediately so sync can start without asking the user to re-enter
-// the password they just chose.
+// derives the at-rest encryption key, stores the Pluggy API credentials
+// encrypted, and registers the first connection. The credentials are
+// app-wide — every item lives under the same Pluggy application — while the
+// item id becomes a data_sources row, which is what later connections are
+// added as too (POST /api/data-sources). It unlocks the session immediately
+// so sync can start without asking the user to re-enter the password they
+// just chose.
 func handleSetup(db *sql.DB, session *settings.Session) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req setupRequest
@@ -69,7 +72,7 @@ func handleSetup(db *sql.DB, session *settings.Session) http.HandlerFunc {
 			writeProblem(w, 503, "setup-unavailable", "Configuração temporariamente indisponível", "Tente novamente em instantes.")
 			return
 		}
-		if err := settings.Set(r.Context(), db, "pluggy.item_id", req.PluggyItemID, false, nil); err != nil {
+		if _, err := datasources.Create(r.Context(), db, datasources.ProviderPluggy, req.PluggyItemID, nil); err != nil {
 			writeProblem(w, 503, "setup-unavailable", "Configuração temporariamente indisponível", "Tente novamente em instantes.")
 			return
 		}

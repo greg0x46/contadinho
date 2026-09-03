@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/pressly/goose/v3"
 )
 
@@ -393,4 +394,103 @@ func mustExec(t *testing.T, conn *sql.DB, query string, args ...any) {
 	if _, err := conn.Exec(query, args...); err != nil {
 		t.Fatalf("exec %q: %v", query, err)
 	}
+}
+
+// TestConnectionsMigrationCarriesTheConfiguredItem covers 00032's backfill:
+// the single item id the setup screen used to store in `settings` has to
+// become the first data_sources row, or an existing install would come out of
+// the upgrade with no connection at all and nothing left to sync.
+func TestConnectionsMigrationCarriesTheConfiguredItem(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		seedDataSource bool
+	}{
+		// Set up but never synced: nothing created the row lazily, so the
+		// migration is the only thing that can.
+		{name: "never synced", seedDataSource: false},
+		// Already synced at least once: handleCreateSyncRun made the row, and
+		// the backfill must not add a second one for the same item.
+		{name: "already synced", seedDataSource: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conn, provider := migrationProviderAt(t, 31)
+			ctx := context.Background()
+
+			mustExec(t, conn, `INSERT INTO settings (key, value, is_encrypted, updated_at)
+				VALUES ('pluggy.item_id', 'item-1', 0, '2026-01-01T00:00:00.000000000Z')`)
+			if tc.seedDataSource {
+				mustExec(t, conn, `INSERT INTO data_sources (id, provider, external_item_id, display_name, created_at, updated_at)
+					VALUES ('src1', 'pluggy', 'item-1', 'Banco de Exemplo', '2026-01-01T00:00:00.000000000Z', '2026-01-01T00:00:00.000000000Z')`)
+			}
+
+			if _, err := provider.UpTo(ctx, 32); err != nil {
+				t.Fatalf("migrate up to 32: %v", err)
+			}
+
+			var count int
+			var id string
+			var isActive int
+			if err := conn.QueryRow(
+				`SELECT COUNT(*) FROM data_sources WHERE provider = 'pluggy' AND external_item_id = 'item-1'`,
+			).Scan(&count); err != nil {
+				t.Fatalf("count connections: %v", err)
+			}
+			if count != 1 {
+				t.Fatalf("connections for the configured item = %d, want exactly 1", count)
+			}
+			if err := conn.QueryRow(
+				`SELECT id, is_active FROM data_sources WHERE external_item_id = 'item-1'`,
+			).Scan(&id, &isActive); err != nil {
+				t.Fatalf("read connection: %v", err)
+			}
+			if isActive != 1 {
+				t.Errorf("is_active = %d, want the carried-over connection to keep syncing", isActive)
+			}
+			if tc.seedDataSource {
+				if id != "src1" {
+					t.Errorf("connection id = %q, want the existing row to be reused", id)
+				}
+			} else if _, err := uuid.Parse(id); err != nil {
+				// The frontend rejects a non-uuid id, so a generated one has
+				// to look like the ones the app itself writes.
+				t.Errorf("generated connection id %q is not a uuid: %v", id, err)
+			}
+
+			var leftover int
+			if err := conn.QueryRow(`SELECT COUNT(*) FROM settings WHERE key = 'pluggy.item_id'`).Scan(&leftover); err != nil {
+				t.Fatalf("count settings: %v", err)
+			}
+			if leftover != 0 {
+				t.Errorf("pluggy.item_id survived the migration; data_sources is the single source of truth now")
+			}
+		})
+	}
+}
+
+// migrationProviderAt opens a fresh SQLite database migrated up to version,
+// mirroring openSQLite's single-connection pinning.
+func migrationProviderAt(t *testing.T, version int64) (*sql.DB, *goose.Provider) {
+	t.Helper()
+	conn, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	conn.SetMaxOpenConns(1)
+	if _, err := conn.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		t.Fatalf("enable foreign keys: %v", err)
+	}
+
+	migrations, err := fs.Sub(sqliteMigrationsFS, "migrations/sqlite")
+	if err != nil {
+		t.Fatalf("root migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, conn, migrations)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	if _, err := provider.UpTo(context.Background(), version); err != nil {
+		t.Fatalf("migrate up to %d: %v", version, err)
+	}
+	return conn, provider
 }

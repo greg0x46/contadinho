@@ -4,12 +4,17 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../api/problems";
-import { runId, syncRun } from "../test/fixtures";
+import { dataSource, runId, syncRun } from "../test/fixtures";
 import { QueryTestProvider } from "../test/QueryTestProvider";
 import { SyncRunListPage } from "./SyncRunListPage";
+import * as dataSourcesApi from "../api/dataSources";
 import * as syncRunsApi from "../api/syncRuns";
 
 vi.mock("../api/syncRuns");
+vi.mock("../api/dataSources");
+
+const secondRunId = "33333333-3333-4333-8333-333333333333";
+const secondSourceId = "44444444-4444-4444-8444-444444444444";
 
 function renderPage() {
   return render(
@@ -26,11 +31,12 @@ function renderPage() {
 
 beforeEach(() => {
   vi.mocked(syncRunsApi.listSyncRuns).mockResolvedValue([]);
+  vi.mocked(dataSourcesApi.listDataSources).mockResolvedValue([dataSource]);
 });
 
 describe("sync run creation", () => {
   it("locks synchronously, sends one request and navigates after 202", async () => {
-    let resolve!: (value: typeof syncRun) => void;
+    let resolve!: (value: (typeof syncRun)[]) => void;
     vi.mocked(syncRunsApi.createSyncRun).mockReturnValue(
       new Promise((done) => {
         resolve = done;
@@ -41,9 +47,36 @@ describe("sync run creation", () => {
     button.click();
     button.click();
     await waitFor(() => expect(syncRunsApi.createSyncRun).toHaveBeenCalledTimes(1));
-    resolve(syncRun);
+    resolve([syncRun]);
     expect(await screen.findByText("Detalhe aberto")).toBeInTheDocument();
   }, 15_000);
+
+  it("stays put and lists every run when several connections start at once", async () => {
+    const second = { ...syncRun, id: secondRunId, source_id: secondSourceId, source_name: "Empresa" };
+    vi.mocked(syncRunsApi.createSyncRun).mockResolvedValue([syncRun, second]);
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
+
+    expect(await screen.findByText("Sincronização iniciada em 2 conexões.")).toBeVisible();
+    expect(screen.getByRole("link", { name: /Conta pessoal/ })).toHaveAttribute(
+      "href",
+      `/open-banking/sync-runs/${runId}`,
+    );
+    expect(screen.getByRole("link", { name: /Empresa/ })).toHaveAttribute(
+      "href",
+      `/open-banking/sync-runs/${secondRunId}`,
+    );
+    expect(screen.queryByText("Detalhe aberto")).not.toBeInTheDocument();
+  });
+
+  it("syncs a single connection from the registry", async () => {
+    vi.mocked(syncRunsApi.createSyncRun).mockResolvedValue([syncRun]);
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: /Sincronizar$/ }));
+    await waitFor(() =>
+      expect(syncRunsApi.createSyncRun).toHaveBeenCalledWith(dataSource.id),
+    );
+  });
 
   it("shows an active-run link for a confirmed conflict", async () => {
     vi.mocked(syncRunsApi.createSyncRun).mockRejectedValue(
@@ -60,6 +93,23 @@ describe("sync run creation", () => {
       "href",
       `/open-banking/sync-runs/${runId}`,
     );
+  });
+
+  // The backend answers the same 409 whether every connection was busy or
+  // just the one asked for, so the notice has to know which was asked.
+  it("names the single connection in a conflict raised by its own sync button", async () => {
+    vi.mocked(syncRunsApi.createSyncRun).mockRejectedValue(
+      new ApiError("conflict", "Conflict", {
+        type: "/conflict",
+        title: "Conflict",
+        status: 409,
+        active_sync_run_id: runId,
+      }),
+    );
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: /Sincronizar$/ }));
+    expect(await screen.findByText("Essa conexão já está sincronizando.")).toBeVisible();
+    expect(screen.queryByText("Todas as conexões já estão sincronizando.")).not.toBeInTheDocument();
   });
 
   it("communicates uncertainty and permits retry", async () => {

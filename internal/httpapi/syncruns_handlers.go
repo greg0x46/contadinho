@@ -1,16 +1,19 @@
 package httpapi
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
+	"log"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 
+	"contadinho-go/internal/datasources"
 	"contadinho-go/internal/db"
-	"contadinho-go/internal/settings"
 )
 
 var resultMessages = map[string]string{
@@ -21,8 +24,12 @@ var resultMessages = map[string]string{
 }
 
 type syncRunDTO struct {
-	ID                   string     `json:"id"`
-	Status               string     `json:"status"`
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	// SourceID and SourceName say which connection the run refreshed — with
+	// several banks configured, a run is meaningless without it.
+	SourceID             string     `json:"source_id"`
+	SourceName           string     `json:"source_name"`
 	StartedAt            time.Time  `json:"started_at"`
 	FinishedAt           *time.Time `json:"finished_at"`
 	AccountsProcessed    int        `json:"accounts_processed"`
@@ -40,13 +47,25 @@ type syncFailureDTO struct {
 	OccurredAt            time.Time `json:"occurred_at"`
 }
 
-func scanSyncRun(row *sql.Row) (syncRunDTO, error) {
+// syncRunSelect joins the connection in so a run carries the name of what it
+// refreshed — with several banks configured, a run is meaningless without it.
+const syncRunSelect = `
+	SELECT sr.id, sr.status, sr.source_id, ` + connectionNameColumn + `,
+	       sr.started_at, sr.finished_at,
+	       sr.accounts_processed, sr.transactions_inserted, sr.transactions_updated
+	FROM sync_runs sr JOIN data_sources ds ON ds.id = sr.source_id`
+
+type syncRunRowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanSyncRun(row syncRunRowScanner) (syncRunDTO, error) {
 	var (
 		d             syncRunDTO
 		startedAtRaw  string
 		finishedAtRaw sql.NullString
 	)
-	if err := row.Scan(&d.ID, &d.Status, &startedAtRaw, &finishedAtRaw,
+	if err := row.Scan(&d.ID, &d.Status, &d.SourceID, &d.SourceName, &startedAtRaw, &finishedAtRaw,
 		&d.AccountsProcessed, &d.TransactionsInserted, &d.TransactionsUpdated); err != nil {
 		return syncRunDTO{}, err
 	}
@@ -62,44 +81,90 @@ func scanSyncRun(row *sql.Row) (syncRunDTO, error) {
 	return d, nil
 }
 
+func loadSyncRun(ctx context.Context, conn *sql.DB, id string) (syncRunDTO, error) {
+	return scanSyncRun(conn.QueryRowContext(ctx, syncRunSelect+` WHERE sr.id = ?`, id))
+}
+
+type createSyncRunRequest struct {
+	// SourceID names a single connection to refresh; empty (or an absent
+	// body) means every active one.
+	SourceID string `json:"source_id"`
+}
+
+// handleCreateSyncRun enqueues one run per connection, so "Sincronizar agora"
+// keeps meaning "refresh everything" now that there can be more than one bank.
+//
+// Partial success is the rule, not an accident. A connection already syncing
+// is skipped rather than failing the request — one busy bank must not stop the
+// others from refreshing — and a connection whose insert fails outright is
+// skipped the same way. That matters because the inserts are separate
+// statements: aborting mid-loop and answering 503 would leave the runs already
+// inserted in_progress, picked up by the worker, with the client told the
+// whole request failed. Wrapping the loop in one transaction is not the answer
+// either: a unique violation is the *expected* outcome for a busy connection,
+// and on Postgres that would poison the surrounding transaction and roll back
+// the connections that started perfectly well.
+//
+// So the response reports what actually started. Only when nothing started at
+// all does this fail, and then it distinguishes the two reasons: 503 if any
+// connection errored, 409 if every one of them was simply already syncing —
+// which is exactly the single-connection case the frontend's conflict notice
+// was written for, and where active_sync_run_id still points somewhere useful.
 func handleCreateSyncRun(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		itemID, found, err := settings.Get(r.Context(), conn, "pluggy.item_id", nil)
-		if err != nil {
-			writeProblem(w, 503, "sync-run-unavailable", "Sincronização temporariamente indisponível", "Tente novamente em instantes.")
-			return
-		}
-		if !found {
-			writeProblem(w, 409, "not-configured", "Aplicação ainda não configurada", "Complete a configuração inicial antes de sincronizar.")
+		var req createSyncRunRequest
+		if err := decodeStrict(r, &req); err != nil && !errors.Is(err, io.EOF) {
+			writeProblem(w, 422, "invalid-sync-run", "Solicitação inválida", "Revise os campos enviados.")
 			return
 		}
 
-		var sourceID string
-		err = conn.QueryRowContext(r.Context(),
-			`SELECT id FROM data_sources WHERE provider = 'pluggy' AND external_item_id = ?`, itemID,
-		).Scan(&sourceID)
-		if errors.Is(err, sql.ErrNoRows) {
-			sourceID = uuid.NewString()
-			now := db.FormatTime(time.Now())
-			_, err = conn.ExecContext(r.Context(),
-				`INSERT INTO data_sources (id, provider, external_item_id, created_at, updated_at) VALUES (?, 'pluggy', ?, ?, ?)`,
-				sourceID, itemID, now, now)
-		}
-		if err != nil {
-			writeProblem(w, 503, "sync-run-unavailable", "Sincronização temporariamente indisponível", "Tente novamente em instantes.")
+		targets, ok := syncRunTargets(w, r, conn, req.SourceID)
+		if !ok {
 			return
 		}
 
-		runID := uuid.NewString()
-		startedAt := db.FormatTime(time.Now())
-		_, err = conn.ExecContext(r.Context(),
-			`INSERT INTO sync_runs (id, source_id, status, started_at) VALUES (?, ?, 'in_progress', ?)`,
-			runID, sourceID, startedAt)
-		if err != nil {
-			var active sql.NullString
-			_ = conn.QueryRowContext(r.Context(),
-				`SELECT id FROM sync_runs WHERE source_id = ? AND status = 'in_progress'`, sourceID,
-			).Scan(&active)
+		created := []syncRunDTO{}
+		var active sql.NullString
+		failed, busy := 0, 0
+		for _, target := range targets {
+			runID := uuid.NewString()
+			_, err := conn.ExecContext(r.Context(),
+				`INSERT INTO sync_runs (id, source_id, status, started_at) VALUES (?, ?, 'in_progress', ?)`,
+				runID, target.ID, db.FormatTime(time.Now()))
+			if db.IsUniqueViolationOn(err, db.ConstraintActiveSyncRunSQLite, db.ConstraintActiveSyncRunPostgres) {
+				// uq_sync_runs_active_source rejected it: this connection is
+				// mid-sync. Remember the first one so a request that starts
+				// nothing can still point at something to watch.
+				if !active.Valid {
+					_ = conn.QueryRowContext(r.Context(),
+						`SELECT id FROM sync_runs WHERE source_id = ? AND status = 'in_progress'`, target.ID,
+					).Scan(&active)
+				}
+				busy++
+				continue
+			}
+			if err != nil {
+				log.Printf("sync_run_enqueue_failed source_id=%s source=%q: %v", target.ID, target.Name(), err)
+				failed++
+				continue
+			}
+			run, err := loadSyncRun(r.Context(), conn, runID)
+			if err != nil {
+				// The run is inserted and the worker will pick it up; only the
+				// read-back failed. Counting it as failed rather than dropping
+				// the request keeps the other connections' runs reportable, and
+				// GET /api/sync-runs will show this one on the next poll.
+				failed++
+				continue
+			}
+			created = append(created, run)
+		}
+
+		if len(created) == 0 {
+			if failed > 0 {
+				writeProblem(w, 503, "sync-run-unavailable", "Sincronização temporariamente indisponível", "Tente novamente em instantes.")
+				return
+			}
 			body := map[string]any{
 				"type": "/problems/sync-already-running", "title": "Synchronization already in progress",
 				"status": 409, "detail": "Wait for the active synchronization to finish.",
@@ -112,20 +177,64 @@ func handleCreateSyncRun(conn *sql.DB) http.HandlerFunc {
 			_ = json.NewEncoder(w).Encode(body)
 			return
 		}
-
-		row := conn.QueryRowContext(r.Context(), `
-			SELECT id, status, started_at, finished_at, accounts_processed, transactions_inserted, transactions_updated
-			FROM sync_runs WHERE id = ?`, runID)
-		run, err := scanSyncRun(row)
-		if err != nil {
-			writeProblem(w, 503, "sync-run-unavailable", "Sincronização temporariamente indisponível", "Tente novamente em instantes.")
-			return
+		if len(created) == 1 {
+			w.Header().Set("Location", "/api/sync-runs/"+created[0].ID)
 		}
-		w.Header().Set("Location", "/api/sync-runs/"+runID)
-		writeJSON(w, http.StatusAccepted, run)
+		// A 202 that lists fewer runs than there are connections is otherwise
+		// indistinguishable from "that is all there was": the body says what
+		// started, never what didn't. The individual failures are logged
+		// above; this line is what makes a short list explainable at a glance.
+		if failed > 0 || busy > 0 {
+			log.Printf("sync_run_create_partial started=%d busy=%d failed=%d of=%d",
+				len(created), busy, failed, len(targets))
+		}
+		writeJSON(w, http.StatusAccepted, created)
 	}
 }
 
+// syncRunTargets resolves which connections a create request covers, writing
+// the problem response itself and reporting ok=false when it did.
+func syncRunTargets(w http.ResponseWriter, r *http.Request, conn *sql.DB, sourceID string) ([]datasources.DataSource, bool) {
+	if sourceID != "" {
+		source, err := datasources.Get(r.Context(), conn, sourceID)
+		if errors.Is(err, datasources.ErrNotFound) {
+			writeProblem(w, 404, "data-source-not-found", "Conexão não encontrada", "")
+			return nil, false
+		}
+		if err != nil {
+			writeProblem(w, 503, "sync-run-unavailable", "Sincronização temporariamente indisponível", "Tente novamente em instantes.")
+			return nil, false
+		}
+		if !source.IsActive {
+			writeProblem(w, 409, "data-source-inactive", "Conexão desativada",
+				"Reative a conexão antes de sincronizá-la.")
+			return nil, false
+		}
+		return []datasources.DataSource{source}, true
+	}
+
+	sources, err := datasources.ListActive(r.Context(), conn)
+	if err != nil {
+		writeProblem(w, 503, "sync-run-unavailable", "Sincronização temporariamente indisponível", "Tente novamente em instantes.")
+		return nil, false
+	}
+	if len(sources) == 0 {
+		writeProblem(w, 409, "not-configured", "Nenhuma conexão ativa",
+			"Cadastre uma conexão do Pluggy antes de sincronizar.")
+		return nil, false
+	}
+	return sources, true
+}
+
+// handleListSyncRuns returns the most recent runs, newest first.
+//
+// A row that fails to scan or parse fails the whole request. The previous
+// shape skipped it and served the rest, which is the wrong trade for a
+// history: a silently shorter list is indistinguishable from "that sync never
+// happened", and the timestamps here are written by this app in a fixed
+// format, so a parse failure means the database is corrupt rather than
+// merely surprising. 503 says so, and matches what GET /api/sync-runs/{id}
+// has always done with the same row.
 func handleListSyncRuns(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		limit := 20
@@ -134,38 +243,22 @@ func handleListSyncRuns(conn *sql.DB) http.HandlerFunc {
 				limit = parsed
 			}
 		}
-		rows, err := conn.QueryContext(r.Context(), `
-			SELECT id, status, started_at, finished_at, accounts_processed, transactions_inserted, transactions_updated
-			FROM sync_runs ORDER BY started_at DESC, id DESC LIMIT ?`, limit)
+		rows, err := conn.QueryContext(r.Context(),
+			syncRunSelect+` ORDER BY sr.started_at DESC, sr.id DESC LIMIT ?`, limit)
 		if err != nil {
 			writeProblem(w, 503, "sync-run-unavailable", "Sincronização temporariamente indisponível", "Tente novamente em instantes.")
 			return
 		}
 		defer rows.Close()
 
-		var result []syncRunDTO
+		result := []syncRunDTO{}
 		for rows.Next() {
-			var (
-				d             syncRunDTO
-				startedAtRaw  string
-				finishedAtRaw sql.NullString
-			)
-			if err := rows.Scan(&d.ID, &d.Status, &startedAtRaw, &finishedAtRaw,
-				&d.AccountsProcessed, &d.TransactionsInserted, &d.TransactionsUpdated); err != nil {
+			run, err := scanSyncRun(rows)
+			if err != nil {
 				writeProblem(w, 503, "sync-run-unavailable", "Sincronização temporariamente indisponível", "Tente novamente em instantes.")
 				return
 			}
-			if d.StartedAt, err = db.ParseTime(startedAtRaw); err != nil {
-				continue
-			}
-			if d.FinishedAt, err = db.ParseNullTime(finishedAtRaw); err != nil {
-				continue
-			}
-			d.ResultMessage = resultMessages[d.Status]
-			result = append(result, d)
-		}
-		if result == nil {
-			result = []syncRunDTO{}
+			result = append(result, run)
 		}
 		writeJSON(w, http.StatusOK, result)
 	}
@@ -192,10 +285,7 @@ type syncRunDetailDTO struct {
 func handleGetSyncRun(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		row := conn.QueryRowContext(r.Context(), `
-			SELECT id, status, started_at, finished_at, accounts_processed, transactions_inserted, transactions_updated
-			FROM sync_runs WHERE id = ?`, id)
-		run, err := scanSyncRun(row)
+		run, err := loadSyncRun(r.Context(), conn, id)
 		if errors.Is(err, sql.ErrNoRows) {
 			writeProblem(w, 404, "sync-run-not-found", "Synchronization not found", "")
 			return
