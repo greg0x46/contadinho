@@ -262,7 +262,14 @@ func cashDeltasDescending(ctx context.Context, q Querier) ([]cashTransactionDelt
 
 		classification := money.Classify(movementType)
 		effective := money.SelectEffectiveMoney(amountInAccountCurrency, accountCurrency, amount, currencyCode)
-		included, _ := money.Eligibility(classification, providerStatus, effective, money.Considered)
+		// Considered and "" (no category kind) are both deliberate, for the
+		// same reason the doc comment above gives: a transfer categorized as
+		// such still moved real money out of this account — to another
+		// account, tracked or not — so today's reported balance reflects it
+		// and a past day's reconstruction must reverse it out too. Letting
+		// the transfer rule reach here would leave every day before a
+		// transfer off by its full amount.
+		included, _ := money.Eligibility(classification, providerStatus, effective, money.Considered, "")
 		if !included || effective == nil {
 			continue
 		}

@@ -539,3 +539,39 @@ func TestTransactionReconciliationOffersNothingForAnIgnoredTransaction(t *testin
 		t.Errorf("body = %+v, want nothing offered for an ignored transaction", body)
 	}
 }
+
+// categoryTransferencia is the seeded "Transferência entre Contas Próprias"
+// (00004_categories.sql): excluded from income/expense totals, and the one
+// exclusion that still describes real money leaving the account.
+const categoryTransferencia = "533d9187-99b6-542b-a2f3-6eb9cbb299ce"
+
+// TestManualLinkResolvesATransferCategorizedTransaction covers the transfer
+// rule's reach into reconciliation. realItemsIn filters on MovesCash, not
+// Included: a transfer category keeps a transaction out of the totals, but the
+// money moved, so the user is entitled to say it settled a commitment. If the
+// pool dropped it, the Reconciler would find no item behind the linked id and
+// the occurrence would come back with a bare transaction_id and a null
+// transaction — the "bare id" realItemsIn's own doc comment warns about.
+func TestManualLinkResolvesATransferCategorizedTransaction(t *testing.T) {
+	f := newReconciliationFixture(t)
+	txID := f.addTransaction("-1490.00", "2026-02-06")
+
+	if resp := doJSON(t, http.MethodPut, f.url+"/api/transactions/"+txID+"/category",
+		map[string]any{"category_id": categoryTransferencia}); resp.StatusCode != 200 {
+		t.Fatalf("set transfer category status = %d, want 200", resp.StatusCode)
+	}
+	if resp := doJSON(t, http.MethodPut, f.reconciliationURL("2026-02-05"),
+		map[string]any{"state": "linked", "transaction_id": txID}); resp.StatusCode != 200 {
+		t.Fatalf("link status = %d, want 200 — a transfer still moved money", resp.StatusCode)
+	}
+
+	resp := doJSON(t, http.MethodGet, f.occurrencesURL("2026-02-01", "2026-02-28"), nil)
+	var occurrences []map[string]any
+	decodeJSON(t, resp, &occurrences)
+	if len(occurrences) != 1 {
+		t.Fatalf("occurrences = %+v, want exactly February's", occurrences)
+	}
+	if occurrences[0]["transaction"] == nil {
+		t.Errorf("occurrence = %+v, want the linked transaction resolved, not a bare id", occurrences[0])
+	}
+}

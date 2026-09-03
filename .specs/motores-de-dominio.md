@@ -45,24 +45,44 @@ aceitar ou rejeitar cada candidato nesta lista:
 A entidade central de fluxo de caixa e as regras que decidem o que conta
 pra total: classificação de movimento, valor efetivo, inclusão/exclusão
 (`internal/money`: `Classify`, `SelectEffectiveMoney`, `Considered`/
-`Ignored`). Agnóstico de origem — hoje só a Pluggy popula lançamentos, mas
+`Ignored`, `CategoryKind`). Agnóstico de origem — hoje só a Pluggy popula lançamentos, mas
 o motor em si não presume isso; lançamento manual é a mesma entidade, só
 outra via de entrada. Ingestão (Pluggy, e no futuro entrada manual) é
 provedor/entrada de dado, não parte do motor.
 
-Nota sobre saldo: o saldo de conta reportado pelo provedor **é** a
-referência para dinheiro em conta, e as regras de inclusão do motor não o
-corrigem. Marcar um lançamento como ignorado é uma decisão de *relatório*
-— "não conte isso nos meus totais de receita/despesa" (ex.: transferência
-para uma conta não rastreada) —, não uma afirmação de que o dinheiro não
-saiu do banco. O lançamento ignorado moveu dinheiro de verdade, então
-continua dentro do saldo; descontá-lo reportaria um caixa que o usuário
-não tem. Pelo mesmo motivo, a reconstrução histórica de patrimônio reverte
-lançamentos ignorados ao caminhar para trás (`internal/networth`
-`cashDeltasDescending`).
+Duas vias tiram um lançamento dos totais, e elas afirmam coisas
+diferentes. **Ignorado** é "isso não deveria estar aqui" — um estorno, uma
+duplicata. **Categoria de kind `transfer`** é "isso está aqui, é real, mas
+é meu próprio dinheiro andando entre minhas contas": contá-lo somaria o
+mesmo dinheiro duas vezes, saindo de uma conta e entrando na outra. A
+categoria é a única cujo kind carrega regra junto; `expense`/`income`
+seguem sendo rótulo. Ignorado vence na precedência, por ser a declaração
+mais explícita do usuário (`money.Eligibility`).
 
-Onde as regras de inclusão *decidem* o número é em outro lugar: nos totais
-de receita/despesa, e na dívida de cartão — ali a pergunta é "quanto esta
+A ordem dos testes em `money.Eligibility` é load-bearing e não é uma
+questão de estética de mensagem: `MovedCash` lê o motivo
+`transfer_category` como "o dinheiro saiu mesmo da conta", então esse
+motivo é verificado **por último**, depois de tudo que pergunta se houve
+movimento algum. Uma transferência ainda não liquidada pelo provedor, ou
+cujo tipo de movimento não dá pra classificar em direção, não moveu nada
+ainda — reportá-la como movimento de caixa fazia a timeline e o patrimônio
+revertê-la da âncora (a não classificada, com o sinal trocado).
+
+Nota sobre saldo: o saldo de conta reportado pelo provedor **é** a
+referência para dinheiro em conta, e **nenhuma** das duas vias acima o
+corrige — ambas são decisões de *relatório*, não afirmações de que o
+dinheiro não saiu do banco. O lançamento ignorado, e a transferência,
+moveram dinheiro de verdade, então continuam dentro do saldo; descontá-los
+reportaria um caixa que o usuário não tem. Pelo mesmo motivo, a
+reconstrução histórica de patrimônio reverte ambos ao caminhar para trás
+(`internal/networth` `cashDeltasDescending`), e a dívida de cartão
+continua abatendo o pagamento de fatura mesmo quando ele está categorizado
+como transferência (`transactions.consideredCardTransactionTotal`) — os
+dois passam `""` como kind para `money.Eligibility`, de propósito.
+
+Onde essas regras *decidem* o número é em outro lugar: nos totais de
+receita/despesa (as duas vias valem), e na dívida de cartão (só a via
+`ignored`) — ali a pergunta é "quanto esta
 fatura vai me cobrar", que uma decisão de inclusão legitimamente molda, e
 por isso o total sai dos lançamentos elegíveis do ciclo e não do saldo
 reportado (`transactions.CreditCardTransactionTotal`). O caixa em conta

@@ -258,7 +258,12 @@ func consideredCardTransactionTotal(
 			transaction.amountInAccountCurrency, &accountCurrency,
 			transaction.amount, transaction.currencyCode,
 		)
-		included, _ := money.Eligibility(classification, transaction.providerStatus, effective, money.Considered)
+		// "" (no category kind) is deliberate: paying a card bill is itself a
+		// transfer between the user's own accounts, so letting the transfer
+		// rule reach here would stop the payment from being subtracted and
+		// inflate what the card is owed. The ignored decision was already
+		// applied above; Considered is passed for the same reason.
+		included, _ := money.Eligibility(classification, transaction.providerStatus, effective, money.Considered, "")
 		if !included || effective == nil || effective.CurrencyCode != currencyCode {
 			continue
 		}

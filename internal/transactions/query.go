@@ -272,7 +272,12 @@ func buildView(r row, query QueryRequest, periodBasis string, billDueDates map[s
 		inclusionState = money.Ignored
 	}
 
-	included, reason := money.Eligibility(classification, r.providerStatus, effective, inclusionState)
+	// r.categoryKind, not toItem's InternalCategory: that one is only built
+	// when the decision's category still resolves, so a decision pointing at
+	// a removed category would silently lose its transfer kind here.
+	categoryKind := money.CategoryKind(stringOr(r.categoryKind, ""))
+
+	included, reason := money.Eligibility(classification, r.providerStatus, effective, inclusionState, categoryKind)
 
 	effectiveAt := effectiveDate(r, periodBasis, billDueDates)
 	period, err := money.PeriodFor(r.occurredAt, query.GroupBy, query.Timezone)

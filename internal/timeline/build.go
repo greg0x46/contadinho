@@ -47,6 +47,14 @@ func contains(list []string, value string) bool {
 // can't express directly (it only takes one AccountID/CategoryID, not a
 // slice). Projected events are resolved by internal/projections; this helper
 // intentionally knows only about the financial transaction side.
+//
+// The filter is MovesCash, not Included: this series is a balance over time,
+// not an income/expense report. A transfer between the user's own accounts is
+// deliberately outside the totals, but the money really did leave the origin
+// account — and buildPoints anchors the curve by subtracting past entries
+// from today's real balance, so dropping one leaves every day before it short
+// by the transfer's full amount. On an account-filtered series, where the
+// counterpart leg is not in the set at all, that error never cancels out.
 func eligibleRealItems(ctx context.Context, q Querier, from, to time.Time, accountIDs, categoryIDs, cardNumbers []string) ([]transactions.Item, error) {
 	fromDate := money.Date{Year: from.Year(), Month: from.Month(), Day: from.Day()}
 	toDate := money.Date{Year: to.Year(), Month: to.Month(), Day: to.Day()}
@@ -67,7 +75,7 @@ func eligibleRealItems(ctx context.Context, q Querier, from, to time.Time, accou
 
 	items := make([]transactions.Item, 0, len(result.Items))
 	for _, item := range result.Items {
-		if !item.TotalsEligibility.Included || item.EffectiveMoney == nil || item.OccurredAt == nil {
+		if !item.TotalsEligibility.MovesCash() || item.EffectiveMoney == nil || item.OccurredAt == nil {
 			continue
 		}
 		if len(accountIDs) > 0 && !contains(accountIDs, item.Account.ID) {

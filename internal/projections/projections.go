@@ -563,7 +563,14 @@ func eligibleCandidates(ctx context.Context, q Querier, from, to time.Time) ([]t
 	}
 	items := make([]transactions.Item, 0, len(result.Items))
 	for _, item := range result.Items {
-		if item.TotalsEligibility.Included && item.EffectiveMoney != nil && item.OccurredAt != nil {
+		// MovesCash, not Included: a commitment is realized by money actually
+		// leaving the account, and a transfer categorized as such still did
+		// that. The recurring-commitment form refuses to *project* a transfer
+		// category (see AutomationEntryForm), but a rule is free to put one on
+		// a real transaction, and that must not make the occurrence look
+		// unpaid — the Timeline would then draw the projection and the
+		// transaction side by side, double-counting the same money.
+		if item.TotalsEligibility.MovesCash() && item.EffectiveMoney != nil && item.OccurredAt != nil {
 			items = append(items, item)
 		}
 	}

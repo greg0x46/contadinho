@@ -37,6 +37,7 @@ import {
   ruleConditionOperatorLabel,
   ruleLogicOperatorLabel,
 } from "../../presentation/ruleConditionLabels";
+import { categoryKindLabel } from "../../presentation/categoryLabels";
 import { ConditionFieldConfig, ConditionListEditor } from "../shared/ConditionListEditor";
 
 const dateFormat = "YYYY-MM-DD";
@@ -314,7 +315,23 @@ export function AutomationEntryForm({
 
   const conditionFieldConfigs: ConditionFieldConfig[] = [...reconcileFieldConfigs, ...baseFieldConfigs];
 
-  const categoryOptions = categories
+  // Two lists, deliberately. A rule's set_category action must be able to
+  // assign a transfer category — that is how a transfer between the user's
+  // own accounts gets kept out of income/expense totals without abusing
+  // "ignore". A recurring commitment, on the other hand, projects an expense
+  // or an income, so a transfer category there would never show up in the
+  // flow at all.
+  //
+  // The kind prefix matches the label the transaction drawer already uses, so
+  // a transfer category is recognizable as one in the list.
+  const ruleCategoryOptions = categories
+    .filter((category) => category.is_active)
+    .map((category) => ({
+      value: category.id,
+      label: `${categoryKindLabel[category.kind]}: ${category.name}`,
+    }));
+
+  const commitmentCategoryOptions = categories
     .filter((category) => category.is_active && category.kind !== "transfer")
     .map((category) => ({ value: category.id, label: category.name }));
 
@@ -474,7 +491,7 @@ export function AutomationEntryForm({
             <Select
               id="automation-entry-category"
               value={categoryId ?? undefined}
-              options={categoryOptions}
+              options={ruleCategoryOptions}
               showSearch
               optionFilterProp="label"
               placeholder="Selecione uma categoria"
@@ -566,7 +583,7 @@ export function AutomationEntryForm({
               <Select
                 id="recurring-commitment-category"
                 value={commitmentDraft.categoryId ?? undefined}
-                options={categoryOptions}
+                options={commitmentCategoryOptions}
                 showSearch
                 optionFilterProp="label"
                 placeholder="Selecione uma categoria"

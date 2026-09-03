@@ -108,22 +108,48 @@ func TestEligibility(t *testing.T) {
 		providerStatus *string
 		money          *money.EffectiveMoney
 		inclusionState money.InclusionState
+		categoryKind   money.CategoryKind
 		wantIncluded   bool
 		wantReason     money.EligibilityReason
 	}{
-		{"ignored wins over everything else", money.Outflow, strp("POSTED"), brl, money.Ignored, false, money.ReasonIgnored},
-		{"uncategorized transaction is still eligible", money.Outflow, strp("POSTED"), brl, money.Considered, true, ""},
-		{"unclassified movement excluded", money.Unclassified, strp("POSTED"), brl, money.Considered, false, money.ReasonUnclassified},
-		{"non-posted/pending status excluded", money.Outflow, strp("PROCESSING"), brl, money.Considered, false, money.ReasonIneligibleStatus},
-		{"nil status excluded", money.Outflow, nil, brl, money.Considered, false, money.ReasonIneligibleStatus},
-		{"missing money excluded", money.Outflow, strp("POSTED"), nil, money.Considered, false, money.ReasonMissingMoneyPair},
-		{"zero value excluded", money.Outflow, strp("POSTED"), zero, money.Considered, false, money.ReasonZeroValue},
-		{"eligible", money.Outflow, strp("POSTED"), brl, money.Considered, true, ""},
-		{"pending status is eligible", money.Inflow, strp("PENDING"), brl, money.Considered, true, ""},
+		{"ignored wins over everything else", money.Outflow, strp("POSTED"), brl, money.Ignored, "", false, money.ReasonIgnored},
+		{"uncategorized transaction is still eligible", money.Outflow, strp("POSTED"), brl, money.Considered, "", true, ""},
+		{"unclassified movement excluded", money.Unclassified, strp("POSTED"), brl, money.Considered, "", false, money.ReasonUnclassified},
+		{"non-posted/pending status excluded", money.Outflow, strp("PROCESSING"), brl, money.Considered, "", false, money.ReasonIneligibleStatus},
+		{"nil status excluded", money.Outflow, nil, brl, money.Considered, "", false, money.ReasonIneligibleStatus},
+		{"missing money excluded", money.Outflow, strp("POSTED"), nil, money.Considered, "", false, money.ReasonMissingMoneyPair},
+		{"zero value excluded", money.Outflow, strp("POSTED"), zero, money.Considered, "", false, money.ReasonZeroValue},
+		{"eligible", money.Outflow, strp("POSTED"), brl, money.Considered, "", true, ""},
+		{"pending status is eligible", money.Inflow, strp("PENDING"), brl, money.Considered, "", true, ""},
+
+		// The transfer category excludes on its own, in both directions —
+		// the outflow leaving one account and the inflow landing on the
+		// other are each individually kept out, which is what stops the
+		// same money being counted twice.
+		{"transfer category excludes an outflow", money.Outflow, strp("POSTED"), brl, money.Considered, money.Transfer, false, money.ReasonTransferCategory},
+		{"transfer category excludes an inflow", money.Inflow, strp("POSTED"), brl, money.Considered, money.Transfer, false, money.ReasonTransferCategory},
+		{"expense category stays eligible", money.Outflow, strp("POSTED"), brl, money.Considered, money.Expense, true, ""},
+		{"income category stays eligible", money.Inflow, strp("POSTED"), brl, money.Considered, money.Income, true, ""},
+		// Precedence: ignored is the user's most explicit statement and the
+		// frontend contract requires an ignored transaction to report
+		// exactly "ignored", so it must win over the transfer category.
+		{"ignored wins over the transfer category", money.Outflow, strp("POSTED"), brl, money.Ignored, money.Transfer, false, money.ReasonIgnored},
+		// ...and every check that asks whether money moved at all wins over
+		// it too, because MovedCash reads "transfer_category" as "the money
+		// really did leave the account". A transfer the provider has not
+		// settled, or one whose movement type cannot be classified into a
+		// direction, moved nothing yet: reporting it as cash movement made
+		// the timeline and net worth reverse it out of the anchor (the
+		// unclassified one with the sign flipped, since timeline takes its
+		// direction from the classification).
+		{"ineligible status wins over the transfer category", money.Outflow, strp("PROCESSING"), brl, money.Considered, money.Transfer, false, money.ReasonIneligibleStatus},
+		{"unclassified movement wins over the transfer category", money.Unclassified, strp("POSTED"), brl, money.Considered, money.Transfer, false, money.ReasonUnclassified},
+		{"missing money wins over the transfer category", money.Outflow, strp("POSTED"), nil, money.Considered, money.Transfer, false, money.ReasonMissingMoneyPair},
+		{"zero value wins over the transfer category", money.Outflow, strp("POSTED"), zero, money.Considered, money.Transfer, false, money.ReasonZeroValue},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			included, reason := money.Eligibility(tc.classification, tc.providerStatus, tc.money, tc.inclusionState)
+			included, reason := money.Eligibility(tc.classification, tc.providerStatus, tc.money, tc.inclusionState, tc.categoryKind)
 			if included != tc.wantIncluded {
 				t.Errorf("included = %v, want %v", included, tc.wantIncluded)
 			}
