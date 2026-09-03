@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -474,6 +475,11 @@ func mapInvestmentTransaction(payload map[string]any, expectedInvestmentID strin
 	if t.MovementType, err = optionalString(payload["type"], "type"); err != nil {
 		return InvestmentTransactionSnapshot{}, err
 	}
+	movementDirection, err := optionalString(payload["movementType"], "movementType")
+	if err != nil {
+		return InvestmentTransactionSnapshot{}, err
+	}
+	t.Direction = normalizeInvestmentDirection(movementDirection)
 	if t.Quantity, err = optionalDecimal(payload["quantity"], "quantity"); err != nil {
 		return InvestmentTransactionSnapshot{}, err
 	}
@@ -490,6 +496,32 @@ func mapInvestmentTransaction(payload map[string]any, expectedInvestmentID strin
 		return InvestmentTransactionSnapshot{}, err
 	}
 	return t, nil
+}
+
+// normalizeInvestmentDirection turns Pluggy's movementType into the domain's
+// own inflow/outflow, the only direction the yield math reads. CREDIT is
+// money entering the investment (a purchase or application), DEBIT money
+// leaving it — which includes INTEREST: a dividend or JCP payout is a
+// return being handed to the holder, not a further contribution.
+//
+// An unrecognized or absent value yields nil rather than a default. Picking a
+// side for a movement we do not understand is what produced wrong yields
+// before; a nil direction makes the yield unavailable instead, which is the
+// honest answer.
+func normalizeInvestmentDirection(movementType *string) *string {
+	if movementType == nil {
+		return nil
+	}
+	var direction string
+	switch strings.ToUpper(*movementType) {
+	case "CREDIT":
+		direction = "inflow"
+	case "DEBIT":
+		direction = "outflow"
+	default:
+		return nil
+	}
+	return &direction
 }
 
 func mapBill(payload map[string]any) (BillSnapshot, error) {
@@ -518,18 +550,14 @@ func mapBill(payload map[string]any) (BillSnapshot, error) {
 	return b, nil
 }
 
-func mapBillsPage(payload map[string]any) ([]BillSnapshot, []RejectedRecord, int, int, error) {
+func mapBillsPage(payload map[string]any) ([]BillSnapshot, []RejectedRecord, pageMarker, error) {
 	results, ok := payload["results"].([]any)
 	if !ok {
-		return nil, nil, 0, 0, &MappingError{Code: "invalid_provider_payload", SafeMessage: "Provider results must be a list"}
+		return nil, nil, pageMarker{}, &MappingError{Code: "invalid_provider_payload", SafeMessage: "Provider results must be a list"}
 	}
-	page, err := optionalInteger(payload["page"], "page")
+	marker, err := readPageMarker(payload)
 	if err != nil {
-		return nil, nil, 0, 0, err
-	}
-	totalPages, err := optionalInteger(payload["totalPages"], "totalPages")
-	if err != nil {
-		return nil, nil, 0, 0, err
+		return nil, nil, pageMarker{}, err
 	}
 	var bills []BillSnapshot
 	var rejections []RejectedRecord
@@ -546,14 +574,7 @@ func mapBillsPage(payload map[string]any) ([]BillSnapshot, []RejectedRecord, int
 		}
 		bills = append(bills, bill)
 	}
-	pageNum, totalPagesNum := 1, 1
-	if page != nil {
-		pageNum = *page
-	}
-	if totalPages != nil {
-		totalPagesNum = *totalPages
-	}
-	return bills, rejections, pageNum, totalPagesNum, nil
+	return bills, rejections, marker, nil
 }
 
 func mapInvestmentsPage(payload map[string]any) ([]InvestmentSnapshot, []RejectedRecord, error) {
@@ -579,10 +600,24 @@ func mapInvestmentsPage(payload map[string]any) ([]InvestmentSnapshot, []Rejecte
 	return investments, rejections, nil
 }
 
-func mapInvestmentTransactionsPage(payload map[string]any, expectedInvestmentID string) ([]InvestmentTransactionSnapshot, []RejectedRecord, error) {
+// pageMarker is a page-numbered envelope's own account of where it sits in
+// the sequence. Absent fields mean a single page, which is how a provider
+// response that omits them altogether has always been read.
+type pageMarker struct {
+	page, totalPages int
+}
+
+// isLast reports whether the caller can stop reading.
+func (p pageMarker) isLast() bool { return p.page >= p.totalPages }
+
+func mapInvestmentTransactionsPage(payload map[string]any, expectedInvestmentID string) ([]InvestmentTransactionSnapshot, []RejectedRecord, pageMarker, error) {
 	results, ok := payload["results"].([]any)
 	if !ok {
-		return nil, nil, &MappingError{Code: "invalid_provider_payload", SafeMessage: "Provider results must be a list"}
+		return nil, nil, pageMarker{}, &MappingError{Code: "invalid_provider_payload", SafeMessage: "Provider results must be a list"}
+	}
+	marker, err := readPageMarker(payload)
+	if err != nil {
+		return nil, nil, pageMarker{}, err
 	}
 	var transactions []InvestmentTransactionSnapshot
 	var rejections []RejectedRecord
@@ -599,7 +634,28 @@ func mapInvestmentTransactionsPage(payload map[string]any, expectedInvestmentID 
 		}
 		transactions = append(transactions, transaction)
 	}
-	return transactions, rejections, nil
+	return transactions, rejections, marker, nil
+}
+
+// readPageMarker pulls page/totalPages out of an envelope, defaulting each to
+// 1 when the provider omits it.
+func readPageMarker(payload map[string]any) (pageMarker, error) {
+	page, err := optionalInteger(payload["page"], "page")
+	if err != nil {
+		return pageMarker{}, err
+	}
+	totalPages, err := optionalInteger(payload["totalPages"], "totalPages")
+	if err != nil {
+		return pageMarker{}, err
+	}
+	marker := pageMarker{page: 1, totalPages: 1}
+	if page != nil {
+		marker.page = *page
+	}
+	if totalPages != nil {
+		marker.totalPages = *totalPages
+	}
+	return marker, nil
 }
 
 func mapAccountsPage(payload map[string]any, institution *string) ([]AccountSnapshot, []RejectedRecord, error) {

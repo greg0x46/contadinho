@@ -302,7 +302,7 @@ func TestMapInvestmentTransactionsPageCollectsRejectionsWithoutFailingWholePage(
 			{"notAnObject": true}
 		]
 	}`))
-	transactions, rejections, err := mapInvestmentTransactionsPage(payload, "inv-1")
+	transactions, rejections, _, err := mapInvestmentTransactionsPage(payload, "inv-1")
 	if err != nil {
 		t.Fatalf("mapInvestmentTransactionsPage: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestMapBillsPageCollectsRejectionsWithoutFailingWholePage(t *testing.T) {
 			{"notAnObject": true}
 		]
 	}`))
-	bills, rejections, page, totalPages, err := mapBillsPage(payload)
+	bills, rejections, marker, err := mapBillsPage(payload)
 	if err != nil {
 		t.Fatalf("mapBillsPage: %v", err)
 	}
@@ -362,8 +362,8 @@ func TestMapBillsPageCollectsRejectionsWithoutFailingWholePage(t *testing.T) {
 	if len(rejections) != 1 {
 		t.Errorf("len(rejections) = %d, want 1", len(rejections))
 	}
-	if page != 1 || totalPages != 1 {
-		t.Errorf("page=%d totalPages=%d, want 1/1", page, totalPages)
+	if marker.page != 1 || marker.totalPages != 1 || !marker.isLast() {
+		t.Errorf("marker = %+v, want a single, final page", marker)
 	}
 }
 
@@ -382,5 +382,42 @@ func TestExtractCursorValidatesAccountScope(t *testing.T) {
 
 	if cursor, err := extractCursor(nil, "acc-1"); err != nil || cursor != nil {
 		t.Errorf("nil cursor: cursor=%v err=%v", cursor, err)
+	}
+}
+
+func strPtr(s string) *string { return &s }
+
+// Direction must come from movementType, not from the "type" label: Pluggy
+// sends INTEREST — a dividend leaving the investment — as DEBIT, and reading
+// it as a contribution is what made healthy positions report losses.
+func TestMapInvestmentTransactionNormalizesDirectionFromMovementType(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		payload      string
+		wantMovement string
+		wantDir      *string
+	}{
+		{"buy is an inflow", `{"id": "t1", "type": "BUY", "movementType": "CREDIT"}`, "BUY", strPtr("inflow")},
+		{"sell is an outflow", `{"id": "t2", "type": "SELL", "movementType": "DEBIT"}`, "SELL", strPtr("outflow")},
+		{"dividend is an outflow", `{"id": "t3", "type": "INTEREST", "movementType": "DEBIT"}`, "INTEREST", strPtr("outflow")},
+		{"unknown movementType stays undecided", `{"id": "t4", "type": "BUY", "movementType": "SOMETHING"}`, "BUY", nil},
+		{"absent movementType stays undecided", `{"id": "t5", "type": "BUY"}`, "BUY", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload, _ := decodeJSON([]byte(tc.payload))
+			got, err := mapInvestmentTransaction(payload, "inv-1")
+			if err != nil {
+				t.Fatalf("mapInvestmentTransaction: %v", err)
+			}
+			if got.MovementType == nil || *got.MovementType != tc.wantMovement {
+				t.Errorf("MovementType = %v, want %s", got.MovementType, tc.wantMovement)
+			}
+			switch {
+			case tc.wantDir == nil && got.Direction != nil:
+				t.Errorf("Direction = %q, want nil", *got.Direction)
+			case tc.wantDir != nil && (got.Direction == nil || *got.Direction != *tc.wantDir):
+				t.Errorf("Direction = %v, want %s", got.Direction, *tc.wantDir)
+			}
+		})
 	}
 }

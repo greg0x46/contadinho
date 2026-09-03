@@ -10,12 +10,22 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-// downMigrationsUnderTest is how far back the round trip rolls: the three
-// migrations that dropped the legacy allocation, reconciliation and
-// recurring-commitment tables. They are the ones whose Down blocks have to
-// rebuild a schema rather than just drop what they made, so they are the ones
-// worth exercising.
-const downMigrationsUnderTest = 3
+// The round trip has to reach the three migrations that dropped the legacy
+// allocation, reconciliation and recurring-commitment tables: their Down
+// blocks rebuild a schema rather than just drop what they made, so they are
+// the ones worth exercising.
+//
+// These name the oldest of those three per dialect, and the round trip rolls
+// down to just before it. A version, not a count: counting back from the head
+// meant every new migration silently narrowed the window until someone
+// remembered to widen the constant, and a forgotten bump is invisible — the
+// test still passes, just without covering what it was written for. The two
+// dialects differ because Postgres' baseline collapses SQLite's early
+// table-rebuild migrations, leaving its numbering one behind.
+const (
+	oldestDownMigrationSQLite   int64 = 28 // 00028_drop_scenario_transaction_realizations
+	oldestDownMigrationPostgres int64 = 27 // 00027_drop_scenario_transaction_realizations
+)
 
 // TestDownUpRoundTrip applies every migration, rolls the drop migrations back
 // and re-applies them. Nothing else in the suite runs a Down block at all, so
@@ -44,10 +54,8 @@ func TestDownUpRoundTrip(t *testing.T) {
 		t.Fatalf("provider: %v", err)
 	}
 	ctx := context.Background()
-	for i := 0; i < downMigrationsUnderTest; i++ {
-		if _, err := provider.Down(ctx); err != nil {
-			t.Fatalf("down %d: %v", i+1, err)
-		}
+	if _, err := provider.DownTo(ctx, oldestDownMigrationSQLite-1); err != nil {
+		t.Fatalf("down to %d: %v", oldestDownMigrationSQLite-1, err)
 	}
 	if _, err := provider.Up(ctx); err != nil {
 		t.Fatalf("re-up after rollback: %v", err)
@@ -78,10 +86,8 @@ func TestPostgresDownUpRoundTrip(t *testing.T) {
 		t.Fatalf("provider: %v", err)
 	}
 	ctx := context.Background()
-	for i := 0; i < downMigrationsUnderTest; i++ {
-		if _, err := provider.Down(ctx); err != nil {
-			t.Fatalf("down %d: %v", i+1, err)
-		}
+	if _, err := provider.DownTo(ctx, oldestDownMigrationPostgres-1); err != nil {
+		t.Fatalf("down to %d: %v", oldestDownMigrationPostgres-1, err)
 	}
 	if _, err := provider.Up(ctx); err != nil {
 		t.Fatalf("re-up after rollback: %v", err)

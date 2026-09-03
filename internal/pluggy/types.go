@@ -148,7 +148,8 @@ type InvestmentSnapshot struct {
 type InvestmentTransactionSnapshot struct {
 	ExternalID           string
 	ExternalInvestmentID string
-	MovementType         *string // "type": BUY/SELL/...
+	MovementType         *string // "type": BUY/SELL/... — the provider's own label, kept for display
+	Direction            *string // normalized from "movementType": "inflow" | "outflow"
 	Quantity             *decimal.Decimal
 	Value                *decimal.Decimal
 	Amount               *decimal.Decimal
@@ -164,8 +165,8 @@ type InvestmentsPage struct {
 	Rejections  []RejectedRecord
 }
 
-// InvestmentTransactionsPage is one page of mapped transaction history for a
-// single investment (also unpaginated per investment).
+// InvestmentTransactionsPage is the mapped transaction history for a single
+// investment, accumulated across every page the provider returned.
 type InvestmentTransactionsPage struct {
 	RawImportID  string
 	Transactions []InvestmentTransactionSnapshot

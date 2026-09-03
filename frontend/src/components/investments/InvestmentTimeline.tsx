@@ -12,6 +12,7 @@ const movementDotColor: Record<string, string> = {
   SELL: "red",
   REDEMPTION: "red",
   DIVIDEND: "blue",
+  INTEREST: "blue",
   INCOME: "blue",
 };
 

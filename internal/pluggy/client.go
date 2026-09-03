@@ -356,26 +356,69 @@ func (a *Adapter) GetInvestments(ctx context.Context) (InvestmentsPage, error) {
 	return InvestmentsPage{RawImportID: rawImportID, Investments: investments, Rejections: rejections}, nil
 }
 
-// GetInvestmentTransactions fetches one investment's transaction history.
-// Pluggy documents this endpoint as unpaginated (a single "results" list, no
-// "next" link), unlike /v2/transactions — so unlike IterTransactionPages
-// this is a single read, not a cursor loop.
-func (a *Adapter) GetInvestmentTransactions(ctx context.Context, externalInvestmentID string) (InvestmentTransactionsPage, error) {
-	path := "/investments/" + externalInvestmentID + "/transactions"
-	payload, rawImportID, err := a.read(ctx, ScopeInvestmentTransactions, path, StageInvestmentTransactions, 1, &externalInvestmentID)
-	if err != nil {
-		return InvestmentTransactionsPage{}, err
+// pageCapExceeded is what a page-numbered read answers with when it runs out
+// of budget before the provider runs out of pages.
+//
+// Returning what was collected so far would be worse than failing: the caller
+// has no way to tell a complete history from half of one, and half a history
+// is exactly what makes a yield read as a loss (see applyYield's
+// historico_incompleto). MaxPagesPerAccount exists to bound a runaway
+// provider, not to quietly define how much history is enough, so hitting it
+// is a provider problem to surface — with the account/investment named, so
+// raising the cap is an informed decision rather than a guess.
+func pageCapExceeded(stage FailureStage, externalID, rawImportID string, maxPages int) *ProviderError {
+	return &ProviderError{
+		Code:  "provider_pagination_exhausted",
+		Stage: stage,
+		SafeMessage: fmt.Sprintf(
+			"Provider reported more than %d pages of history; refusing to report a truncated one", maxPages),
+		RawImportID:       &rawImportID,
+		ExternalAccountID: &externalID,
 	}
-	transactions, rejections, err := mapInvestmentTransactionsPage(payload, externalInvestmentID)
-	if err != nil {
-		var mapErr *MappingError
-		errors.As(err, &mapErr)
-		return InvestmentTransactionsPage{}, &ProviderError{
-			Code: mapErr.Code, Stage: StageInvestmentTransactions, SafeMessage: mapErr.SafeMessage,
-			RawImportID: &rawImportID, ExternalAccountID: &externalInvestmentID,
+}
+
+// GetInvestmentTransactions fetches one investment's transaction history.
+// The endpoint pages by number in the response body (page/totalPages), the
+// same envelope as /bills and unlike /v2/transactions' cursor — so this
+// loops a page counter like GetBills does.
+//
+// It used to read page 1 only, on the belief that the endpoint was
+// unpaginated. Every holding seen so far fits in one page, so nothing was
+// lost yet, but a history past the page size would have been truncated in
+// silence: no error, no rejection, just half a history.
+func (a *Adapter) GetInvestmentTransactions(ctx context.Context, externalInvestmentID string) (InvestmentTransactionsPage, error) {
+	var allTransactions []InvestmentTransactionSnapshot
+	var allRejections []RejectedRecord
+	var firstRawImportID string
+
+	for pageNumber := 1; pageNumber <= a.config.MaxPagesPerAccount; pageNumber++ {
+		path := "/investments/" + externalInvestmentID + "/transactions?page=" + strconv.Itoa(pageNumber)
+		payload, rawImportID, err := a.read(ctx, ScopeInvestmentTransactions, path, StageInvestmentTransactions, pageNumber, &externalInvestmentID)
+		if err != nil {
+			return InvestmentTransactionsPage{}, err
+		}
+		if pageNumber == 1 {
+			firstRawImportID = rawImportID
+		}
+		transactions, rejections, marker, err := mapInvestmentTransactionsPage(payload, externalInvestmentID)
+		if err != nil {
+			var mapErr *MappingError
+			errors.As(err, &mapErr)
+			return InvestmentTransactionsPage{}, &ProviderError{
+				Code: mapErr.Code, Stage: StageInvestmentTransactions, SafeMessage: mapErr.SafeMessage,
+				RawImportID: &rawImportID, ExternalAccountID: &externalInvestmentID,
+			}
+		}
+		allTransactions = append(allTransactions, transactions...)
+		allRejections = append(allRejections, rejections...)
+		if marker.isLast() {
+			return InvestmentTransactionsPage{
+				RawImportID: firstRawImportID, Transactions: allTransactions, Rejections: allRejections,
+			}, nil
 		}
 	}
-	return InvestmentTransactionsPage{RawImportID: rawImportID, Transactions: transactions, Rejections: rejections}, nil
+	return InvestmentTransactionsPage{}, pageCapExceeded(
+		StageInvestmentTransactions, externalInvestmentID, firstRawImportID, a.config.MaxPagesPerAccount)
 }
 
 // GetBills fetches every closed/overdue bill for one credit card account.
@@ -396,7 +439,7 @@ func (a *Adapter) GetBills(ctx context.Context, externalAccountID string) (Bills
 		if pageNumber == 1 {
 			firstRawImportID = rawImportID
 		}
-		bills, rejections, page, totalPages, err := mapBillsPage(payload)
+		bills, rejections, marker, err := mapBillsPage(payload)
 		if err != nil {
 			var mapErr *MappingError
 			errors.As(err, &mapErr)
@@ -407,11 +450,11 @@ func (a *Adapter) GetBills(ctx context.Context, externalAccountID string) (Bills
 		}
 		allBills = append(allBills, bills...)
 		allRejections = append(allRejections, rejections...)
-		if page >= totalPages {
-			break
+		if marker.isLast() {
+			return BillsPage{RawImportID: firstRawImportID, Bills: allBills, Rejections: allRejections}, nil
 		}
 	}
-	return BillsPage{RawImportID: firstRawImportID, Bills: allBills, Rejections: allRejections}, nil
+	return BillsPage{}, pageCapExceeded(StageBills, externalAccountID, firstRawImportID, a.config.MaxPagesPerAccount)
 }
 
 // IterTransactionPages mirrors PluggyAdapter.iter_transaction_pages: handle

@@ -765,14 +765,14 @@ func (s *Service) upsertInvestmentTransaction(ctx context.Context, investmentID 
 	var insertedID string
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO financial_investment_transactions (
-			id, source_id, investment_id, external_id, movement_type, quantity, value, amount,
+			id, source_id, investment_id, external_id, movement_type, direction, quantity, value, amount,
 			occurred_at, trade_date, current_raw_import_id, normalized_hash, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (source_id, external_id) DO NOTHING
 		RETURNING id`,
-		newID, s.SourceID, investmentID, snapshot.ExternalID, snapshot.MovementType, decimalToStorage(snapshot.Quantity),
-		decimalToStorage(snapshot.Value), decimalToStorage(snapshot.Amount), db.FormatTimePtr(snapshot.OccurredAt),
-		db.FormatTimePtr(snapshot.TradeDate), rawImportID, digest, now, now,
+		newID, s.SourceID, investmentID, snapshot.ExternalID, snapshot.MovementType, snapshot.Direction,
+		decimalToStorage(snapshot.Quantity), decimalToStorage(snapshot.Value), decimalToStorage(snapshot.Amount),
+		db.FormatTimePtr(snapshot.OccurredAt), db.FormatTimePtr(snapshot.TradeDate), rawImportID, digest, now, now,
 	).Scan(&insertedID)
 	inserted := err == nil
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -792,10 +792,10 @@ func (s *Service) upsertInvestmentTransaction(ctx context.Context, investmentID 
 	case existingHash != digest:
 		outcome = "updated"
 		_, err = tx.ExecContext(ctx, `
-			UPDATE financial_investment_transactions SET movement_type = ?, quantity = ?, value = ?, amount = ?,
-				occurred_at = ?, trade_date = ?, current_raw_import_id = ?, normalized_hash = ?, updated_at = ?
+			UPDATE financial_investment_transactions SET movement_type = ?, direction = ?, quantity = ?, value = ?,
+				amount = ?, occurred_at = ?, trade_date = ?, current_raw_import_id = ?, normalized_hash = ?, updated_at = ?
 			WHERE id = ?`,
-			snapshot.MovementType, decimalToStorage(snapshot.Quantity), decimalToStorage(snapshot.Value),
+			snapshot.MovementType, snapshot.Direction, decimalToStorage(snapshot.Quantity), decimalToStorage(snapshot.Value),
 			decimalToStorage(snapshot.Amount), db.FormatTimePtr(snapshot.OccurredAt), db.FormatTimePtr(snapshot.TradeDate),
 			rawImportID, digest, now, transactionID,
 		)
