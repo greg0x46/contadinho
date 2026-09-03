@@ -1,24 +1,33 @@
-import { ReloadOutlined } from "@ant-design/icons";
+import { PlusOutlined, ReloadOutlined } from "@ant-design/icons";
 import { PageContainer } from "@ant-design/pro-layout";
-import { Alert, Button, Card, Select, Skeleton } from "antd";
+import { Alert, Button, Card, Flex, Select, Skeleton } from "antd";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import {
   isUuid,
+  type ManualTransactionWrite,
   type TransactionFilters,
   type TransactionGrouping,
+  type TransactionItem,
   type TransactionQueryResult,
 } from "../api/contracts";
 import { filtersToSearchParams } from "../components/filters/filterUrl";
+import { ManualTransactionForm } from "../components/transactions/ManualTransactionForm";
 import { TransactionDetailDrawer } from "../components/transactions/TransactionDetailDrawer";
 import { TransactionFilters as TransactionFilterBar } from "../components/transactions/TransactionFilters";
 import { TransactionGroup } from "../components/transactions/TransactionGroup";
 import { TransactionTotals } from "../components/transactions/TransactionTotals";
+import { useAccounts } from "../hooks/useAccounts";
 import { useCategories } from "../hooks/useCategories";
+import { useManualTransaction } from "../hooks/useManualTransaction";
 import { currentMonthFilters, useTransactions } from "../hooks/useTransactions";
 import { useTransactionCategory } from "../hooks/useTransactionCategory";
 import { useTransactionInclusion } from "../hooks/useTransactionInclusion";
+
+function manualTransactionErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Não foi possível salvar o lançamento manual.";
+}
 
 type VisibleGrouping = Exclude<TransactionGrouping, "year">;
 const visibleGroupings: VisibleGrouping[] = ["none", "day", "week", "month"];
@@ -105,8 +114,42 @@ export function TransactionsPage() {
   const inclusion = useTransactionInclusion();
   const category = useTransactionCategory();
   const categories = useCategories();
+  const accounts = useAccounts();
+  const manualTransaction = useManualTransaction();
+  const [manualFormOpen, setManualFormOpen] = useState(false);
+  const [editingManualTransaction, setEditingManualTransaction] = useState<TransactionItem | null>(null);
+  const [manualSaveError, setManualSaveError] = useState<string | null>(null);
   const data = query.data;
   const selected = data?.items.find((item) => item.id === selectedId) ?? null;
+
+  const openManualCreate = () => {
+    setEditingManualTransaction(null);
+    setManualSaveError(null);
+    setManualFormOpen(true);
+  };
+  const openManualEdit = (transaction: TransactionItem) => {
+    setEditingManualTransaction(transaction);
+    setManualSaveError(null);
+    setManualFormOpen(true);
+  };
+  const closeManualForm = () => setManualFormOpen(false);
+  const submitManualTransaction = async (write: ManualTransactionWrite) => {
+    setManualSaveError(null);
+    try {
+      if (editingManualTransaction) {
+        await manualTransaction.update({ transactionId: editingManualTransaction.id, write });
+      } else {
+        await manualTransaction.create(write);
+      }
+      setManualFormOpen(false);
+    } catch (error) {
+      setManualSaveError(manualTransactionErrorMessage(error));
+    }
+  };
+  const deleteManualTransactionAndClose = async (transactionId: string) => {
+    await manualTransaction.remove(transactionId);
+    setSelectedId(null);
+  };
 
   useEffect(() => {
     if (data) setFacets(data.available_filters);
@@ -145,14 +188,19 @@ export function TransactionsPage() {
           <h1>Transações</h1>
           <p>Acompanhe suas movimentações e o saldo do período.</p>
         </div>
-        <Button
-          icon={<ReloadOutlined aria-hidden="true" />}
-          loading={query.isFetching}
-          disabled={!query.timezoneValid}
-          onClick={() => query.refetch()}
-        >
-          Atualizar
-        </Button>
+        <Flex gap="small">
+          <Button icon={<PlusOutlined aria-hidden="true" />} onClick={openManualCreate}>
+            Novo lançamento manual
+          </Button>
+          <Button
+            icon={<ReloadOutlined aria-hidden="true" />}
+            loading={query.isFetching}
+            disabled={!query.timezoneValid}
+            onClick={() => query.refetch()}
+          >
+            Atualizar
+          </Button>
+        </Flex>
       </header>
 
       <TransactionFilterBar
@@ -355,6 +403,19 @@ export function TransactionsPage() {
         inclusionPending={inclusion.pendingTarget?.transactionId === selected?.id}
         onCategory={(transactionId, categoryId) => category.setCategory({ transactionId, categoryId })}
         categoryPending={category.pendingTarget?.transactionId === selected?.id}
+        onEditManual={openManualEdit}
+        onDeleteManual={deleteManualTransactionAndClose}
+        deleteManualPending={manualTransaction.isRemoving}
+      />
+      <ManualTransactionForm
+        open={manualFormOpen}
+        transaction={editingManualTransaction}
+        accounts={accounts.accounts}
+        categories={categories.categories}
+        submitting={manualTransaction.isCreating || manualTransaction.isUpdating}
+        submitError={manualSaveError}
+        onSubmit={submitManualTransaction}
+        onCancel={closeManualForm}
       />
     </PageContainer>
   );

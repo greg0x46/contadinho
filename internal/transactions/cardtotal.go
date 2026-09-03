@@ -324,7 +324,7 @@ func fetchCardDebtTransactions(ctx context.Context, q Querier, accountID string)
 		       tid.state
 		FROM financial_transactions ft
 		LEFT JOIN transaction_inclusion_decisions tid ON tid.transaction_id = ft.id
-		WHERE ft.account_id = ?`, accountID)
+		WHERE ft.account_id = ? AND ft.deleted_at IS NULL`, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("query credit card transactions: %w", err)
 	}

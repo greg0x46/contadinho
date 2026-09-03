@@ -32,7 +32,7 @@ func GetItem(ctx context.Context, q Querier, id string) (item Item, found bool, 
 		return Item{}, false, err
 	}
 
-	rows, err := q.QueryContext(ctx, viewSelect+` WHERE ft.id = ?`, id)
+	rows, err := q.QueryContext(ctx, viewSelect+` AND ft.id = ?`, id)
 	if err != nil {
 		return Item{}, false, fmt.Errorf("query transaction %s: %w", id, err)
 	}

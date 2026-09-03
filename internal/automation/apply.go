@@ -89,14 +89,30 @@ func isReconcileOnlyRule(rule Rule) bool {
 func ApplyToNewTransaction(
 	ctx context.Context, conn *sql.DB, transactionID string, onIgnored transactions.OnIgnoredHook,
 ) error {
-	rules, err := ListActive(ctx, conn)
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := ApplyToNewTransactionWithQuerier(ctx, tx, transactionID, onIgnored); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ApplyToNewTransactionWithQuerier applies automation inside a transaction
+// boundary owned by the caller.
+func ApplyToNewTransactionWithQuerier(
+	ctx context.Context, q transactions.Querier, transactionID string, onIgnored transactions.OnIgnoredHook,
+) error {
+	rules, err := ListActive(ctx, q)
 	if err != nil {
 		return err
 	}
 	if len(rules) == 0 {
 		return nil
 	}
-	candidate, err := candidateFor(ctx, conn, transactionID)
+	candidate, err := candidateFor(ctx, q, transactionID)
 	if err != nil {
 		return err
 	}
@@ -108,13 +124,13 @@ func ApplyToNewTransaction(
 			continue
 		}
 		if setCategory, ok := findAction(rule, ActionSetCategory); ok {
-			if _, _, err := categories.ApplyRule(ctx, conn, transactionID, *setCategory.CategoryID); err != nil {
+			if _, _, err := categories.ApplyRuleWithQuerier(ctx, q, transactionID, *setCategory.CategoryID); err != nil {
 				return err
 			}
 		}
 		if _, ok := findAction(rule, ActionIgnore); ok {
 			_, err := transactions.SetInclusion(
-				ctx, conn, transactionID, money.Ignored, transactions.InclusionOriginRule, &rule.ID, &rule.Name, onIgnored,
+				ctx, q, transactionID, money.Ignored, transactions.InclusionOriginRule, &rule.ID, &rule.Name, onIgnored,
 			)
 			return err
 		}
@@ -160,7 +176,8 @@ func ApplyRetroactively(ctx context.Context, conn *sql.DB, ruleID string, onIgno
 
 	rows, err := conn.QueryContext(ctx, `
 		SELECT ft.id, ft.description, ft.credit_card_metadata, fa.name, fa.institution
-		FROM financial_transactions ft JOIN financial_accounts fa ON fa.id = ft.account_id`)
+		FROM financial_transactions ft JOIN financial_accounts fa ON fa.id = ft.account_id
+		WHERE ft.deleted_at IS NULL`)
 	if err != nil {
 		return RetroactiveResult{}, err
 	}

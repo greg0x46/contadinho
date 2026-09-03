@@ -166,6 +166,45 @@ describe("TransactionDetailDrawer", () => {
     expect(screen.queryByText(/Parcela/)).not.toBeInTheDocument();
   });
 
+  it("does not show edit/delete actions for a synced transaction", () => {
+    renderWithRouter(
+      <TransactionDetailDrawer
+        item={{ ...transactionResult.items[0]!, origin: "synced" }}
+        categories={activeCategories}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("Manual")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Editar" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Excluir" })).not.toBeInTheDocument();
+  });
+
+  it("shows the Manual tag and edit/delete actions for a manual transaction", async () => {
+    const user = userEvent.setup();
+    const onEditManual = vi.fn();
+    const onDeleteManual = vi.fn();
+    renderWithRouter(
+      <TransactionDetailDrawer
+        item={{ ...transactionResult.items[0]!, origin: "manual" }}
+        categories={activeCategories}
+        onClose={vi.fn()}
+        onEditManual={onEditManual}
+        onDeleteManual={onDeleteManual}
+      />,
+    );
+    expect(screen.getByText("Manual")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Editar" }));
+    expect(onEditManual).toHaveBeenCalledWith({ ...transactionResult.items[0]!, origin: "manual" });
+
+    const deleteTrigger = screen.getByRole("button", { name: "Excluir" });
+    await user.click(deleteTrigger);
+    const buttons = await screen.findAllByRole("button", { name: "Excluir" });
+    const confirmButton = buttons.find((button) => button !== deleteTrigger)!;
+    await user.click(confirmButton);
+    expect(onDeleteManual).toHaveBeenCalledWith(transactionResult.items[0]!.id);
+  });
+
   it("shows the installment badge when the purchase is parcelada", () => {
     renderWithRouter(
       <TransactionDetailDrawer

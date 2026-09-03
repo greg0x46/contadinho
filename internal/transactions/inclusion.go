@@ -201,7 +201,7 @@ func SetInclusion(
 	origin InclusionOrigin, ruleID, ruleName *string, onIgnored OnIgnoredHook,
 ) (InclusionConfirmation, error) {
 	var exists int
-	err := q.QueryRowContext(ctx, `SELECT 1 FROM financial_transactions WHERE id = ?`, transactionID).Scan(&exists)
+	err := q.QueryRowContext(ctx, `SELECT 1 FROM financial_transactions WHERE id = ? AND deleted_at IS NULL`, transactionID).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
 		return InclusionConfirmation{}, ErrTransactionNotFound
 	}

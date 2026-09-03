@@ -586,6 +586,31 @@ func TestListEligibleTransactionsSearchFiltersByDescription(t *testing.T) {
 	}
 }
 
+func TestListEligibleTransactionsExcludesDeletedManualTransaction(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	accountID := f.addAccount("BRL")
+	id, err := transactions.CreateManual(ctx, f.conn, transactions.ManualInput{
+		AccountID: accountID, Description: "Pagamento excluído", Amount: dec(t, "-100"), OccurredAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("CreateManual: %v", err)
+	}
+	if err := transactions.DeleteManual(ctx, f.conn, id, nil); err != nil {
+		t.Fatalf("DeleteManual: %v", err)
+	}
+
+	rows, err := payables.ListEligibleTransactions(ctx, f.conn, payables.KindDebt, nil, 20)
+	if err != nil {
+		t.Fatalf("ListEligibleTransactions: %v", err)
+	}
+	for _, row := range rows {
+		if row.ID == id {
+			t.Fatalf("deleted manual transaction %s remained eligible", id)
+		}
+	}
+}
+
 // backdatePayable overrides a payable's created_at, which payables.Create
 // always stamps with the real wall-clock time — tests that reconstruct a
 // payable's state on a synthetic past day need it to actually predate that

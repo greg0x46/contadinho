@@ -86,6 +86,11 @@ function TransactionRow({
       <span className="transaction-identity">
         <strong>
           {item.description ?? "Descrição não informada"}
+          {item.origin === "manual" && (
+            <Tag className="transaction-manual-tag" color="purple">
+              Manual
+            </Tag>
+          )}
           {ignored && (
             <Tag
               className="transaction-ignored-tag"

@@ -116,6 +116,7 @@ type CardInfo struct {
 type Item struct {
 	ID                      string
 	ExternalID              string
+	Origin                  string
 	OccurredAt              *time.Time
 	Description             *string
 	Account                 AccountSummary

@@ -359,6 +359,11 @@
   vertical-align: middle;
 }
 
+.transaction-manual-tag {
+  margin-inline: 0.5rem 0 !important;
+  vertical-align: middle;
+}
+
 .transaction-inclusion-explanation {
   margin: -0.25rem 0 0.75rem;
   color: #44546f;

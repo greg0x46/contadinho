@@ -454,7 +454,8 @@ func ListEligibleTransactions(ctx context.Context, q Querier, kind Kind, search 
 		FROM financial_transactions ft
 		JOIN financial_accounts fa ON fa.id = ft.account_id
 		LEFT JOIN transaction_inclusion_decisions tid ON tid.transaction_id = ft.id
-		WHERE ft.id NOT IN (SELECT transaction_id FROM payable_transaction_links)`)
+		WHERE ft.deleted_at IS NULL
+		  AND ft.id NOT IN (SELECT transaction_id FROM payable_transaction_links)`)
 	if err != nil {
 		return nil, err
 	}

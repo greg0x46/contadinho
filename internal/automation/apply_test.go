@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 
 	"contadinho-go/internal/automation"
 	"contadinho-go/internal/categories"
@@ -433,6 +434,41 @@ func TestApplyRetroactivelyAppliesSetCategoryAction(t *testing.T) {
 	f.conn.QueryRow(`SELECT COUNT(*) FROM transaction_category_decisions WHERE transaction_id = ?`, tx2).Scan(&tx2Count)
 	if tx2Count != 0 {
 		t.Errorf("tx2 (non-matching) should have no category decision, got %d", tx2Count)
+	}
+}
+
+func TestApplyRetroactivelySkipsDeletedManualTransactions(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	acc := f.addAccount("Conta", "Banco")
+	id, err := transactions.CreateManual(ctx, f.conn, transactions.ManualInput{
+		AccountID: acc, Description: "Assinatura removida", Amount: decimal.RequireFromString("-10"), OccurredAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("CreateManual: %v", err)
+	}
+	if err := transactions.DeleteManual(ctx, f.conn, id, nil); err != nil {
+		t.Fatalf("DeleteManual: %v", err)
+	}
+	category, err := categories.Create(ctx, f.conn, "Assinaturas", money.Expense, "icon", "#fff")
+	if err != nil {
+		t.Fatalf("categories.Create: %v", err)
+	}
+	rule, err := automation.Create(ctx, f.conn, automation.Write{
+		Name: "Categorizar assinaturas", IsActive: false, LogicOperator: automation.LogicAnd,
+		Conditions: []automation.Condition{{Field: automation.FieldDescription, Operator: automation.OperatorContains, Value: "assinatura"}},
+		Actions:    []automation.ActionWrite{{Type: automation.ActionSetCategory, CategoryID: &category.ID}},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	result, err := automation.ApplyRetroactively(ctx, f.conn, rule.ID, nil)
+	if err != nil {
+		t.Fatalf("ApplyRetroactively: %v", err)
+	}
+	if result.Matched != 0 || result.Categorized != 0 {
+		t.Errorf("result = %+v, want no deleted transaction matches", result)
 	}
 }
 

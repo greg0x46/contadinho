@@ -1,4 +1,4 @@
-import { Alert, Button, Collapse, Descriptions, Drawer, Grid, Select, Tag } from "antd";
+import { Alert, Button, Collapse, Descriptions, Drawer, Grid, Popconfirm, Select, Tag } from "antd";
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -90,6 +90,9 @@ export function TransactionDetailDrawer({
   inclusionPending = false,
   onCategory,
   categoryPending = false,
+  onEditManual,
+  onDeleteManual,
+  deleteManualPending = false,
 }: {
   item: TransactionItem | null;
   categories?: Category[];
@@ -98,6 +101,9 @@ export function TransactionDetailDrawer({
   inclusionPending?: boolean;
   onCategory?: (id: string, categoryId: string) => void;
   categoryPending?: boolean;
+  onEditManual?: (item: TransactionItem) => void;
+  onDeleteManual?: (id: string) => void;
+  deleteManualPending?: boolean;
 }) {
   const screens = Grid.useBreakpoint();
   const reason = item?.totals_eligibility.reason;
@@ -129,6 +135,7 @@ export function TransactionDetailDrawer({
               <Tag color={item.inclusion.state === "ignored" ? "default" : "success"}>
                 {item.inclusion.state === "ignored" ? "Ignorada" : "Considerada"}
               </Tag>
+              {item.origin === "manual" && <Tag color="purple">Manual</Tag>}
             </div>
           </div>
 
@@ -237,6 +244,26 @@ export function TransactionDetailDrawer({
               >
                 Criar recorrência a partir desta transação
               </Button>
+            )}
+            {item.origin === "manual" && (
+              <>
+                <Button disabled={!onEditManual} onClick={() => onEditManual?.(item)}>
+                  Editar
+                </Button>
+                <Popconfirm
+                  title="Excluir lançamento manual"
+                  description="Esta ação não pode ser desfeita."
+                  okText="Excluir"
+                  cancelText="Cancelar"
+                  okButtonProps={{ danger: true, loading: deleteManualPending }}
+                  onConfirm={() => onDeleteManual?.(item.id)}
+                  disabled={!onDeleteManual}
+                >
+                  <Button danger disabled={!onDeleteManual} loading={deleteManualPending}>
+                    Excluir
+                  </Button>
+                </Popconfirm>
+              </>
             )}
           </div>
 

@@ -127,9 +127,29 @@ func writeDecision(
 // single transaction — a card purchase has one category, not one per
 // parcela.
 func AssignManual(ctx context.Context, conn *sql.DB, transactionID, categoryID string) (Decision, error) {
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return Decision{}, err
+	}
+	defer tx.Rollback()
+
+	decision, err := AssignManualWithQuerier(ctx, tx, transactionID, categoryID)
+	if err != nil {
+		return Decision{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Decision{}, err
+	}
+	return decision, nil
+}
+
+// AssignManualWithQuerier is AssignManual without owning the transaction
+// boundary. It lets compound operations keep the transaction row, category
+// decision, and category event in one caller-controlled transaction.
+func AssignManualWithQuerier(ctx context.Context, q Querier, transactionID, categoryID string) (Decision, error) {
 	var exists int
-	err := conn.QueryRowContext(ctx,
-		`SELECT 1 FROM financial_transactions WHERE id = ?`, transactionID,
+	err := q.QueryRowContext(ctx,
+		`SELECT 1 FROM financial_transactions WHERE id = ? AND deleted_at IS NULL`, transactionID,
 	).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Decision{}, ErrTransactionNotFound
@@ -138,7 +158,7 @@ func AssignManual(ctx context.Context, conn *sql.DB, transactionID, categoryID s
 		return Decision{}, err
 	}
 
-	category, err := Get(ctx, conn, categoryID)
+	category, err := Get(ctx, q, categoryID)
 	if errors.Is(err, ErrNotFound) || !category.IsActive {
 		return Decision{}, ErrCategoryInvalid
 	}
@@ -146,20 +166,14 @@ func AssignManual(ctx context.Context, conn *sql.DB, transactionID, categoryID s
 		return Decision{}, err
 	}
 
-	tx, err := conn.BeginTx(ctx, nil)
-	if err != nil {
-		return Decision{}, err
-	}
-	defer tx.Rollback()
-
-	group, err := findInstallmentGroup(ctx, tx, transactionID)
+	group, err := findInstallmentGroup(ctx, q, transactionID)
 	if err != nil {
 		return Decision{}, err
 	}
 
 	var primary Decision
 	for _, id := range group {
-		decision, _, err := writeDecision(ctx, tx, id, categoryID, OriginManual)
+		decision, _, err := writeDecision(ctx, q, id, categoryID, OriginManual)
 		if err != nil {
 			return Decision{}, err
 		}
@@ -168,9 +182,6 @@ func AssignManual(ctx context.Context, conn *sql.DB, transactionID, categoryID s
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		return Decision{}, err
-	}
 	return primary, nil
 }
 
@@ -182,9 +193,27 @@ func AssignManual(ctx context.Context, conn *sql.DB, transactionID, categoryID s
 // propagates the same decision to every installment of a split card
 // purchase.
 func ApplyRule(ctx context.Context, conn *sql.DB, transactionID, categoryID string) (Decision, bool, error) {
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return Decision{}, false, err
+	}
+	defer tx.Rollback()
+
+	decision, changed, err := ApplyRuleWithQuerier(ctx, tx, transactionID, categoryID)
+	if err != nil {
+		return Decision{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Decision{}, false, err
+	}
+	return decision, changed, nil
+}
+
+// ApplyRuleWithQuerier is ApplyRule without owning the transaction boundary.
+func ApplyRuleWithQuerier(ctx context.Context, q Querier, transactionID, categoryID string) (Decision, bool, error) {
 	var exists int
-	err := conn.QueryRowContext(ctx,
-		`SELECT 1 FROM financial_transactions WHERE id = ?`, transactionID,
+	err := q.QueryRowContext(ctx,
+		`SELECT 1 FROM financial_transactions WHERE id = ? AND deleted_at IS NULL`, transactionID,
 	).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Decision{}, false, ErrTransactionNotFound
@@ -193,7 +222,7 @@ func ApplyRule(ctx context.Context, conn *sql.DB, transactionID, categoryID stri
 		return Decision{}, false, err
 	}
 
-	category, err := Get(ctx, conn, categoryID)
+	category, err := Get(ctx, q, categoryID)
 	if errors.Is(err, ErrNotFound) || !category.IsActive {
 		return Decision{}, false, ErrCategoryInvalid
 	}
@@ -201,13 +230,7 @@ func ApplyRule(ctx context.Context, conn *sql.DB, transactionID, categoryID stri
 		return Decision{}, false, err
 	}
 
-	tx, err := conn.BeginTx(ctx, nil)
-	if err != nil {
-		return Decision{}, false, err
-	}
-	defer tx.Rollback()
-
-	existing, err := getDecision(ctx, tx, transactionID)
+	existing, err := getDecision(ctx, q, transactionID)
 	if err != nil {
 		return Decision{}, false, err
 	}
@@ -215,7 +238,7 @@ func ApplyRule(ctx context.Context, conn *sql.DB, transactionID, categoryID stri
 		return *existing, false, nil
 	}
 
-	group, err := findInstallmentGroup(ctx, tx, transactionID)
+	group, err := findInstallmentGroup(ctx, q, transactionID)
 	if err != nil {
 		return Decision{}, false, err
 	}
@@ -223,7 +246,7 @@ func ApplyRule(ctx context.Context, conn *sql.DB, transactionID, categoryID stri
 	var primary Decision
 	var changed bool
 	for _, id := range group {
-		decision, didChange, err := writeDecision(ctx, tx, id, categoryID, OriginRule)
+		decision, didChange, err := writeDecision(ctx, q, id, categoryID, OriginRule)
 		if err != nil {
 			return Decision{}, false, err
 		}
@@ -233,9 +256,6 @@ func ApplyRule(ctx context.Context, conn *sql.DB, transactionID, categoryID stri
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		return Decision{}, false, err
-	}
 	return primary, changed, nil
 }
 

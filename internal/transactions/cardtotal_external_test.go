@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	"contadinho-go/internal/transactions"
 )
 
@@ -45,5 +47,32 @@ func TestCreditCardTotalIgnoresTransferCategory(t *testing.T) {
 	// payment would drop out and this would read 200.
 	if total.String() != "150" {
 		t.Errorf("total = %s, want 150 — the transfer-categorized payment must still be subtracted", total)
+	}
+}
+
+func TestCreditCardTotalExcludesDeletedManualTransaction(t *testing.T) {
+	f := newFixture(t)
+	loc := time.UTC
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, loc)
+	lastClosing := time.Date(2026, 6, 2, 0, 0, 0, 0, loc)
+	card := f.addAccount(account{CurrencyCode: strp("BRL"), AccountType: strp("CREDIT")})
+	f.addBill(bill{AccountID: card, ExternalID: "bill-history", DueDate: lastClosing, ClosingDate: lastClosing})
+
+	id, err := transactions.CreateManual(context.Background(), f.conn, transactions.ManualInput{
+		AccountID: card, Description: "Compra manual", Amount: decimal.RequireFromString("-200"), OccurredAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateManual: %v", err)
+	}
+	if err := transactions.DeleteManual(context.Background(), f.conn, id, nil); err != nil {
+		t.Fatalf("DeleteManual: %v", err)
+	}
+
+	total, err := transactions.CreditCardTransactionTotalAt(context.Background(), f.conn, "BRL", now, loc)
+	if err != nil {
+		t.Fatalf("CreditCardTransactionTotalAt: %v", err)
+	}
+	if !total.IsZero() {
+		t.Errorf("total = %s, want 0 after deleting the manual transaction", total)
 	}
 }
