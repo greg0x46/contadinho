@@ -79,6 +79,8 @@ export const transactionInclusionStates = ["considered", "ignored"] as const;
 export type TransactionInclusionState = (typeof transactionInclusionStates)[number];
 export const transactionInclusionOrigins = ["manual", "rule"] as const;
 export type TransactionInclusionOrigin = (typeof transactionInclusionOrigins)[number];
+export const transactionOrigins = ["synced", "manual"] as const;
+export type TransactionOrigin = (typeof transactionOrigins)[number];
 
 export const categoryKinds = ["expense", "income", "transfer"] as const;
 export type CategoryKind = (typeof categoryKinds)[number];
@@ -128,6 +130,7 @@ export interface InternalCategory {
 export interface TransactionItem {
   id: string;
   external_id: string;
+  origin: TransactionOrigin;
   occurred_at: string | null;
   description: string | null;
   account: {
@@ -185,6 +188,18 @@ export interface TransactionCategoryResult {
   category_id: string;
   origin: "manual";
   changed_at: string;
+}
+
+// ManualTransactionWrite is the request body for both creating and editing a
+// lançamento manual. amount is already signed — positive for money coming
+// in, negative for money going out — matching how the backend's
+// transactions.ManualInput expects it.
+export interface ManualTransactionWrite {
+  account_id: string;
+  description: string;
+  amount: string;
+  occurred_at: string;
+  category_id: string | null;
 }
 
 export interface TransactionGroup {
@@ -420,10 +435,11 @@ function parseCardInfo(value: unknown): NonNullable<TransactionItem["card"]> {
   };
 }
 
-function parseTransactionItem(value: unknown): TransactionItem {
+export function parseTransactionItem(value: unknown): TransactionItem {
   const item = requiredRecord(value, [
     "id",
     "external_id",
+    "origin",
     "occurred_at",
     "description",
     "account",
@@ -461,6 +477,7 @@ function parseTransactionItem(value: unknown): TransactionItem {
     typeof item.id !== "string" ||
     !isUuid(item.id) ||
     typeof item.external_id !== "string" ||
+    !transactionOrigins.includes(item.origin as TransactionOrigin) ||
     !(item.occurred_at === null || isValidDate(item.occurred_at)) ||
     !transactionClassifications.includes(item.classification as TransactionClassification) ||
     typeof item.group_key !== "string" ||
@@ -503,6 +520,7 @@ function parseTransactionItem(value: unknown): TransactionItem {
   return {
     id: item.id,
     external_id: item.external_id,
+    origin: item.origin as TransactionOrigin,
     occurred_at: item.occurred_at as string | null,
     description: nullableText(item.description),
     account: {

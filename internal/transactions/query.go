@@ -24,6 +24,7 @@ type row struct {
 	id                      string
 	accountID               string
 	externalID              string
+	origin                  string
 	description             *string
 	amount                  *decimal.Decimal
 	amountInAccountCurrency *decimal.Decimal
@@ -81,10 +82,12 @@ type view struct {
 
 // viewSelect is the one column list and join shape every view in this
 // package is built from — shared by the unfiltered scan below and by GetItem,
-// which appends a WHERE to it, so a column added here reaches both.
+// which extends its WHERE, so a column (or filter) added here reaches both.
+// The deleted_at filter is what makes a soft-deleted manual lançamento (see
+// DeleteManual) disappear from the ledger, totals, and GetItem alike.
 const viewSelect = `
 	SELECT
-		ft.id, ft.account_id, ft.external_id, ft.description, ft.amount,
+		ft.id, ft.account_id, ft.external_id, ft.origin, ft.description, ft.amount,
 		ft.amount_in_account_currency, ft.currency_code, ft.occurred_at,
 		ft.provider_status, ft.movement_type, ft.source_category, ft.credit_card_metadata,
 		fa.name, fa.institution, fa.currency_code, fa.account_type,
@@ -95,7 +98,8 @@ const viewSelect = `
 	JOIN financial_accounts fa ON fa.id = ft.account_id
 	LEFT JOIN transaction_inclusion_decisions tid ON tid.transaction_id = ft.id
 	LEFT JOIN transaction_category_decisions tcd ON tcd.transaction_id = ft.id
-	LEFT JOIN categories cat ON cat.id = tcd.category_id`
+	LEFT JOIN categories cat ON cat.id = tcd.category_id
+	WHERE ft.deleted_at IS NULL`
 
 func fetchAllViews(ctx context.Context, q Querier, query QueryRequest) ([]view, error) {
 	periodBasis, err := settings.GetTransactionsPeriodBasis(ctx, q)
@@ -164,6 +168,7 @@ func fetchBillDueDates(ctx context.Context, q Querier) (map[string]time.Time, er
 func scanRow(rows *sql.Rows) (row, error) {
 	var (
 		r                          row
+		externalID                 sql.NullString
 		amount, amountAcct         sql.NullString
 		currencyCode               sql.NullString
 		occurredAt                 sql.NullString
@@ -191,7 +196,7 @@ func scanRow(rows *sql.Rows) (row, error) {
 		categoryColor              sql.NullString
 	)
 	err := rows.Scan(
-		&r.id, &r.accountID, &r.externalID, &description, &amount,
+		&r.id, &r.accountID, &externalID, &r.origin, &description, &amount,
 		&amountAcct, &currencyCode, &occurredAt,
 		&providerStatus, &movementType, &sourceCategory, &creditCardMetadata,
 		&accountName, &accountInstitution, &accountCurrencyCode, &accountType,
@@ -203,6 +208,7 @@ func scanRow(rows *sql.Rows) (row, error) {
 		return row{}, err
 	}
 
+	r.externalID = externalID.String
 	r.description = nullString(description)
 	r.currencyCode = nullString(currencyCode)
 	r.providerStatus = nullString(providerStatus)
@@ -556,6 +562,7 @@ func toItem(v view) Item {
 	item := Item{
 		ID:             r.id,
 		ExternalID:     r.externalID,
+		Origin:         r.origin,
 		OccurredAt:     r.occurredAt,
 		Description:    r.description,
 		SourceCategory: r.sourceCategory,

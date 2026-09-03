@@ -32,6 +32,7 @@ export const transactionResult: TransactionQueryResult = {
     {
       id: transactionId,
       external_id: "provider-transaction",
+      origin: "synced",
       occurred_at: "2026-07-15T12:00:00Z",
       description: "Mercado",
       account: {

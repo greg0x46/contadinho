@@ -45,9 +45,10 @@ aceitar ou rejeitar cada candidato nesta lista:
 A entidade central de fluxo de caixa e as regras que decidem o que conta
 pra total: classificação de movimento, valor efetivo, inclusão/exclusão
 (`internal/money`: `Classify`, `SelectEffectiveMoney`, `Considered`/
-`Ignored`, `CategoryKind`). Agnóstico de origem — hoje só a Pluggy popula lançamentos, mas
-o motor em si não presume isso; lançamento manual é a mesma entidade, só
-outra via de entrada. Ingestão (Pluggy, e no futuro entrada manual) é
+`Ignored`, `CategoryKind`). Agnóstico de origem — Pluggy e lançamento manual
+(`origin` em `financial_transactions`, ver `.specs/contextos/transacoes/
+reference.md`) povoam a mesma tabela e passam pelas mesmas regras; o motor
+em si não presume qual das duas. Ingestão (Pluggy, e lançamento manual) é
 provedor/entrada de dado, não parte do motor.
 
 Duas vias tiram um lançamento dos totais, e elas afirmam coisas
@@ -199,9 +200,10 @@ expressão dele na interface.
   critério 3 (não reutilizado em múltiplos contextos hoje).
 - **Sincronização/Pluggy** (`internal/pluggy`, `internal/syncsvc`,
   `internal/worker`): provedor de ingestão, não motor de domínio — viola o
-  critério 3 diretamente. Alimenta o motor de Lançamentos, mas o sistema
-  tende a ganhar outras vias de entrada (lançamento manual) que não têm
-  nada a ver com Pluggy.
+  critério 3 diretamente. Alimenta o motor de Lançamentos junto com o
+  lançamento manual (`internal/transactions/manual.go`), que não tem nada a
+  ver com Pluggy — a segunda via de entrada previu essa divergência antes
+  de existir, e agora existe.
 
 ## Princípios transversais (valem para todo motor novo)
 

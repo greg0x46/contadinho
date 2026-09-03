@@ -150,7 +150,7 @@ func RealizeEvent(ctx context.Context, conn *sql.DB, scenarioID, eventKey string
 	}
 	if write.State == RealizationStateLinked {
 		var exists int
-		if err := conn.QueryRowContext(ctx, `SELECT COUNT(1) FROM financial_transactions WHERE id = ?`, *write.TransactionID).Scan(&exists); err != nil {
+		if err := conn.QueryRowContext(ctx, `SELECT COUNT(1) FROM financial_transactions WHERE id = ? AND deleted_at IS NULL`, *write.TransactionID).Scan(&exists); err != nil {
 			return GenericRealization{}, err
 		}
 		if exists == 0 {
@@ -416,7 +416,7 @@ func linkedAmountSnapshot(ctx context.Context, q Querier, transactionID *string)
 	err := q.QueryRowContext(ctx, `
 		SELECT ft.amount, ft.amount_in_account_currency, ft.currency_code, fa.currency_code
 		FROM financial_transactions ft JOIN financial_accounts fa ON fa.id = ft.account_id
-		WHERE ft.id = ?`, *transactionID).Scan(&amountRaw, &amountAccountRaw, &currencyRaw, &accountCurrencyRaw)
+			WHERE ft.id = ? AND ft.deleted_at IS NULL`, *transactionID).Scan(&amountRaw, &amountAccountRaw, &currencyRaw, &accountCurrencyRaw)
 	if err != nil {
 		return nil
 	}

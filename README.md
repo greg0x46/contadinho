@@ -57,7 +57,10 @@ binário:
   métricas, falhas) em vez de uma importação caixa-preta.
 - **Transações** — lista de transações pesquisável/filtrável, inclusão/
   exclusão manual (ex.: ignorar um estorno ou uma duplicata) e
-  categorização.
+  categorização. Lançamentos também podem ser criados à mão numa conta já
+  existente — mesmas regras de categorização e automação de um lançamento
+  sincronizado, com edição e exclusão restritas a esses lançamentos
+  manuais.
 - **Regras de automação** — regras baseadas em condições que categorizam
   novas transações automaticamente e podem ser aplicadas retroativamente às
   já existentes.

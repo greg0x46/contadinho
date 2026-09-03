@@ -25,8 +25,7 @@ describe("TransactionFilters", () => {
       ),
     );
 
-    await user.click(screen.getByRole("combobox", { name: "Período" }));
-    await user.click(await screen.findByText("Personalizado"));
+    await user.click(screen.getByRole("button", { name: "Editar período personalizado" }));
     const start = screen.getByLabelText("Data inicial");
     const end = screen.getByLabelText("Data final");
     await user.clear(start);

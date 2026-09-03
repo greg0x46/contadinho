@@ -56,6 +56,9 @@ func NewServer(db *sql.DB, frontend fs.FS, session *settings.Session) http.Handl
 
 	mux.HandleFunc("POST /api/transactions/query", handleQueryTransactions(db))
 	mux.HandleFunc("GET /api/transactions/spending-by-category", handleSpendingByCategory(db))
+	mux.HandleFunc("POST /api/transactions", handleCreateManualTransaction(db))
+	mux.HandleFunc("PUT /api/transactions/{id}", handleUpdateManualTransaction(db))
+	mux.HandleFunc("DELETE /api/transactions/{id}", handleDeleteManualTransaction(db))
 	mux.HandleFunc("PUT /api/transactions/{id}/inclusion", handleSetTransactionInclusion(db))
 	mux.HandleFunc("PUT /api/transactions/{id}/category", handleSetTransactionCategory(db))
 	mux.HandleFunc("GET /api/transactions/{id}/reconciliation", handleGetTransactionReconciliation(db))

@@ -3,14 +3,17 @@ import {
   parseSpendingByCategory,
   parseTransactionCategoryResult,
   parseTransactionInclusionResult,
+  parseTransactionItem,
   parseTransactionQueryResult,
   parseTransactionReconciliation,
+  type ManualTransactionWrite,
   type Problem,
   type TransactionReconciliation,
   type SpendingByCategory,
   type TransactionCategoryResult,
   type TransactionInclusionResult,
   type TransactionInclusionState,
+  type TransactionItem,
   type TransactionQuery,
   type TransactionQueryResult,
 } from "./contracts";
@@ -212,6 +215,99 @@ export async function setTransactionCategory(
   } catch {
     throw new ApiError("response", "A confirmação da categoria é inválida.");
   }
+}
+
+async function sendManualTransaction(
+  method: "POST" | "PUT",
+  url: string,
+  write: ManualTransactionWrite,
+  failure: string,
+): Promise<TransactionItem> {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(write),
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new ApiError("transport", failure);
+  }
+
+  const contentType = response.headers.get("content-type")?.split(";")[0].trim();
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new ApiError("response", failure);
+  }
+  if (!response.ok) {
+    let problem: Problem | undefined;
+    if (contentType === "application/problem+json") {
+      try {
+        problem = parseProblem(body);
+      } catch {
+        problem = undefined;
+      }
+    }
+    throw new ApiError(
+      response.status === 404 ? "not_found" : response.status === 409 ? "conflict" : "response",
+      problem?.detail ?? problem?.title ?? failure,
+      problem,
+    );
+  }
+  if (contentType !== "application/json") {
+    throw new ApiError("response", failure);
+  }
+  try {
+    return parseTransactionItem(body);
+  } catch {
+    throw new ApiError("response", failure);
+  }
+}
+
+export function createManualTransaction(write: ManualTransactionWrite): Promise<TransactionItem> {
+  return sendManualTransaction("POST", "/api/transactions", write, "Não foi possível criar o lançamento manual.");
+}
+
+export function updateManualTransaction(
+  transactionId: string,
+  write: ManualTransactionWrite,
+): Promise<TransactionItem> {
+  return sendManualTransaction(
+    "PUT",
+    `/api/transactions/${encodeURIComponent(transactionId)}`,
+    write,
+    "Não foi possível salvar o lançamento manual.",
+  );
+}
+
+export async function deleteManualTransaction(transactionId: string): Promise<void> {
+  const failure = "Não foi possível excluir o lançamento manual.";
+  let response: Response;
+  try {
+    response = await fetch(`/api/transactions/${encodeURIComponent(transactionId)}`, { method: "DELETE" });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new ApiError("transport", failure);
+  }
+  if (response.status === 204) return;
+
+  const contentType = response.headers.get("content-type")?.split(";")[0].trim();
+  let problem: Problem | undefined;
+  if (contentType === "application/problem+json") {
+    try {
+      problem = parseProblem(await response.json());
+    } catch {
+      problem = undefined;
+    }
+  }
+  throw new ApiError(
+    response.status === 404 ? "not_found" : response.status === 409 ? "conflict" : "response",
+    problem?.detail ?? problem?.title ?? failure,
+    problem,
+  );
 }
 
 /**

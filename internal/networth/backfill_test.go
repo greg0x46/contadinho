@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	"contadinho-go/internal/categories"
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/networth"
@@ -293,4 +295,44 @@ func TestBackfillReversesTransferCategorizedTransactions(t *testing.T) {
 	}
 	// 1000 today + 300 reversed back out = 1300 before the transfer left.
 	assertDecimalEqual(t, "twoDaysAgo.CashBalance", snap.Breakdown.CashBalance, "1300")
+}
+
+// TestBackfillIgnoresManualTransactions guards the other blast radius: a
+// lançamento manual describes money that moved outside what the provider
+// tracks, so financial_accounts.balance — what today's figure is built from
+// — never included it. If it leaked into cashDeltasDescending, every day
+// before it would be off by its full amount, exactly like an un-excluded
+// transfer would be.
+func TestBackfillIgnoresManualTransactions(t *testing.T) {
+	f := newFixture(t)
+	accountID := f.addAccount("", "1000.00")
+
+	today := time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC)
+	twoDaysAgo := today.AddDate(0, 0, -2)
+	oneDayAgo := today.AddDate(0, 0, -1)
+
+	// An anchor on the older day, so twoDaysAgo is within backfill coverage
+	// (same technique as TestBackfillReversesTransferCategorizedTransactions)
+	// — a day's snapshot only reverses what happened *after* it.
+	f.addCardTransaction(accountID, twoDaysAgo, "-1.00", "DEBIT")
+
+	if _, err := transactions.CreateManual(context.Background(), f.conn, transactions.ManualInput{
+		AccountID: accountID, Description: "Compra em dinheiro",
+		Amount: decimal.RequireFromString("-9999.00"), OccurredAt: oneDayAgo,
+	}); err != nil {
+		t.Fatalf("CreateManual: %v", err)
+	}
+
+	if err := networth.Backfill(context.Background(), f.conn, today); err != nil {
+		t.Fatalf("Backfill: %v", err)
+	}
+
+	snap, ok := snapshotFor(t, f, twoDaysAgo)
+	if !ok {
+		t.Fatalf("no snapshot for twoDaysAgo")
+	}
+	// If the manual -9999.00 leaked into reconstruction, this would read
+	// 10999 (1000 + 9999 reversed back out). It must not shift at all: the
+	// manual entry never touched the real balance to begin with.
+	assertDecimalEqual(t, "twoDaysAgo.CashBalance", snap.Breakdown.CashBalance, "1000")
 }
