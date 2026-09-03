@@ -126,6 +126,7 @@ func InvestmentTransactionHash(t InvestmentTransactionSnapshot) string {
 		t.ExternalID,
 		t.ExternalInvestmentID,
 		strField(t.MovementType),
+		strField(t.Direction),
 		decField(t.Quantity),
 		decField(t.Value),
 		decField(t.Amount),

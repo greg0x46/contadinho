@@ -3,9 +3,11 @@ package pluggy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -274,5 +276,71 @@ func TestAdapterRejectsRepeatedCursor(t *testing.T) {
 	provErr, ok := err.(*ProviderError)
 	if !ok || provErr.Code != "invalid_provider_payload" {
 		t.Errorf("err = %v, want invalid_provider_payload for a repeated cursor", err)
+	}
+}
+
+// Regression test: the endpoint was read as a single page on the belief that
+// it was unpaginated, so a history longer than one page was truncated in
+// silence — no error, no rejection, just half a history.
+func TestAdapterGetInvestmentTransactionsPaginatesByPageNumber(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/auth", authHandler)
+	mux.HandleFunc("/investments/inv-1/transactions", func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("page") {
+		case "1":
+			json.NewEncoder(w).Encode(map[string]any{
+				"page": 1, "totalPages": 2,
+				"results": []map[string]any{{"id": "invtx-1", "type": "BUY", "movementType": "CREDIT", "amount": 100.0}},
+			})
+		case "2":
+			json.NewEncoder(w).Encode(map[string]any{
+				"page": 2, "totalPages": 2,
+				"results": []map[string]any{{"id": "invtx-2", "type": "SELL", "movementType": "DEBIT", "amount": 120.0}},
+			})
+		default:
+			t.Errorf("unexpected page %q", r.URL.Query().Get("page"))
+		}
+	})
+	adapter, writer := newTestAdapter(t, mux)
+
+	page, err := adapter.GetInvestmentTransactions(context.Background(), "inv-1")
+	if err != nil {
+		t.Fatalf("GetInvestmentTransactions: %v", err)
+	}
+	if len(page.Transactions) != 2 || page.Transactions[0].ExternalID != "invtx-1" || page.Transactions[1].ExternalID != "invtx-2" {
+		t.Errorf("Transactions = %+v", page.Transactions)
+	}
+	if len(writer.envelopes) != 2 || writer.envelopes[0].Scope != ScopeInvestmentTransactions {
+		t.Errorf("envelopes = %+v", writer.envelopes)
+	}
+}
+
+// Regression test for the other half of the truncation problem: paginating
+// correctly still loses history if the page budget runs out first. Reporting
+// a partial history as if it were the whole one is what makes a healthy
+// position read as a loss, so the cap has to fail loudly instead.
+func TestAdapterGetInvestmentTransactionsRefusesATruncatedHistory(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/auth", authHandler)
+	mux.HandleFunc("/investments/inv-1/transactions", func(w http.ResponseWriter, r *http.Request) {
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		// Always one more page than the caller has budget for.
+		json.NewEncoder(w).Encode(map[string]any{
+			"page": page, "totalPages": 9999,
+			"results": []map[string]any{{
+				"id": "invtx-" + strconv.Itoa(page), "type": "BUY", "movementType": "CREDIT", "amount": 1.0,
+			}},
+		})
+	})
+	adapter, _ := newTestAdapter(t, mux)
+	adapter.config.MaxPagesPerAccount = 2
+
+	_, err := adapter.GetInvestmentTransactions(context.Background(), "inv-1")
+	var providerErr *ProviderError
+	if !errors.As(err, &providerErr) || providerErr.Code != "provider_pagination_exhausted" {
+		t.Fatalf("err = %v, want a provider_pagination_exhausted ProviderError", err)
+	}
+	if providerErr.ExternalAccountID == nil || *providerErr.ExternalAccountID != "inv-1" {
+		t.Errorf("ExternalAccountID = %v, want the investment named so the cap can be raised knowingly", providerErr.ExternalAccountID)
 	}
 }

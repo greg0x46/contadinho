@@ -1949,6 +1949,21 @@ export function parseScenarioRealization(value: unknown): ScenarioRealization {
   };
 }
 
+/**
+ * Why the backend could not state a yield. "sem_historico": no movements
+ * synced at all. "historico_incompleto": movements arrived, but they cannot
+ * account for the position (no aplicação behind the resgates, more cotas sold
+ * than bought, or a movement whose direction or amount is unknown) — netting
+ * them would report principal as profit. "saldo_indisponivel": the history
+ * nets fine, there is just no current balance to net it against.
+ */
+export const yieldUnavailableReasons = [
+  "sem_historico",
+  "historico_incompleto",
+  "saldo_indisponivel",
+] as const;
+export type YieldUnavailableReason = (typeof yieldUnavailableReasons)[number];
+
 export interface Investment {
   id: string;
   external_id: string;
@@ -1974,6 +1989,8 @@ export interface Investment {
   provider_updated_at: string | null;
   yield_value: string | null;
   yield_source: "informado" | "calculado" | null;
+  /** Why yield_value is null. Always null when yield_value is present. */
+  yield_unavailable_reason: YieldUnavailableReason | null;
 }
 
 const investmentKeys = [
@@ -2001,6 +2018,7 @@ const investmentKeys = [
   "provider_updated_at",
   "yield_value",
   "yield_source",
+  "yield_unavailable_reason",
 ] as const;
 
 export function parseInvestment(value: unknown): Investment {
@@ -2018,7 +2036,9 @@ export function parseInvestment(value: unknown): Investment {
     !isNullableString(item.rate_type) ||
     !isNullableString(item.issuer) ||
     !(item.yield_source === null || item.yield_source === "informado" || item.yield_source === "calculado") ||
-    (item.yield_source === null) !== (item.yield_value === null)
+    (item.yield_source === null) !== (item.yield_value === null) ||
+    !(item.yield_unavailable_reason === null ||
+      yieldUnavailableReasons.includes(item.yield_unavailable_reason as YieldUnavailableReason))
   ) {
     throw new TypeError("Investimento inválido.");
   }
@@ -2047,6 +2067,7 @@ export function parseInvestment(value: unknown): Investment {
     provider_updated_at: nullableDate(item.provider_updated_at),
     yield_value: nullableDecimal(item.yield_value),
     yield_source: item.yield_source as "informado" | "calculado" | null,
+    yield_unavailable_reason: item.yield_unavailable_reason as YieldUnavailableReason | null,
   };
 }
 
@@ -2057,10 +2078,15 @@ export function parseInvestmentList(value: unknown): Investment[] {
   return value.map(parseInvestment);
 }
 
+/** Which way the money moved, normalized by the backend at ingestion. */
+export const investmentDirections = ["inflow", "outflow"] as const;
+export type InvestmentDirection = (typeof investmentDirections)[number];
+
 export interface InvestmentTransaction {
   id: string;
   external_id: string;
   movement_type: string | null;
+  direction: InvestmentDirection | null;
   quantity: string | null;
   value: string | null;
   amount: string | null;
@@ -2072,6 +2098,7 @@ const investmentTransactionKeys = [
   "id",
   "external_id",
   "movement_type",
+  "direction",
   "quantity",
   "value",
   "amount",
@@ -2086,7 +2113,8 @@ export function parseInvestmentTransaction(value: unknown): InvestmentTransactio
     !isUuid(item.id) ||
     typeof item.external_id !== "string" ||
     item.external_id === "" ||
-    !isNullableString(item.movement_type)
+    !isNullableString(item.movement_type) ||
+    !(item.direction === null || investmentDirections.includes(item.direction as InvestmentDirection))
   ) {
     throw new TypeError("Movimentação de investimento inválida.");
   }
@@ -2094,6 +2122,7 @@ export function parseInvestmentTransaction(value: unknown): InvestmentTransactio
     id: item.id,
     external_id: item.external_id,
     movement_type: item.movement_type,
+    direction: item.direction as InvestmentDirection | null,
     quantity: nullableDecimal(item.quantity),
     value: nullableDecimal(item.value),
     amount: nullableDecimal(item.amount),

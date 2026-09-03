@@ -1,4 +1,4 @@
-import type { Investment, InvestmentTransaction } from "../api/contracts";
+import type { Investment, InvestmentTransaction, YieldUnavailableReason } from "../api/contracts";
 
 // Pluggy's investment "type"/"subtype"/movement "type" fields are free text
 // from the provider (not a closed enum contadinho-go validates), so these
@@ -25,6 +25,7 @@ const movementTypeLabels: Record<string, string> = {
   APPLICATION: "Aplicação",
   REDEMPTION: "Resgate",
   DIVIDEND: "Dividendo",
+  INTEREST: "Rendimento",
   INCOME: "Rendimento",
   TAX: "Imposto",
   FEE: "Taxa",
@@ -54,19 +55,44 @@ export function investmentYield(investment: Investment): YieldEstimate {
   return { value: investment.yield_value, source: investment.yield_source };
 }
 
-// Returns null when the history has no inflow (BUY/APPLICATION/...) at all:
-// an all-outflow history means the original purchase was never captured, so
-// there's no principal to net against the redemptions.
+const yieldUnavailableLabels: Record<YieldUnavailableReason, string> = {
+  sem_historico: "Sem histórico",
+  historico_incompleto: "Histórico incompleto",
+  saldo_indisponivel: "Sem saldo atual",
+};
+
+const yieldUnavailableHints: Record<YieldUnavailableReason, string> = {
+  sem_historico: "Nenhuma movimentação sincronizada para este investimento ainda.",
+  historico_incompleto:
+    "As movimentações sincronizadas não cobrem a posição inteira — a instituição não enviou as aplicações anteriores à conexão. Calcular o rendimento aqui contaria o principal como lucro.",
+  saldo_indisponivel:
+    "O histórico está completo, mas a instituição não informou o saldo atual desta posição — não há contra o que descontar as aplicações.",
+};
+
+/** What to show in place of a yield the backend refused to state, and why. */
+export function yieldUnavailable(investment: Investment): { label: string; hint: string } {
+  const reason = investment.yield_unavailable_reason;
+  if (reason === null) return { label: "Não disponível", hint: "" };
+  return { label: yieldUnavailableLabels[reason], hint: yieldUnavailableHints[reason] };
+}
+
+// Returns null when the history cannot be netted: a movement whose direction
+// the backend could not establish leaves the sum ambiguous, one with no
+// amount leaves a hole in it, and an all-outflow history means the original
+// purchase was never captured, so there's no principal to net the redemptions
+// against. Skipping either kind of movement and totalling the rest is the
+// worst option — what is missing is invisible in the result. This mirrors
+// httpapi.historyCovers, which refuses the same three shapes.
+//
+// Direction comes from the normalized `direction` field, never from
+// movement_type. Classifying by movement type is what made INTEREST — a
+// dividend leaving the investment — count as an aporte.
 export function netContributed(transactions: InvestmentTransaction[]): string | null {
-  const hasInflow = transactions.some(
-    (t) => t.movement_type !== "SELL" && t.movement_type !== "REDEMPTION",
-  );
-  if (!hasInflow) return null;
+  if (transactions.some((t) => t.direction === null || t.amount === null)) return null;
+  if (!transactions.some((t) => t.direction === "inflow")) return null;
   const total = transactions.reduce((sum, t) => {
-    if (t.amount === null) return sum;
     const amount = Number(t.amount);
-    const isWithdrawal = t.movement_type === "SELL" || t.movement_type === "REDEMPTION";
-    return sum + (isWithdrawal ? -amount : amount);
+    return sum + (t.direction === "inflow" ? amount : -amount);
   }, 0);
   return total.toFixed(2);
 }

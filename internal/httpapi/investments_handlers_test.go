@@ -47,6 +47,29 @@ func insertInvestment(t *testing.T, conn *sql.DB) string {
 // row (plus the raw_import it references) for an investment created by
 // insertInvestment, so yield tests can build a buy/sell history.
 func insertInvestmentTransaction(t *testing.T, conn *sql.DB, investmentID, movementType, amount string) {
+	insertInvestmentMovement(t, conn, investmentID, movementType, directionFor(movementType), amount, nil)
+}
+
+// directionFor mirrors what the sync pipeline normalizes into the direction
+// column, so the helpers above can stay in the provider's BUY/SELL vocabulary.
+func directionFor(movementType string) string {
+	if movementType == "SELL" || movementType == "REDEMPTION" || movementType == "INTEREST" {
+		return "outflow"
+	}
+	return "inflow"
+}
+
+// nullableDirection lets a test build a movement whose direction the sync
+// could not establish, which is what an unrecognized provider movementType
+// leaves behind.
+func nullableDirection(direction string) any {
+	if direction == "" {
+		return nil
+	}
+	return direction
+}
+
+func insertInvestmentMovement(t *testing.T, conn *sql.DB, investmentID, movementType, direction, amount string, quantity *string) {
 	t.Helper()
 	now := db.FormatTime(time.Now())
 	var sourceID, syncRunID string
@@ -73,10 +96,11 @@ func insertInvestmentTransaction(t *testing.T, conn *sql.DB, investmentID, movem
 	}
 	transactionID := uuid.NewString()
 	if _, err := conn.Exec(`INSERT INTO financial_investment_transactions (
-			id, source_id, investment_id, external_id, movement_type, quantity, value, amount,
+			id, source_id, investment_id, external_id, movement_type, direction, quantity, value, amount,
 			occurred_at, trade_date, current_raw_import_id, normalized_hash, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, '1', '1.00', ?, ?, ?, ?, 'hash', ?, ?)`,
-		transactionID, sourceID, investmentID, transactionID, movementType, amount, now, now, rawImportID, now, now); err != nil {
+		) VALUES (?, ?, ?, ?, ?, ?, ?, '1.00', ?, ?, ?, ?, 'hash', ?, ?)`,
+		transactionID, sourceID, investmentID, transactionID, movementType, nullableDirection(direction),
+		quantity, amount, now, now, rawImportID, now, now); err != nil {
 		t.Fatalf("insert investment transaction: %v", err)
 	}
 }
@@ -261,6 +285,159 @@ func TestListInvestmentsOmitsCalculatedYieldWhenHistoryHasNoInflow(t *testing.T)
 	if got["yield_value"] != nil || got["yield_source"] != nil {
 		t.Errorf("yield_value = %v, yield_source = %v, want both nil", got["yield_value"], got["yield_source"])
 	}
+}
+
+// Regression test: a dividend/JCP payout (Pluggy "INTEREST", movementType
+// DEBIT) leaves the investment, so it is a return, not a further
+// contribution. Counting it as an aporte inflated net contributed and made
+// profitable positions report a loss — HGLG11 in production showed
+// "Rendimento: -R$ 26,12" after four dividend credits.
+func TestListInvestmentsTreatsDividendPayoutAsReturnNotContribution(t *testing.T) {
+	srv, conn := newTestServer(t)
+	investmentID := insertInvestment(t, conn)
+	if _, err := conn.Exec(`UPDATE financial_investments SET balance = '0' WHERE id = ?`, investmentID); err != nil {
+		t.Fatalf("set balance: %v", err)
+	}
+	// Bought for 800, sold for 790, plus 20 of dividends: a 10.00 gain.
+	insertInvestmentTransaction(t, conn, investmentID, "BUY", "800.00")
+	insertInvestmentTransaction(t, conn, investmentID, "SELL", "790.00")
+	insertInvestmentTransaction(t, conn, investmentID, "INTEREST", "20.00")
+
+	got := firstInvestment(t, srv.URL)
+	if got["yield_value"] != "10.00" || got["yield_source"] != "calculado" {
+		t.Errorf("yield_value = %v, yield_source = %v, want 10.00/calculado", got["yield_value"], got["yield_source"])
+	}
+}
+
+// Regression test: renda variável cannot sell more shares than it bought, so
+// an excess means purchases are missing from the window the provider served,
+// even though some were captured. BBAS3 in production had 120 cotas sold
+// against 80 bought and reported the uncovered proceeds as R$ 1.286,84 of
+// yield; the no-inflow guard alone did not catch it.
+func TestListInvestmentsOmitsCalculatedYieldWhenEquitySoldMoreThanBought(t *testing.T) {
+	srv, conn := newTestServer(t)
+	investmentID := insertInvestment(t, conn)
+	if _, err := conn.Exec(
+		`UPDATE financial_investments SET balance = '0', investment_type = 'EQUITY' WHERE id = ?`, investmentID,
+	); err != nil {
+		t.Fatalf("set balance: %v", err)
+	}
+	insertInvestmentMovement(t, conn, investmentID, "BUY", "inflow", "1600.00", strPtr("80"))
+	insertInvestmentMovement(t, conn, investmentID, "SELL", "outflow", "2900.00", strPtr("120"))
+
+	got := firstInvestment(t, srv.URL)
+	if got["yield_value"] != nil || got["yield_source"] != nil {
+		t.Errorf("yield_value = %v, yield_source = %v, want both nil", got["yield_value"], got["yield_source"])
+	}
+	if got["yield_unavailable_reason"] != "historico_incompleto" {
+		t.Errorf("yield_unavailable_reason = %v, want historico_incompleto", got["yield_unavailable_reason"])
+	}
+}
+
+// A renda fixa "quantity" accrues with interest, so redeeming slightly more
+// units than were bought is what a healthy CDB does — the quantity guard
+// above must not fire on it.
+func TestListInvestmentsKeepsCalculatedYieldWhenFixedIncomeUnitsAccrue(t *testing.T) {
+	srv, conn := newTestServer(t)
+	investmentID := insertInvestment(t, conn)
+	if _, err := conn.Exec(
+		`UPDATE financial_investments SET balance = '0', investment_type = 'FIXED_INCOME' WHERE id = ?`, investmentID,
+	); err != nil {
+		t.Fatalf("set balance: %v", err)
+	}
+	insertInvestmentMovement(t, conn, investmentID, "BUY", "inflow", "1000.00", strPtr("50000"))
+	insertInvestmentMovement(t, conn, investmentID, "SELL", "outflow", "1009.74", strPtr("50000.098"))
+
+	got := firstInvestment(t, srv.URL)
+	if got["yield_value"] != "9.74" || got["yield_source"] != "calculado" {
+		t.Errorf("yield_value = %v, yield_source = %v, want 9.74/calculado", got["yield_value"], got["yield_source"])
+	}
+}
+
+// A movement whose direction the sync could not establish (an unrecognized
+// provider movementType) makes the whole netting unreliable: it is unknown
+// which side of the sum it belongs on. Refusing the yield beats guessing.
+func TestListInvestmentsOmitsCalculatedYieldWhenAMovementHasNoDirection(t *testing.T) {
+	srv, conn := newTestServer(t)
+	investmentID := insertInvestment(t, conn)
+	insertInvestmentTransaction(t, conn, investmentID, "BUY", "1200.00")
+	insertInvestmentMovement(t, conn, investmentID, "SOMETHING_NEW", "", "300.00", nil)
+
+	got := firstInvestment(t, srv.URL)
+	if got["yield_value"] != nil || got["yield_unavailable_reason"] != "historico_incompleto" {
+		t.Errorf("yield_value = %v, reason = %v, want nil/historico_incompleto",
+			got["yield_value"], got["yield_unavailable_reason"])
+	}
+}
+
+// A holding with no movements at all is a different story from one whose
+// history arrived partial, and the UI says so — "Sem histórico sincronizado"
+// against "Histórico incompleto".
+func TestListInvestmentsReportsNoHistorySeparatelyFromPartialHistory(t *testing.T) {
+	srv, conn := newTestServer(t)
+	insertInvestment(t, conn)
+
+	got := firstInvestment(t, srv.URL)
+	if got["yield_unavailable_reason"] != "sem_historico" {
+		t.Errorf("yield_unavailable_reason = %v, want sem_historico", got["yield_unavailable_reason"])
+	}
+}
+
+// Regression test: netContributed stopped filtering on amount IS NOT NULL
+// when it started reading the direction column, which let a movement with no
+// amount count as evidence of a complete history while contributing nothing
+// to the sum. A single amountless aplicação then reported the entire balance
+// as profit.
+func TestListInvestmentsOmitsCalculatedYieldWhenAMovementHasNoAmount(t *testing.T) {
+	srv, conn := newTestServer(t)
+	investmentID := insertInvestment(t, conn)
+	if _, err := conn.Exec(`UPDATE financial_investments SET balance = '5000' WHERE id = ?`, investmentID); err != nil {
+		t.Fatalf("set balance: %v", err)
+	}
+	insertInvestmentTransaction(t, conn, investmentID, "BUY", "1000.00")
+	if _, err := conn.Exec(
+		`UPDATE financial_investment_transactions SET amount = NULL WHERE investment_id = ?`, investmentID,
+	); err != nil {
+		t.Fatalf("null the amount: %v", err)
+	}
+
+	got := firstInvestment(t, srv.URL)
+	if got["yield_value"] != nil || got["yield_unavailable_reason"] != "historico_incompleto" {
+		t.Errorf("yield_value = %v, reason = %v, want nil/historico_incompleto",
+			got["yield_value"], got["yield_unavailable_reason"])
+	}
+}
+
+// A complete history with nothing to net it against is its own answer: the
+// UI would otherwise show a bare "Não disponível" next to a full movement
+// list, which reads as a bug rather than as missing provider data.
+func TestListInvestmentsReportsAMissingBalanceAsItsOwnReason(t *testing.T) {
+	srv, conn := newTestServer(t)
+	investmentID := insertInvestment(t, conn)
+	if _, err := conn.Exec(`UPDATE financial_investments SET balance = NULL WHERE id = ?`, investmentID); err != nil {
+		t.Fatalf("clear balance: %v", err)
+	}
+	insertInvestmentTransaction(t, conn, investmentID, "BUY", "1000.00")
+
+	got := firstInvestment(t, srv.URL)
+	if got["yield_unavailable_reason"] != "saldo_indisponivel" {
+		t.Errorf("yield_unavailable_reason = %v, want saldo_indisponivel", got["yield_unavailable_reason"])
+	}
+}
+
+// firstInvestment GETs the list endpoint and returns the only holding in it.
+func firstInvestment(t *testing.T, baseURL string) map[string]any {
+	t.Helper()
+	resp, err := http.Get(baseURL + "/api/investments")
+	if err != nil {
+		t.Fatalf("GET /api/investments: %v", err)
+	}
+	var investments []map[string]any
+	decodeJSON(t, resp, &investments)
+	if resp.StatusCode != http.StatusOK || len(investments) != 1 {
+		t.Fatalf("status = %d, investments = %+v", resp.StatusCode, investments)
+	}
+	return investments[0]
 }
 
 func TestListInvestmentTransactionsReturns404WhenInvestmentMissing(t *testing.T) {

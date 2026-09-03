@@ -2,7 +2,12 @@ import { Card, Tag, Tooltip, Typography } from "antd";
 
 import type { Investment, InvestmentTransaction } from "../../api/contracts";
 import { formatOptionalDate } from "../../presentation/dates";
-import { investmentTypeLabel, investmentYield, netContributed } from "../../presentation/investmentLabels";
+import {
+  investmentTypeLabel,
+  investmentYield,
+  netContributed,
+  yieldUnavailable,
+} from "../../presentation/investmentLabels";
 import { formatBRL } from "../../presentation/money";
 
 export function InvestmentHeaderCard({
@@ -13,7 +18,16 @@ export function InvestmentHeaderCard({
   transactions: InvestmentTransaction[];
 }) {
   const yieldEstimate = investmentYield(investment);
-  const contributed = transactions.length > 0 ? netContributed(transactions) : null;
+  const unavailable = yieldUnavailable(investment);
+  // A history the backend judged too partial to net is too partial to show a
+  // total for either. Without this the card contradicts itself: "Rendimento:
+  // Histórico incompleto" directly above a confident "Aportes líquidos"
+  // netted from the very history that was just rejected. The backend owns
+  // that judgement — it has the quantity evidence (cotas sold against cotas
+  // bought) this component does not.
+  const historyIsTrustworthy = investment.yield_unavailable_reason !== "historico_incompleto";
+  const contributed =
+    transactions.length > 0 && historyIsTrustworthy ? netContributed(transactions) : null;
 
   return (
     <Card className="debt-header-card dashboard-widget">
@@ -37,13 +51,17 @@ export function InvestmentHeaderCard({
             <Tooltip
               title={
                 yieldEstimate === null
-                  ? undefined
+                  ? unavailable.hint === ""
+                    ? undefined
+                    : unavailable.hint
                   : yieldEstimate.source === "informado"
                     ? "Informado pela instituição"
                     : "Calculado a partir do histórico de aplicações e resgates"
               }
             >
-              <strong>{yieldEstimate !== null ? formatBRL(yieldEstimate.value) : "Não disponível"}</strong>
+              <strong>
+                {yieldEstimate !== null ? formatBRL(yieldEstimate.value) : unavailable.label}
+              </strong>
             </Tooltip>
           </li>
           {contributed !== null && (

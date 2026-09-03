@@ -537,7 +537,8 @@ func TestExecuteInsertsInvestmentAndItsTransactions(t *testing.T) {
 			"inv-1": {
 				RawImportID: "raw-invtx-1",
 				Transactions: []pluggy.InvestmentTransactionSnapshot{{
-					ExternalID: "invtx-1", ExternalInvestmentID: "inv-1", MovementType: strp("BUY"), Amount: amountP("500.00"),
+					ExternalID: "invtx-1", ExternalInvestmentID: "inv-1", MovementType: strp("BUY"),
+					Direction: strp("inflow"), Amount: amountP("500.00"),
 				}},
 			},
 		},
@@ -560,6 +561,17 @@ func TestExecuteInsertsInvestmentAndItsTransactions(t *testing.T) {
 	conn.QueryRow(`SELECT COUNT(*) FROM financial_investment_transactions`).Scan(&txCount)
 	if investmentCount != 1 || txCount != 1 {
 		t.Errorf("investmentCount=%d txCount=%d, want 1/1", investmentCount, txCount)
+	}
+
+	// The normalized direction is what the yield math reads, so it has to
+	// survive the upsert rather than being left for a reader to re-derive
+	// from the provider's movement_type.
+	var direction string
+	if err := conn.QueryRow(`SELECT direction FROM financial_investment_transactions`).Scan(&direction); err != nil {
+		t.Fatalf("query direction: %v", err)
+	}
+	if direction != "inflow" {
+		t.Errorf("direction = %q, want inflow", direction)
 	}
 }
 

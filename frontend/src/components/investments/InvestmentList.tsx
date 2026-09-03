@@ -4,14 +4,19 @@ import ProTable from "@ant-design/pro-table";
 import { Tag, Tooltip, Typography } from "antd";
 
 import type { Investment } from "../../api/contracts";
-import { investmentTypeLabel, investmentYield } from "../../presentation/investmentLabels";
+import { investmentTypeLabel, investmentYield, yieldUnavailable } from "../../presentation/investmentLabels";
 import { formatBRL } from "../../presentation/money";
 import { colors } from "../../theme/tokens";
 
 function YieldCell({ investment }: { investment: Investment }) {
   const estimate = investmentYield(investment);
   if (estimate === null) {
-    return <Typography.Text type="secondary">Não disponível</Typography.Text>;
+    const { label, hint } = yieldUnavailable(investment);
+    return (
+      <Tooltip title={hint === "" ? undefined : hint}>
+        <Typography.Text type="secondary">{label}</Typography.Text>
+      </Tooltip>
+    );
   }
   const negative = estimate.value.startsWith("-");
   return (
