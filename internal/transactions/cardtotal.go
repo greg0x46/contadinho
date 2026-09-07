@@ -10,6 +10,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	"contadinho-go/internal/categories"
 	"contadinho-go/internal/dates"
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/money"
@@ -212,8 +213,26 @@ type cardDebtTransaction struct {
 	occurredAt              *time.Time
 	providerStatus          *string
 	movementType            *string
+	sourceCategory          *string
+	sourceCategoryID        *string
+	additionalInfo          *string
 	creditCardMetadata      *string
 	inclusionState          *string
+}
+
+// isCardPaymentLeg reports whether transaction is the card-account credit
+// leg of paying a credit card bill (see categories.IsCardPaymentTransaction)
+// — never the bank-account debit leg, since fetchCardDebtTransactions only
+// ever queries transactions already scoped to a CREDIT account.
+func (t cardDebtTransaction) isCardPaymentLeg() bool {
+	return categories.IsCardPaymentTransaction(strOrEmpty(t.movementType), strOrEmpty(t.sourceCategory), strOrEmpty(t.sourceCategoryID), strOrEmpty(t.additionalInfo))
+}
+
+func strOrEmpty(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // consideredCardTransactionTotal sums the local transactions that represent
@@ -281,24 +300,45 @@ func cardTransactionIsInCycle(occurredAt *time.Time, cycle creditCardCycle) bool
 	return occurredAt != nil && !occurredAt.Before(cycle.start) && occurredAt.Before(cycle.end)
 }
 
+// cardTransactionBelongsToCurrentCycle resolves an ordinary purchase/refund
+// by date when its billId is missing or unknown — the best available signal
+// for something that genuinely happened on that day. A bill-payment CREDIT
+// (see cardDebtTransaction.isCardPaymentLeg) is different in kind: it never
+// represents new activity on the currently accruing cycle, it settles an
+// already-closed bill, and Pluggy generally does not tag it with a billId at
+// all. Its occurred_at is not a reliable substitute — a bill's due date sits
+// 7-10 days *after* its closing date, i.e. inside the window this function
+// already calls the next, still-open cycle, so a payment made anywhere near
+// its own due date (the normal case) would otherwise be misattributed as
+// debt reduction on a cycle it has nothing to do with, silently driving the
+// total negative. Without a resolvable billId, the safe choice for a
+// payment leg is exclusion, not a date guess.
 func cardTransactionBelongsToCurrentCycle(accountID string, transaction cardDebtTransaction, bills cardBillClosingDates, cycle creditCardCycle) bool {
+	fallback := func() bool {
+		if transaction.isCardPaymentLeg() {
+			return false
+		}
+		return cardTransactionIsInCycle(transaction.occurredAt, cycle)
+	}
+
 	raw := transaction.creditCardMetadata
 	if raw == nil {
-		return cardTransactionIsInCycle(transaction.occurredAt, cycle)
+		return fallback()
 	}
 	// cardTransactionMetadata is shared with cardflow.go's ProjectedEntryDate
 	// — same Pluggy credit_card_metadata shape, read here only for billId.
 	var metadata cardTransactionMetadata
 	if err := json.Unmarshal([]byte(*raw), &metadata); err != nil || metadata.BillID == nil || *metadata.BillID == "" {
-		return cardTransactionIsInCycle(transaction.occurredAt, cycle)
+		return fallback()
 	}
 
 	reference, known := bills.byID[cardKey(accountID, *metadata.BillID)]
 	if !known {
 		// An unknown billId can refer to the provider's still-open bill,
 		// which Pluggy does not return through the bills endpoint. The
-		// occurrence date remains the only available classification signal.
-		return cardTransactionIsInCycle(transaction.occurredAt, cycle)
+		// occurrence date remains the only available classification signal
+		// for anything that isn't a payment leg.
+		return fallback()
 	}
 	if reference.closingDate == nil {
 		// The association is known but its historical closing date is not;
@@ -310,6 +350,14 @@ func cardTransactionBelongsToCurrentCycle(accountID string, transaction cardDebt
 	// for transactions classified only by occurred_at. A transaction already
 	// assigned to the bill at that boundary belongs to that bill, even if the
 	// provider's posting date is outside the cycle window.
+	//
+	// This applies identically to a payment leg with a resolved billId — a
+	// payment against the still-open current-cycle bill (closingDate ==
+	// cycle.end) is a legitimate early/partial payment that should reduce
+	// what the cycle will end up owing, unlike the unknown-billId case above,
+	// where occurred_at is the only signal and is known to misattribute
+	// payments (see this function's doc comment). A known billId is a
+	// stronger signal than a date guess regardless of which bill it names.
 	return reference.closingDate.After(cycle.start) && !reference.closingDate.After(cycle.end)
 }
 
@@ -320,8 +368,9 @@ func cardTransactionBelongsToCurrentCycle(accountID string, transaction cardDebt
 func fetchCardDebtTransactions(ctx context.Context, q Querier, accountID string) ([]cardDebtTransaction, error) {
 	rows, err := q.QueryContext(ctx, `
 		SELECT ft.amount, ft.amount_in_account_currency, ft.currency_code,
-		       ft.occurred_at, ft.provider_status, ft.movement_type, ft.credit_card_metadata,
-		       tid.state
+		       ft.occurred_at, ft.provider_status, ft.movement_type,
+		       ft.source_category, ft.source_category_id, ft.operation_type_additional_info,
+		       ft.credit_card_metadata, tid.state
 		FROM financial_transactions ft
 		LEFT JOIN transaction_inclusion_decisions tid ON tid.transaction_id = ft.id
 		WHERE ft.account_id = ? AND ft.deleted_at IS NULL`, accountID)
@@ -333,11 +382,15 @@ func fetchCardDebtTransactions(ctx context.Context, q Querier, accountID string)
 	result := make([]cardDebtTransaction, 0)
 	for rows.Next() {
 		var amountRaw, amountInAccountCurrencyRaw, currencyCodeRaw sql.NullString
-		var occurredAtRaw, providerStatusRaw, movementTypeRaw, metadataRaw, inclusionStateRaw sql.NullString
+		var occurredAtRaw, providerStatusRaw, movementTypeRaw sql.NullString
+		var sourceCategoryRaw, sourceCategoryIDRaw, additionalInfoRaw sql.NullString
+		var metadataRaw, inclusionStateRaw sql.NullString
 		if err := rows.Scan(
 			&amountRaw, &amountInAccountCurrencyRaw, &currencyCodeRaw,
 			&occurredAtRaw,
-			&providerStatusRaw, &movementTypeRaw, &metadataRaw, &inclusionStateRaw,
+			&providerStatusRaw, &movementTypeRaw,
+			&sourceCategoryRaw, &sourceCategoryIDRaw, &additionalInfoRaw,
+			&metadataRaw, &inclusionStateRaw,
 		); err != nil {
 			return nil, err
 		}
@@ -360,6 +413,9 @@ func fetchCardDebtTransactions(ctx context.Context, q Querier, accountID string)
 			occurredAt:              occurredAt,
 			providerStatus:          stringFromNullString(providerStatusRaw),
 			movementType:            stringFromNullString(movementTypeRaw),
+			sourceCategory:          stringFromNullString(sourceCategoryRaw),
+			sourceCategoryID:        stringFromNullString(sourceCategoryIDRaw),
+			additionalInfo:          stringFromNullString(additionalInfoRaw),
 			creditCardMetadata:      stringFromNullString(metadataRaw),
 			inclusionState:          stringFromNullString(inclusionStateRaw),
 		})

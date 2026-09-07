@@ -133,9 +133,9 @@ func TestCreateUpdateGetList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	// 28 seeded + 1 created.
-	if len(all) != 29 {
-		t.Errorf("len(List()) = %d, want 29", len(all))
+	// 29 seeded + 1 created.
+	if len(all) != 30 {
+		t.Errorf("len(List()) = %d, want 30", len(all))
 	}
 
 	if _, err := categories.Get(ctx, conn, uuid.NewString()); !errors.Is(err, categories.ErrNotFound) {

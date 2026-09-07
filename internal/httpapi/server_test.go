@@ -966,8 +966,8 @@ func TestCategoryLifecycleOverHTTP(t *testing.T) {
 	resp = doJSON(t, http.MethodGet, srv.URL+"/api/categories", nil)
 	var list []map[string]any
 	decodeJSON(t, resp, &list)
-	if len(list) != 29 { // 28 seeded + 1 created
-		t.Errorf("len(list) = %d, want 29", len(list))
+	if len(list) != 30 { // 29 seeded + 1 created
+		t.Errorf("len(list) = %d, want 30", len(list))
 	}
 }
 

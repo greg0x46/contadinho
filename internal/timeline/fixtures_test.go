@@ -72,6 +72,10 @@ type txn struct {
 	OccurredAt         time.Time
 	CategoryID         *string
 	CreditCardMetadata *string // raw Pluggy credit_card_metadata JSON, e.g. `{"billId":"..."}`
+	// SourceCategoryID is the raw provider field ProjectedEntryDate's
+	// isPaymentLeg detection reads (categories.IsCardPaymentTransaction) —
+	// only needed by tests exercising a card-payment leg, e.g. "05100000".
+	SourceCategoryID *string
 }
 
 func (f *fixture) addTransaction(tx txn) string {
@@ -88,9 +92,9 @@ func (f *fixture) addTransaction(tx txn) string {
 	f.exec(`INSERT INTO financial_transactions (
 			id, source_id, account_id, external_id, description, amount,
 			amount_in_account_currency, currency_code, occurred_at, provider_status,
-			movement_type, credit_card_metadata, current_raw_import_id, normalized_hash, created_at, updated_at
-		) VALUES (?, ?, ?, ?, 'Transação', ?, ?, 'BRL', ?, 'POSTED', ?, ?, ?, 'hash', ?, ?)`,
-		id, f.sourceID, tx.AccountID, id, magnitude, magnitude, db.FormatTime(tx.OccurredAt), movementType, tx.CreditCardMetadata, f.rawImportID, now, now)
+			movement_type, source_category_id, credit_card_metadata, current_raw_import_id, normalized_hash, created_at, updated_at
+		) VALUES (?, ?, ?, ?, 'Transação', ?, ?, 'BRL', ?, 'POSTED', ?, ?, ?, ?, 'hash', ?, ?)`,
+		id, f.sourceID, tx.AccountID, id, magnitude, magnitude, db.FormatTime(tx.OccurredAt), movementType, tx.SourceCategoryID, tx.CreditCardMetadata, f.rawImportID, now, now)
 	if tx.CategoryID != nil {
 		f.exec(`INSERT INTO transaction_category_decisions (transaction_id, category_id, revision, changed_at, origin)
 			VALUES (?, ?, 1, ?, 'manual')`, id, *tx.CategoryID, now)
@@ -121,6 +125,21 @@ func (f *fixture) addBill(accountID, externalID, dueDate string) {
 			current_raw_import_id, normalized_hash, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, 'hash', ?, ?)`,
 		id, f.sourceID, accountID, externalID, db.FormatTime(date(f.t, dueDate)), f.rawImportID, now, now)
+}
+
+// addBillWithClosing is addBill plus a closing_date — needed by any test
+// that exercises the gap between a bill closing and falling due (see
+// transactions.CardDueDates.ProjectedEntryDate's isPaymentLeg branch),
+// which addBill's callers don't need.
+func (f *fixture) addBillWithClosing(accountID, externalID, closingDate, dueDate string) {
+	f.t.Helper()
+	id := uuid.NewString()
+	now := db.FormatTime(time.Now())
+	f.exec(`INSERT INTO financial_bills (
+			id, source_id, account_id, external_id, closing_date, due_date,
+			current_raw_import_id, normalized_hash, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, 'hash', ?, ?)`,
+		id, f.sourceID, accountID, externalID, db.FormatTime(date(f.t, closingDate)), db.FormatTime(date(f.t, dueDate)), f.rawImportID, now, now)
 }
 
 func date(t *testing.T, s string) time.Time {
