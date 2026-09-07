@@ -24,7 +24,7 @@ describe("TransactionGroup", () => {
     );
     expect(screen.getByRole("heading", { name: "1 de jul. – 31 de jul." })).toBeVisible();
     expect(screen.getByText(/continua em outra página/)).toBeVisible();
-    expect(screen.getByText("Saldo")).toBeVisible();
+    expect(screen.getByText("Resultado")).toBeVisible();
     expect(screen.getAllByText(/-R\$\s*123,45/).length).toBeGreaterThan(0);
   });
 

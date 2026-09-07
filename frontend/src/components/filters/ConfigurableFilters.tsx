@@ -1,4 +1,5 @@
-import { FilterOutlined, SearchOutlined } from "@ant-design/icons";
+import { FilterOutlined, SearchOutlined, LeftOutlined, RightOutlined, DownOutlined } from "@ant-design/icons";
+import { periodNavigation } from "./periodNavigation";
 import {
   Button,
   Checkbox,
@@ -47,6 +48,7 @@ export interface FilterConfig<Values extends object> {
   debounceMs?: number;
   options?: FilterOption[] | ((values: Values) => FilterOption[]);
   presets?: DateRangePreset[];
+  navigatePeriod?: boolean;
   hideChip?: boolean;
   formatActive?: (value: unknown, values: Values, option?: FilterOption) => string;
   /** Optional richer rendering (e.g. icon + color) for each dropdown option. */
@@ -59,6 +61,7 @@ type Props<Values extends object> = {
   config: FilterConfig<Values>[];
   onApply: (values: Values) => void;
   onClear: () => void;
+  overview?: ReactNode;
 };
 
 const read = <Values extends object>(
@@ -125,6 +128,7 @@ export function ConfigurableFilters<Values extends object>({
   config,
   onApply,
   onClear,
+  overview,
 }: Props<Values>) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [customDateOpen, setCustomDateOpen] = useState(false);
@@ -134,6 +138,7 @@ export function ConfigurableFilters<Values extends object>({
   const [error, setError] = useState<string | null>(null);
   const quickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
+    if (quickTimer.current) clearTimeout(quickTimer.current);
     setQuickValues(values);
     setDraft(values);
   }, [values]);
@@ -236,6 +241,7 @@ export function ConfigurableFilters<Values extends object>({
     const id = `filter-${field.key}`;
 
     if (field.type === "date-range") {
+      const navigation = field.navigatePeriod ? periodNavigation(value, secondary) : null;
       const selectedPreset = field.presets?.find((preset) => {
         const [from, to] = preset.range();
         return value === from && secondary === to;
@@ -271,7 +277,7 @@ export function ConfigurableFilters<Values extends object>({
                 customDates[1] || null,
               );
               if (validate(candidate)) {
-                if (quick) onApply(candidate);
+                if (quick) applyQuick(field, customDates[0] || null, customDates[1] || null);
                 else setDraft(candidate);
                 setCustomDateOpen(false);
               }
@@ -281,6 +287,49 @@ export function ConfigurableFilters<Values extends object>({
           </Button>
         </div>
       );
+      if (field.navigatePeriod) {
+        const current = field.presets?.find((preset) => preset.value === "this-month");
+        const currentRange = current?.range();
+        return (
+          <div className="filter-field filter-field-period" key={field.key}>
+            <div className="filter-period-navigation" role="group" aria-label="Navegar entre períodos">
+              <Button aria-label={navigation?.previousLabel ?? "Período anterior"}
+                title={navigation?.previousLabel ?? "Período anterior"}
+                icon={<LeftOutlined aria-hidden="true" />} disabled={!navigation?.previous}
+                onClick={() => { if (navigation?.previous) commit(...navigation.previous); }} />
+              <Popover title="Selecionar período" trigger="click" open={customDateOpen}
+                onOpenChange={(open) => {
+                  setError(null);
+                  if (open) setCustomDates([typeof value === "string" ? value : "", typeof secondary === "string" ? secondary : ""]);
+                  setCustomDateOpen(open);
+                }}
+                content={<>
+                  <div className="filter-period-presets">
+                    {field.presets?.map((preset) => (
+                      <Button key={preset.value} type={selectedPreset?.value === preset.value ? "primary" : "default"}
+                        onClick={() => { commit(...preset.range()); setCustomDateOpen(false); }}>
+                        {preset.label}
+                      </Button>
+                    ))}
+                  </div>
+                  {customContent}
+                </>}>
+                <Button className="filter-period-heading" aria-label="Selecionar período" aria-expanded={customDateOpen}>
+                  <span aria-live="polite" aria-atomic="true">{navigation?.label ?? "Selecione um período"}</span>
+                  <DownOutlined aria-hidden="true" />
+                </Button>
+              </Popover>
+              <Button aria-label={navigation?.nextLabel ?? "Próximo período"}
+                title={navigation?.nextLabel ?? "Próximo período"}
+                icon={<RightOutlined aria-hidden="true" />} disabled={!navigation?.next}
+                onClick={() => { if (navigation?.next) commit(...navigation.next); }} />
+              {currentRange && (value !== currentRange[0] || secondary !== currentRange[1]) && (
+                <Button type="link" onClick={() => commit(...currentRange)}>Mês atual</Button>
+              )}
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="filter-field filter-field-period" key={field.key}>
           <label htmlFor={id}>{field.label}</label>
@@ -334,6 +383,7 @@ export function ConfigurableFilters<Values extends object>({
               </Popover>
             )}
           </div>
+
         </div>
       );
     }
@@ -378,6 +428,16 @@ export function ConfigurableFilters<Values extends object>({
       );
     }
 
+    if (field.type === "segmented" && quick) {
+      return (
+        <div className="filter-field filter-field-classification" key={field.key}>
+          <label id={`${id}-label`}>{field.label}</label>
+          <Segmented block aria-labelledby={`${id}-label`}
+            value={typeof value === "string" && value ? value : options[0]?.value}
+            options={options} onChange={commit} />
+        </div>
+      );
+    }
     if (field.type === "segmented") {
       return (
         <Form.Item key={field.key} label={field.label}>
@@ -429,12 +489,23 @@ export function ConfigurableFilters<Values extends object>({
     );
   };
 
+  const contextFields = mainFields.filter((field) => field.navigatePeriod || field.type === "segmented");
+  const hasContextBar = mainFields.some((field) => field.navigatePeriod);
+
   return (
-    <section className="configurable-filters" aria-label="Filtros de transações">
+    <section className={`configurable-filters ${hasContextBar ? "has-context-bar" : ""}`} aria-label="Filtros de transações">
+      {hasContextBar && (
+        <div className="filter-context-bar">
+          {contextFields.map((field) => renderField(field, quickValues, true))}
+        </div>
+      )}
+      {overview}
       <div className="filter-main-bar">
-        {mainFields.map((field) => renderField(field, quickValues, true))}
+        {mainFields.filter((field) => !hasContextBar || !contextFields.includes(field)).map((field) => renderField(field, quickValues, true))}
         <Button
           className="advanced-filter-button"
+          aria-label={`Filtros${advancedCount ? ` ${advancedCount}` : ""}`}
+          title={`Filtros${advancedCount ? ` (${advancedCount} ativos)` : ""}`}
           icon={<FilterOutlined aria-hidden="true" />}
           onClick={() => setAdvancedOpen(true)}
         >

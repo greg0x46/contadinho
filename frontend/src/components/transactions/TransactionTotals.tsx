@@ -26,7 +26,7 @@ export function TransactionTotals({ totals }: { totals: CurrencyTotals[] }) {
     },
     {
       key: "balance",
-      label: "Saldo do período",
+      label: "Resultado do período",
       value: brl.balance,
       icon: <WalletOutlined aria-hidden="true" />,
     },
@@ -41,6 +41,7 @@ export function TransactionTotals({ totals }: { totals: CurrencyTotals[] }) {
             <span>{card.label}</span>
           </div>
           <strong>{formatBRL(card.value)}</strong>
+          <small>{card.key === "balance" ? "Entradas menos saídas" : card.key === "inflow" ? "Recebido no período" : "Gasto no período"}</small>
         </Card>
       ))}
     </section>
