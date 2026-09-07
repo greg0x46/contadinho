@@ -205,6 +205,19 @@ describe("TransactionDetailDrawer", () => {
     expect(onDeleteManual).toHaveBeenCalledWith(transactionResult.items[0]!.id);
   });
 
+  it("shows the delete error when a manual delete is rejected", () => {
+    renderWithRouter(
+      <TransactionDetailDrawer
+        item={{ ...transactionResult.items[0]!, origin: "manual" }}
+        categories={activeCategories}
+        onClose={vi.fn()}
+        onDeleteManual={vi.fn()}
+        deleteManualError="Não foi possível excluir o lançamento."
+      />,
+    );
+    expect(screen.getByText("Não foi possível excluir o lançamento.")).toBeVisible();
+  });
+
   it("shows the installment badge when the purchase is parcelada", () => {
     renderWithRouter(
       <TransactionDetailDrawer

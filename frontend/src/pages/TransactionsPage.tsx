@@ -119,6 +119,7 @@ export function TransactionsPage() {
   const [manualFormOpen, setManualFormOpen] = useState(false);
   const [editingManualTransaction, setEditingManualTransaction] = useState<TransactionItem | null>(null);
   const [manualSaveError, setManualSaveError] = useState<string | null>(null);
+  const [manualDeleteError, setManualDeleteError] = useState<string | null>(null);
   const data = query.data;
   const selected = data?.items.find((item) => item.id === selectedId) ?? null;
 
@@ -147,8 +148,17 @@ export function TransactionsPage() {
     }
   };
   const deleteManualTransactionAndClose = async (transactionId: string) => {
-    await manualTransaction.remove(transactionId);
-    setSelectedId(null);
+    setManualDeleteError(null);
+    try {
+      await manualTransaction.remove(transactionId);
+      setSelectedId(null);
+    } catch (error) {
+      setManualDeleteError(manualTransactionErrorMessage(error));
+    }
+  };
+  const selectTransaction = (transactionId: string | null) => {
+    setManualDeleteError(null);
+    setSelectedId(transactionId);
   };
 
   useEffect(() => {
@@ -357,7 +367,7 @@ export function TransactionsPage() {
                     key={group.key}
                     group={group}
                     items={data.items.filter((item) => item.group_key === group.key)}
-                    onSelect={setSelectedId}
+                    onSelect={selectTransaction}
                     onInclusion={(transactionId, target) =>
                       inclusion.setInclusion({ transactionId, state: target })
                     }
@@ -396,7 +406,7 @@ export function TransactionsPage() {
       <TransactionDetailDrawer
         item={selected}
         categories={categories.categories}
-        onClose={() => setSelectedId(null)}
+        onClose={() => selectTransaction(null)}
         onInclusion={(transactionId, target) =>
           inclusion.setInclusion({ transactionId, state: target })
         }
@@ -406,6 +416,7 @@ export function TransactionsPage() {
         onEditManual={openManualEdit}
         onDeleteManual={deleteManualTransactionAndClose}
         deleteManualPending={manualTransaction.isRemoving}
+        deleteManualError={manualDeleteError}
       />
       <ManualTransactionForm
         open={manualFormOpen}
