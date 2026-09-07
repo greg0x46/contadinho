@@ -101,10 +101,17 @@ func TestSyncRunsCoverEveryActiveConnection(t *testing.T) {
 	if loc := resp.Header.Get("Location"); loc != "" {
 		t.Errorf("Location = %q, want none when several runs started", loc)
 	}
-	var runs []map[string]any
-	decodeJSON(t, resp, &runs)
+	var createResp struct {
+		Runs      []map[string]any `json:"runs"`
+		Requested int              `json:"requested"`
+	}
+	decodeJSON(t, resp, &createResp)
+	runs := createResp.Runs
 	if len(runs) != 2 {
 		t.Fatalf("started %d runs, want one per connection", len(runs))
+	}
+	if createResp.Requested != 2 {
+		t.Errorf("requested = %d, want 2", createResp.Requested)
 	}
 	bySource := map[string]map[string]any{}
 	for _, run := range runs {
@@ -130,9 +137,15 @@ func TestSyncRunsCoverEveryActiveConnection(t *testing.T) {
 	if resp.StatusCode != 202 {
 		t.Fatalf("partial create status = %d, want 202", resp.StatusCode)
 	}
-	decodeJSON(t, resp, &runs)
+	decodeJSON(t, resp, &createResp)
+	runs = createResp.Runs
 	if len(runs) != 1 || runs[0]["source_id"] != businessID {
 		t.Errorf("partial create started %+v, want only the free connection", runs)
+	}
+	// requested still counts the busy connection: the caller needs to see
+	// that fewer runs started than were targeted, not just what did start.
+	if createResp.Requested != 2 {
+		t.Errorf("requested = %d, want 2 (including the still-busy connection)", createResp.Requested)
 	}
 
 	// Targeting one connection explicitly.
@@ -163,10 +176,17 @@ func TestSyncRunsSkipDeactivatedConnections(t *testing.T) {
 	resp.Body.Close()
 
 	resp = doJSON(t, http.MethodPost, srv.URL+"/api/sync-runs", nil)
-	var runs []map[string]any
-	decodeJSON(t, resp, &runs)
+	var createResp struct {
+		Runs      []map[string]any `json:"runs"`
+		Requested int              `json:"requested"`
+	}
+	decodeJSON(t, resp, &createResp)
+	runs := createResp.Runs
 	if len(runs) != 1 || runs[0]["source_id"] != activeID {
 		t.Fatalf("started %+v, want only the active connection", runs)
+	}
+	if createResp.Requested != 1 {
+		t.Errorf("requested = %d, want 1 (deactivated connections aren't targeted)", createResp.Requested)
 	}
 
 	resp = doJSON(t, http.MethodPost, srv.URL+"/api/sync-runs",
