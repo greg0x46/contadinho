@@ -478,6 +478,19 @@ describe("category contracts", () => {
     expect(result.items[0]!.internal_category).toBeNull();
   });
 
+  it("parses a transaction item categorized by an automation rule", () => {
+    const result = parseTransactionQueryResult({
+      ...transactionResult,
+      items: [
+        {
+          ...transactionResult.items[0]!,
+          internal_category: { ...transactionResult.items[0]!.internal_category, origin: "rule" },
+        },
+      ],
+    });
+    expect(result.items[0]!.internal_category?.origin).toBe("rule");
+  });
+
   it("rejects a malformed internal category", () => {
     expect(() =>
       parseTransactionQueryResult({
