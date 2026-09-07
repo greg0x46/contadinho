@@ -95,7 +95,11 @@ export type TransactionOrigin = (typeof transactionOrigins)[number];
 
 export const categoryKinds = ["expense", "income", "transfer"] as const;
 export type CategoryKind = (typeof categoryKinds)[number];
-export const categoryOrigins = ["manual", "automatic"] as const;
+// "rule" mirrors categories.OriginRule (internal/categories/decisions.go):
+// set when a matching automation rule's set_category action assigns the
+// category, distinct from "automatic" (the source_category mapping) and
+// "manual" (the user).
+export const categoryOrigins = ["manual", "automatic", "rule"] as const;
 export type CategoryOrigin = (typeof categoryOrigins)[number];
 
 export interface TransactionFilters {
