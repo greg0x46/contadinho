@@ -348,6 +348,9 @@ func effectiveDate(r row, periodBasis string, billDueDates map[string]time.Time)
 // matches mirrors query_sql.filter_clauses, evaluated in Go against an
 // already-built view instead of as SQL predicates.
 func matches(v view, f Filters, bounds *dateBounds) bool {
+	if f.CreditCard && (v.row.accountType == nil || *v.row.accountType != "CREDIT") {
+		return false
+	}
 	if bounds != nil {
 		if v.effectiveAt == nil {
 			return false
@@ -457,8 +460,23 @@ func Query(ctx context.Context, q Querier, query QueryRequest) (Result, error) {
 		return Result{}, err
 	}
 
+	var cardBalanceIDs map[string]bool
+	if query.Filters.CardBalance {
+		cardBalanceIDs = make(map[string]bool)
+		if _, err := creditCardTransactionTotalAt(ctx, q, "BRL", time.Now(), time.Local, cardBalanceIDs); err != nil {
+			return Result{}, err
+		}
+	}
+
 	filtered := make([]view, 0, len(allViews))
 	for _, v := range allViews {
+		if cardBalanceIDs != nil {
+			if !cardBalanceIDs[v.row.id] {
+				continue
+			}
+			// The card balance includes eligible credits even when categorized as transfers.
+			v.included, v.reason = true, nil
+		}
 		if matches(v, query.Filters, bounds) {
 			filtered = append(filtered, v)
 		}

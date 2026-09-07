@@ -40,6 +40,7 @@ function initialState(searchParams: URLSearchParams): {
 } {
   const defaults = currentMonthFilters();
   const value = (key: keyof TransactionFilters) => searchParams.get(key);
+  const allDates = searchParams.get("period") === "all";
   const dateFrom = value("date_from");
   const dateTo = value("date_to");
   const accountId = value("account_id");
@@ -60,8 +61,10 @@ function initialState(searchParams: URLSearchParams): {
   return {
     filters: {
       ...defaults,
-      date_from: hasValidDateRange ? dateFrom : defaults.date_from,
-      date_to: hasValidDateRange ? dateTo : defaults.date_to,
+      card_balance: value("card_balance") === "true" ? true : null,
+      credit_card: value("credit_card") === "true" ? true : null,
+      date_from: hasValidDateRange ? dateFrom : allDates ? null : defaults.date_from,
+      date_to: hasValidDateRange ? dateTo : allDates ? null : defaults.date_to,
       description: value("description"),
       account_id: accountId && isUuid(accountId) ? accountId : null,
       institution: value("institution"),
@@ -160,6 +163,7 @@ export function TransactionsPage() {
 
   useEffect(() => {
     const params = filtersToSearchParams(filters);
+    if (filters.date_from === null && filters.date_to === null) params.set("period", "all");
     if (groupBy !== "week") params.set("group", groupBy);
     if (page > 1) params.set("page", String(page));
     if (params.toString() !== searchParams.toString()) {

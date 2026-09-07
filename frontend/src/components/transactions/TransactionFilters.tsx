@@ -91,6 +91,20 @@ export function TransactionFilters({
         formatActive: (value) => String(value),
       },
       {
+        key: "card_balance",
+        label: "Somente lançamentos do balanço do cartão",
+        type: "boolean",
+        placement: "advanced",
+        formatActive: () => "Balanço do cartão",
+      },
+      {
+        key: "credit_card",
+        label: "Cartão de crédito",
+        type: "boolean",
+        placement: "advanced",
+        formatActive: () => "Cartão de crédito",
+      },
+      {
         key: "account_id",
         label: "Conta",
         type: "select",
@@ -193,6 +207,8 @@ export function TransactionFilters({
               ? null
               : next.classification,
           uncategorized: next.uncategorized || null,
+          credit_card: next.credit_card || null,
+          card_balance: next.card_balance || null,
         })
       }
       onClear={onClear}

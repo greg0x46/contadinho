@@ -22,6 +22,25 @@ describe("TransactionsPage", () => {
       </MemoryRouter>,
     );
 
+  it("loads credit card links with the filter selected and allows removing it", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(transactionJsonResponse());
+    renderPage("/transacoes?credit_card=true");
+    expect(screen.queryByRole("checkbox", { name: "Cartão de crédito" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Filtros 1" }));
+    const checkbox = await screen.findByRole("checkbox", { name: "Cartão de crédito" });
+    expect(checkbox).toBeChecked();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).filters.credit_card).toBe(true);
+    await user.click(checkbox);
+    await user.click(screen.getByRole("button", { name: "Aplicar" }));
+    await waitFor(() => {
+      const queries = fetchMock.mock.calls.filter(([url]) => String(url).includes("/transactions/query"));
+      expect(JSON.parse(String(queries.at(-1)?.[1]?.body)).filters.credit_card).toBeNull();
+    });
+    expect(checkbox).not.toBeChecked();
+  });
+
   it("renders compact BRL totals, translated facts and query state", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(transactionJsonResponse());
     renderPage();

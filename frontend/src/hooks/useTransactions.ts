@@ -24,6 +24,8 @@ export function currentMonthFilters(now = new Date()): TransactionFilters {
     date_to: dateText(end),
     description: null,
     account_id: null,
+    credit_card: null,
+    card_balance: null,
     institution: null,
     category_id: null,
     classification: null,

@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -99,23 +99,75 @@ beforeEach(() => {
   vi.mocked(timelineApi.getTimeline).mockResolvedValue(projection);
 });
 
-describe("TotalReceivableCard", () => {
+describe("PendingBalanceCard", () => {
   beforeEach(() => {
     vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
   });
 
-  it("renders the total receivable card once loaded", async () => {
+  it("shows separate payable, receivable and card amounts without hiding the card cost", async () => {
     renderPage();
-    const title = await screen.findByText("Total a receber");
-    const card = title.closest<HTMLElement>(".ant-card");
-    if (!card) throw new Error("Card de recebíveis não encontrado.");
-    expect(await within(card).findByText(/500,00/)).toBeVisible();
+    expect(await screen.findByText(/-R\$\s661,49/)).toBeVisible();
+    expect(screen.getByRole("link", { name: /A pagar.*800,00/ })).toHaveAttribute("href", "/pendencias?kind=debt");
+    expect(screen.getByRole("link", { name: /A receber.*500,00/ })).toHaveAttribute("href", "/pendencias?kind=receivable");
+    const cardLink = screen.getByRole("link", { name: /Cartão de Crédito.*361,49/ });
+    expect(cardLink).toBeVisible();
+    expect(screen.getByRole("img", { name: /Entradas:.*500,00.*Saídas.*1\.161,49/ })).toBeVisible();
+    expect(cardLink).toHaveAttribute("href", "/transacoes?credit_card=true&card_balance=true&period=all");
+    expect(document.querySelector(".pending-balance details")).toBeNull();
   });
 
-  it("shows a retry option when the total fails to load", async () => {
-    vi.mocked(payablesApi.getPayableTotalToReceive).mockRejectedValue(new Error("boom"));
+  it.each([
+    ["1200.00", "1161.49", /\+R\$\s38,51/],
+    ["1161.49", "1161.49", /R\$\s0,00/],
+    ["0.00", "0.00", /R\$\s0,00/],
+    ["0.30", "0.20", /\+R\$\s0,10/],
+    ["0.00", "12.00", /-R\$\s12,00/],
+    ["12.00", "0.00", /\+R\$\s12,00/],
+    ["9007199254740993.01", "9007199254740993.00", /\+R\$\s0,01/],
+  ])("renders receiving %s minus owing %s", async (receiving, owing, figure) => {
+    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue({
+      ...totalOwed, total_owed: owing, remaining_debts_total: owing, future_installments_total: "0.00",
+    });
+    vi.mocked(payablesApi.getPayableTotalToReceive).mockResolvedValue({
+      ...totalToReceive, total_to_receive: receiving, remaining_receivables_total: receiving,
+    });
     renderPage();
-    expect(await screen.findByText("Não foi possível carregar o total a receber.")).toBeVisible();
+    expect(await screen.findByRole("link", { name: /Cartão de Crédito/ })).toBeVisible();
+    if (receiving === "0.00" && owing === "0.00") {
+      expect(screen.getByText("Nenhuma pendência em aberto")).toBeVisible();
+      expect(screen.queryByRole("img", { name: /Entradas:/ })).not.toBeInTheDocument();
+    }
+    expect(document.querySelector(".pending-balance-figure")).toHaveTextContent(figure);
+    expect(screen.queryByText("Inclui parcelas futuras do cartão.")).not.toBeInTheDocument();
+  });
+
+  it.each(["debt", "receivable"])("waits for the %s total before showing a balance", async (source) => {
+    let resolve!: () => void;
+    if (source === "debt") {
+      vi.mocked(payablesApi.getPayableTotalOwed).mockReturnValue(new Promise((done) => { resolve = () => done(totalOwed); }));
+    } else {
+      vi.mocked(payablesApi.getPayableTotalToReceive).mockReturnValue(new Promise((done) => { resolve = () => done(totalToReceive); }));
+    }
+    renderPage();
+    expect(screen.getByText("Carregando saldo das pendências…")).toBeVisible();
+    expect(document.querySelector(".pending-balance-figure")).toBeNull();
+    resolve();
+    expect(await screen.findByText(/-R\$\s661,49/)).toBeVisible();
+  });
+
+  it.each(["debt", "receivable"])("retries both totals after a %s failure", async (source) => {
+    const user = userEvent.setup();
+    const failing = source === "debt" ? payablesApi.getPayableTotalOwed : payablesApi.getPayableTotalToReceive;
+    vi.mocked(failing).mockRejectedValueOnce(new Error("boom"));
+    renderPage();
+    expect(await screen.findByText("Não foi possível carregar o saldo das pendências.")).toBeVisible();
+    expect(document.querySelector(".pending-balance-figure")).toBeNull();
+    const debtCalls = vi.mocked(payablesApi.getPayableTotalOwed).mock.calls.length;
+    const receivableCalls = vi.mocked(payablesApi.getPayableTotalToReceive).mock.calls.length;
+    await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
+    expect(await screen.findByText(/-R\$\s661,49/)).toBeVisible();
+    expect(payablesApi.getPayableTotalOwed).toHaveBeenCalledTimes(debtCalls + 1);
+    expect(payablesApi.getPayableTotalToReceive).toHaveBeenCalledTimes(receivableCalls + 1);
   });
 });
 
@@ -163,32 +215,7 @@ describe("HomePage", () => {
     expect(await screen.findByText("Não foi possível carregar a projeção.")).toBeVisible();
   });
 
-  it("renders the total debt card once loaded", async () => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
-    renderPage();
-    expect(await screen.findByText(/800,00/)).toBeVisible();
-    expect(screen.getByText(/361,49/)).toBeVisible();
-    expect(screen.getByText(/1\.161,49/)).toBeVisible();
-  });
 
-  it("shows a retry option when the total fails to load", async () => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockRejectedValue(new Error("boom"));
-    renderPage();
-    expect(await screen.findByText("Não foi possível carregar o total de dívida.")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Tentar novamente" })).toBeVisible();
-  });
-
-  it("shows an empty state instead of a zero-width proportion bar when there is no debt", async () => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue({
-      remaining_debts_total: "0.00",
-      future_installments_total: "0.00",
-      total_owed: "0.00",
-      currency_code: "BRL",
-    });
-    renderPage();
-    expect(await screen.findByText("Nenhuma dívida em aberto no momento.")).toBeVisible();
-    expect(screen.queryByText("Dívidas restantes")).not.toBeInTheDocument();
-  });
 });
 
 describe("SpendingByCategoryCard", () => {

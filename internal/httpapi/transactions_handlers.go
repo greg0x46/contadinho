@@ -21,6 +21,8 @@ import (
 // --- request DTOs, matching frontend/src/api/contracts.ts's TransactionQuery ---
 
 type transactionFiltersRequest struct {
+	CardBalance    *bool   `json:"card_balance"`
+	CreditCard     *bool   `json:"credit_card"`
 	DateFrom       *string `json:"date_from"`
 	DateTo         *string `json:"date_to"`
 	Description    *string `json:"description"`
@@ -60,6 +62,12 @@ func toFilters(req transactionFiltersRequest) (transactions.Filters, *Problem) {
 	}
 
 	var f transactions.Filters
+	if req.CardBalance != nil {
+		f.CardBalance = *req.CardBalance
+	}
+	if req.CreditCard != nil {
+		f.CreditCard = *req.CreditCard
+	}
 	if (req.DateFrom == nil) != (req.DateTo == nil) {
 		return f, invalid("invalid-date-range", "Intervalo de datas inválido",
 			"Informe as datas inicial e final juntas, ou remova ambas.")
