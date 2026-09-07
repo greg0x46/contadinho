@@ -137,3 +137,40 @@ func TestBuildSeriesCardPaymentWithoutBillIDCancelsOnItsOwnDueDate(t *testing.T)
 		t.Errorf("balance a cycle later = %s, want 1000 (no misdated phantom jump)", got)
 	}
 }
+
+func TestBuildSeriesCardPaymentWithDelayedBill(t *testing.T) {
+	for _, tc := range []struct{ name, payment, september, october string }{
+		{"full payment", "150.00", "1000", "960"},
+		{"partial payment", "100.00", "950", "910"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			bank := f.addAccount("1000.00")
+			card := f.addCreditCardAccount("0")
+			f.addBillWithClosing(card, "bill-august", "2026-08-02", "2026-08-10")
+			category := "dd10c680-fb35-4457-8595-4e51c8d279a7"
+			signal := "05100000"
+			metadata := `{"billForecastDate":"2026-10"}`
+			f.addTransaction(txn{AccountID: card, Amount: "-150.00", OccurredAt: date(t, "2026-08-20")})
+			f.addTransaction(txn{AccountID: bank, Amount: "-" + tc.payment, OccurredAt: date(t, "2026-09-03"), CategoryID: &category})
+			f.addTransaction(txn{AccountID: card, Amount: tc.payment, OccurredAt: date(t, "2026-09-03"), CategoryID: &category, SourceCategoryID: &signal, CreditCardMetadata: &metadata})
+			f.addTransaction(txn{AccountID: card, Amount: "-40.00", OccurredAt: date(t, "2026-09-04")})
+			for _, synced := range []bool{false, true} {
+				if synced {
+					f.addBillWithClosing(card, "bill-september", "2026-09-02", "2026-09-10")
+				}
+				series, err := timeline.BuildSeries(context.Background(), f.conn, timeline.BuildParams{
+					From: date(t, "2026-09-01"), To: date(t, "2026-10-31"), ReferenceDate: date(t, "2026-09-07"),
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				for day, want := range map[string]string{"2026-09-07": "1000", "2026-09-10": tc.september, "2026-10-10": tc.october} {
+					if got := balanceOn(t, series, day); got != want {
+						t.Errorf("synced=%v balance on %s = %s, want %s", synced, day, got, want)
+					}
+				}
+			}
+		})
+	}
+}

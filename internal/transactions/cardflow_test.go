@@ -231,3 +231,55 @@ func TestCreditAccountIDs(t *testing.T) {
 		t.Errorf("expected %s (no account_type) to be excluded", checking)
 	}
 }
+
+func TestProjectedEntryDatePaymentWithDelayedBill(t *testing.T) {
+	parse := func(raw string) time.Time {
+		t.Helper()
+		value, err := time.Parse("2006-01-02", raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	for _, tc := range []struct {
+		name, closing, due, paid, want string
+	}{
+		{"missing September bill", "2026-08-02", "2026-08-10", "2026-09-03", "2026-09-10"},
+		{"on estimated closing", "2026-08-02", "2026-08-10", "2026-09-02", "2026-09-10"},
+		{"before estimated closing", "2026-08-02", "2026-08-10", "2026-09-01", "2026-08-10"},
+		{"several missing bills", "2026-08-02", "2026-08-10", "2026-11-03", "2026-11-10"},
+		{"year boundary", "2026-12-02", "2026-12-10", "2027-01-03", "2027-01-10"},
+		{"short February", "2026-12-31", "2027-01-10", "2027-02-28", "2027-03-10"},
+		{"restore closing day after February", "2026-12-31", "2027-01-10", "2027-03-30", "2027-03-10"},
+		{"clamp due date", "2026-01-20", "2026-01-31", "2026-02-21", "2026-02-28"},
+		{"restore due day after February", "2026-01-20", "2026-01-31", "2026-03-21", "2026-03-31"},
+		{"no closing history", "", "2026-08-10", "2026-09-03", "2026-08-10"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			card := f.addAccount(account{CurrencyCode: strp("BRL")})
+			known := bill{AccountID: card, ExternalID: "last-bill", DueDate: parse(tc.due)}
+			if tc.closing != "" {
+				known.ClosingDate = parse(tc.closing)
+			}
+			f.addBill(known)
+			other := f.addAccount(account{CurrencyCode: strp("BRL")})
+			f.addBill(bill{AccountID: other, ExternalID: "other-bill", ClosingDate: parse("2026-09-01"), DueDate: parse("2026-09-15")})
+			dates, err := transactions.FetchCardDueDates(context.Background(), f.conn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, metadata := range []*string{nil, strp(`{"billId":"missing","billForecastDate":"2027-12"}`)} {
+				got := dates.ProjectedEntryDate(card, parse(tc.paid), metadata, true)
+				if !got.Equal(parse(tc.want)) {
+					t.Errorf("payment date = %s, want %s", got, tc.want)
+				}
+			}
+			// An explicit bill association remains authoritative even for a late payment.
+			got := dates.ProjectedEntryDate(card, parse(tc.paid), strp(`{"billId":"last-bill"}`), true)
+			if !got.Equal(parse(tc.due)) {
+				t.Errorf("explicit bill date = %s, want %s", got, tc.due)
+			}
+		})
+	}
+}

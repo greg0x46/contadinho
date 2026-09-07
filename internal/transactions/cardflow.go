@@ -119,7 +119,8 @@ type cardTransactionMetadata struct {
 //     neither field (still on the open, unbilled cycle).
 //  4. For a bill-payment leg only (isPaymentLeg — see
 //     categories.IsCardPaymentTransaction), the due date of the bill that
-//     had *already* closed by the time it posted, since a payment doesn't
+//     had *already* closed by the time it posted (including estimated cycles
+//     beyond the synced history), since a payment doesn't
 //     accrue new debt on whichever cycle happens to be open — it
 //     discharges whatever bill just closed. Falls back to case 3's cadence
 //     inference only if no bill had closed yet at all.
@@ -163,8 +164,8 @@ func (d CardDueDates) ProjectedEntryDate(accountID string, occurredAt time.Time,
 	return d.inferredDueDateOnOrAfter(accountID, dates.Day(occurredAt))
 }
 
-// mostRecentlyClosedOnOrBefore returns the due date of the last known bill
-// that had already closed by `after` — the bill a payment made on that day
+// mostRecentlyClosedOnOrBefore returns the due date of the last known or
+// inferred bill that had already closed by `after` — the bill a payment made on that day
 // is most likely settling, since bills are paid in the order they close.
 // The second return value is false when no bill had closed by `after` at
 // all (an unusually early payment, or no billing history yet), leaving the
@@ -178,6 +179,24 @@ func (d CardDueDates) mostRecentlyClosedOnOrBefore(accountID string, after time.
 			break // byAccount is closesOn()-ascending: everything past this one closes later still
 		}
 		found, ok = b.due, true
+	}
+	// Purchases already advance past synced history. Advance payments too,
+	// stopping at the last closed cycle instead of the next open one. Without
+	// an actual closing date, preserve the existing known-bill fallback.
+	if len(known) > 0 {
+		last := known[len(known)-1]
+		if !last.closing.IsZero() && !last.closing.After(after) {
+			dueDay, closingDay := last.due.Day(), last.closing.Day()
+			next := last
+			for {
+				next.closing = nextMonthOn(next.closing, closingDay)
+				if next.closing.After(after) {
+					break
+				}
+				next.due = nextMonthOn(next.due, dueDay)
+				found, ok = next.due, true
+			}
+		}
 	}
 	return found, ok
 }
