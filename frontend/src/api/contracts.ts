@@ -47,6 +47,17 @@ export interface SyncRunDetail extends SyncRun {
   failures: SyncFailure[];
 }
 
+/**
+ * requested counts every connection the create request targeted, which can
+ * exceed runs.length: a connection already syncing, or one whose insert
+ * failed outright, is skipped rather than failing the whole request, so a
+ * shorter runs list is otherwise indistinguishable from "that's everything".
+ */
+export interface CreateSyncRunResult {
+  runs: SyncRun[];
+  requested: number;
+}
+
 /** One provider connection (a Pluggy item): the unit that owns accounts and syncs. */
 export interface DataSource {
   id: string;
@@ -1343,6 +1354,13 @@ export function parseSyncRunList(value: unknown): SyncRun[] {
     throw new TypeError("Lista de execuções inválida.");
   }
   return value.map(parseSyncRun);
+}
+
+export function parseCreateSyncRunResult(value: unknown): CreateSyncRunResult {
+  if (!isRecord(value) || !Array.isArray(value.runs) || !isCount(value.requested)) {
+    throw new TypeError("Resposta de criação de execução inválida.");
+  }
+  return { runs: value.runs.map(parseSyncRun), requested: value.requested };
 }
 
 export function parseDataSource(value: unknown): DataSource {

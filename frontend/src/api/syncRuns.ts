@@ -1,17 +1,24 @@
 import {
+  parseCreateSyncRunResult,
   parseSyncRunDetail,
   parseSyncRunList,
+  type CreateSyncRunResult,
   type SyncRun,
   type SyncRunDetail,
 } from "./contracts";
 import { requestJson } from "./client";
 
 /**
- * Starts a run per connection and returns the ones actually started. With no
- * sourceId it covers every active connection, skipping any already syncing;
- * it rejects with a conflict only when nothing at all could be started.
+ * Starts a run per connection and reports both the ones actually started and
+ * how many were targeted (requested), so a caller can tell a partial start
+ * (skipped because busy, or failed outright) apart from a complete one. With
+ * no sourceId it covers every active connection; it rejects with a conflict
+ * only when nothing at all could be started.
  */
-export function createSyncRun(sourceId?: string, signal?: AbortSignal): Promise<SyncRun[]> {
+export function createSyncRun(
+  sourceId?: string,
+  signal?: AbortSignal,
+): Promise<CreateSyncRunResult> {
   return requestJson(
     "/api/sync-runs",
     {
@@ -20,7 +27,7 @@ export function createSyncRun(sourceId?: string, signal?: AbortSignal): Promise<
       body: JSON.stringify(sourceId === undefined ? {} : { source_id: sourceId }),
       signal,
     },
-    parseSyncRunList,
+    parseCreateSyncRunResult,
     202,
   );
 }

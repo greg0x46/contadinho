@@ -34,11 +34,20 @@ export function CreateSyncRunAction({ sync }: { sync: ReturnType<typeof useCreat
         {state.kind === "submitting" && <p role="status">Solicitando a sincronização…</p>}
         {state.kind === "started" && (
           <Alert
-            type="success"
+            type={state.runs.length < state.requested ? "warning" : "success"}
             showIcon
-            message={`Sincronização iniciada em ${state.runs.length} conexões.`}
+            message={
+              state.runs.length < state.requested
+                ? `Sincronização iniciada em ${state.runs.length} de ${state.requested} conexões.`
+                : `Sincronização iniciada em ${state.runs.length} conexões.`
+            }
             description={
               <Flex vertical align="start" gap="small">
+                {state.runs.length < state.requested && (
+                  <span>
+                    Uma ou mais conexões não iniciaram a sincronização. Tente novamente em instantes.
+                  </span>
+                )}
                 {state.runs.map((run) => (
                   <Link key={run.id} to={`/open-banking/sync-runs/${run.id}`}>
                     Acompanhar {run.source_name}

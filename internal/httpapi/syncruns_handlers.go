@@ -91,6 +91,14 @@ type createSyncRunRequest struct {
 	SourceID string `json:"source_id"`
 }
 
+// createSyncRunResponse reports both what started and how many connections
+// were targeted, so a caller can tell a partial start (requested > len(runs))
+// apart from a complete one instead of the two looking identical.
+type createSyncRunResponse struct {
+	Runs      []syncRunDTO `json:"runs"`
+	Requested int          `json:"requested"`
+}
+
 // handleCreateSyncRun enqueues one run per connection, so "Sincronizar agora"
 // keeps meaning "refresh everything" now that there can be more than one bank.
 //
@@ -105,8 +113,10 @@ type createSyncRunRequest struct {
 // and on Postgres that would poison the surrounding transaction and roll back
 // the connections that started perfectly well.
 //
-// So the response reports what actually started. Only when nothing started at
-// all does this fail, and then it distinguishes the two reasons: 503 if any
+// So the response reports what actually started, plus how many connections
+// were targeted (createSyncRunResponse.Requested), so the caller can tell a
+// partial start apart from a complete one. Only when nothing started at all
+// does this fail, and then it distinguishes the two reasons: 503 if any
 // connection errored, 409 if every one of them was simply already syncing —
 // which is exactly the single-connection case the frontend's conflict notice
 // was written for, and where active_sync_run_id still points somewhere useful.
@@ -180,15 +190,15 @@ func handleCreateSyncRun(conn *sql.DB) http.HandlerFunc {
 		if len(created) == 1 {
 			w.Header().Set("Location", "/api/sync-runs/"+created[0].ID)
 		}
-		// A 202 that lists fewer runs than there are connections is otherwise
-		// indistinguishable from "that is all there was": the body says what
-		// started, never what didn't. The individual failures are logged
-		// above; this line is what makes a short list explainable at a glance.
+		// requested lets the caller tell a partial start (fewer runs than
+		// connections targeted) apart from a complete one — a bare array of
+		// what started is otherwise indistinguishable from "that is all there
+		// was". The individual failures are still logged below for operators.
 		if failed > 0 || busy > 0 {
 			log.Printf("sync_run_create_partial started=%d busy=%d failed=%d of=%d",
 				len(created), busy, failed, len(targets))
 		}
-		writeJSON(w, http.StatusAccepted, created)
+		writeJSON(w, http.StatusAccepted, createSyncRunResponse{Runs: created, Requested: len(targets)})
 	}
 }
 

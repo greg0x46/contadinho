@@ -249,12 +249,18 @@ func TestSyncRunLifecycleOverHTTP(t *testing.T) {
 	if loc := resp.Header.Get("Location"); loc == "" {
 		t.Error("expected a Location header when exactly one run was started")
 	}
-	var createdRuns []map[string]any
-	decodeJSON(t, resp, &createdRuns)
-	if len(createdRuns) != 1 {
-		t.Fatalf("created %d runs, want 1", len(createdRuns))
+	var createResp struct {
+		Runs      []map[string]any `json:"runs"`
+		Requested int              `json:"requested"`
 	}
-	created := createdRuns[0]
+	decodeJSON(t, resp, &createResp)
+	if len(createResp.Runs) != 1 {
+		t.Fatalf("created %d runs, want 1", len(createResp.Runs))
+	}
+	if createResp.Requested != 1 {
+		t.Errorf("requested = %d, want 1", createResp.Requested)
+	}
+	created := createResp.Runs[0]
 	runID := created["id"].(string)
 	if created["status"] != "in_progress" {
 		t.Errorf("status = %v, want in_progress", created["status"])

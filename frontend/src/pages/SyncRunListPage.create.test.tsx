@@ -36,7 +36,7 @@ beforeEach(() => {
 
 describe("sync run creation", () => {
   it("locks synchronously, sends one request and navigates after 202", async () => {
-    let resolve!: (value: (typeof syncRun)[]) => void;
+    let resolve!: (value: Awaited<ReturnType<typeof syncRunsApi.createSyncRun>>) => void;
     vi.mocked(syncRunsApi.createSyncRun).mockReturnValue(
       new Promise((done) => {
         resolve = done;
@@ -47,13 +47,13 @@ describe("sync run creation", () => {
     button.click();
     button.click();
     await waitFor(() => expect(syncRunsApi.createSyncRun).toHaveBeenCalledTimes(1));
-    resolve([syncRun]);
+    resolve({ runs: [syncRun], requested: 1 });
     expect(await screen.findByText("Detalhe aberto")).toBeInTheDocument();
   }, 15_000);
 
   it("stays put and lists every run when several connections start at once", async () => {
     const second = { ...syncRun, id: secondRunId, source_id: secondSourceId, source_name: "Empresa" };
-    vi.mocked(syncRunsApi.createSyncRun).mockResolvedValue([syncRun, second]);
+    vi.mocked(syncRunsApi.createSyncRun).mockResolvedValue({ runs: [syncRun, second], requested: 2 });
     renderPage();
     await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
 
@@ -69,8 +69,22 @@ describe("sync run creation", () => {
     expect(screen.queryByText("Detalhe aberto")).not.toBeInTheDocument();
   });
 
+  it("warns when fewer connections start than were requested", async () => {
+    vi.mocked(syncRunsApi.createSyncRun).mockResolvedValue({ runs: [syncRun], requested: 2 });
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
+
+    expect(
+      await screen.findByText("Sincronização iniciada em 1 de 2 conexões."),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/Uma ou mais conexões não iniciaram a sincronização/),
+    ).toBeVisible();
+    expect(screen.queryByText("Detalhe aberto")).not.toBeInTheDocument();
+  });
+
   it("syncs a single connection from the registry", async () => {
-    vi.mocked(syncRunsApi.createSyncRun).mockResolvedValue([syncRun]);
+    vi.mocked(syncRunsApi.createSyncRun).mockResolvedValue({ runs: [syncRun], requested: 1 });
     renderPage();
     await userEvent.click(await screen.findByRole("button", { name: /Sincronizar$/ }));
     await waitFor(() =>

@@ -9,8 +9,11 @@ export type CreateRunState =
   | { kind: "idle" }
   | { kind: "submitting" }
   // Several connections started at once: there is no single run to open, so
-  // the page stays put and says what began.
-  | { kind: "started"; runs: SyncRun[] }
+  // the page stays put and says what began. requested can exceed runs.length
+  // — a connection already syncing, or one whose insert failed outright, is
+  // skipped rather than failing the whole request — so the notice has to
+  // show both numbers, not just the ones that started.
+  | { kind: "started"; runs: SyncRun[]; requested: number }
   // scope says what the user asked for, which the 409 alone cannot: the
   // backend answers the same conflict whether every connection was busy or
   // the one connection asked for was. Without it the notice tells someone who
@@ -34,15 +37,19 @@ export function useCreateSyncRun(onCreated: (id: string) => void) {
       locked.current = true;
       setState({ kind: "submitting" });
       try {
-        const runs = await mutation.mutateAsync(sourceId);
+        const { runs, requested } = await mutation.mutateAsync(sourceId);
         await queryClient.invalidateQueries({ queryKey: ["sync-runs", "list"] });
-        if (runs.length === 1) {
+        // Only navigate straight to the run when the single connection asked
+        // for is the single one that started — requested > 1 with one run
+        // back means the others were skipped, which the "started" notice
+        // below needs to say rather than silently navigating past it.
+        if (runs.length === 1 && requested === 1) {
           onCreated(runs[0].id);
           return;
         }
         // Nothing to navigate to, so release the lock: syncing again once a
         // connection frees up is a legitimate next action.
-        setState({ kind: "started", runs });
+        setState({ kind: "started", runs, requested });
         locked.current = false;
       } catch (error) {
         if (error instanceof ApiError && error.kind === "conflict") {
