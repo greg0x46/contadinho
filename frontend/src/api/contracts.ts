@@ -2845,3 +2845,17 @@ export function parseNetWorthSeries(value: unknown): NetWorthSeries {
     latest: parseNetWorthSnapshot(response.latest),
   };
 }
+
+export type CategoryDirection = "inflow" | "outflow";
+
+export interface CategoryBreakdown extends SpendingByCategory {
+  classification: CategoryDirection;
+}
+
+export function parseCategoryBreakdown(value: unknown): CategoryBreakdown {
+  const item = requiredRecord(value, ["month", "currency_code", "total", "items", "classification"], "Distribuição por categoria inválida.");
+  if (item.classification !== "inflow" && item.classification !== "outflow") {
+    throw new TypeError("Distribuição por categoria inválida.");
+  }
+  return { ...parseSpendingByCategory({ month: item.month, currency_code: item.currency_code, total: item.total, items: item.items }), classification: item.classification };
+}

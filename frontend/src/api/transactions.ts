@@ -1,3 +1,5 @@
+import { requestJson } from "./client";
+import { parseCategoryBreakdown, type CategoryDirection } from "./contracts";
 import {
   parseProblem,
   parseSpendingByCategory,
@@ -357,4 +359,14 @@ export async function getTransactionReconciliation(
   } catch {
     throw new ApiError("response", failure);
   }
+}
+
+export function getCategoryBreakdown(timezone: string, month: string, classification: CategoryDirection, signal?: AbortSignal) {
+  const params = new URLSearchParams({ timezone, month, classification });
+  return requestJson(
+    `/api/transactions/category-breakdown?${params}`,
+    { method: "GET", headers: { Accept: "application/json" }, signal },
+    parseCategoryBreakdown,
+    200,
+  );
 }

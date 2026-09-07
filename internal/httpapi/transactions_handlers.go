@@ -819,3 +819,49 @@ func handleDeleteManualTransaction(db *sql.DB) http.HandlerFunc {
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
+
+// handleCategoryBreakdown returns real category totals for a calendar month.
+func handleCategoryBreakdown(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		params := r.URL.Query()
+		timezone := params.Get("timezone")
+		loc, err := time.LoadLocation(timezone)
+		if timezone == "" || err != nil {
+			writeProblem(w, 400, "invalid-timezone", "Fuso horário inválido", "Informe um nome de fuso IANA reconhecido.")
+			return
+		}
+		month, err := time.ParseInLocation("2006-01", params.Get("month"), loc)
+		if err != nil || month.Year() < 1 {
+			writeProblem(w, 400, "invalid-month", "Mês inválido", "Informe o mês no formato YYYY-MM.")
+			return
+		}
+		classification := money.Classification(params.Get("classification"))
+		if classification != money.Inflow && classification != money.Outflow {
+			writeProblem(w, 400, "invalid-classification", "Classificação inválida", "Informe inflow ou outflow.")
+			return
+		}
+		last := month.AddDate(0, 1, -1)
+		from := money.Date{Year: month.Year(), Month: month.Month(), Day: 1}
+		to := money.Date{Year: last.Year(), Month: last.Month(), Day: last.Day()}
+		items, err := transactions.CategoryBreakdown(r.Context(), db, transactions.Filters{DateFrom: &from, DateTo: &to}, timezone, classification)
+		if err != nil {
+			writeProblem(w, 503, "category-breakdown-unavailable", "Categorias temporariamente indisponíveis", "Tente novamente em instantes.")
+			return
+		}
+		total := decimal.Zero
+		result := make([]categorySpendingItemDTO, 0, len(items))
+		for _, item := range items {
+			amount, err := decimal.NewFromString(item.Amount)
+			if err != nil {
+				writeProblem(w, 503, "category-breakdown-unavailable", "Categorias temporariamente indisponíveis", "Tente novamente em instantes.")
+				return
+			}
+			total = total.Add(amount)
+			result = append(result, categorySpendingItemDTO{CategoryID: item.CategoryID, CategoryName: item.CategoryName, CategoryIcon: item.CategoryIcon, CategoryColor: item.CategoryColor, Amount: item.Amount, Source: "real"})
+		}
+		writeJSON(w, http.StatusOK, struct {
+			spendingByCategoryDTO
+			Classification money.Classification `json:"classification"`
+		}{spendingByCategoryDTO{Month: month.Format("2006-01"), CurrencyCode: "BRL", Total: money.CanonicalDecimal(total), Items: result}, classification})
+	}
+}

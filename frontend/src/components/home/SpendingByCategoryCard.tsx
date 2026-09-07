@@ -1,130 +1,131 @@
-import { PieChartOutlined } from "@ant-design/icons";
-import { Link } from "react-router-dom";
+import { LeftOutlined, PieChartOutlined, RightOutlined } from "@ant-design/icons";
+import { Button, Tabs } from "antd";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
-import type { CategorySpendingItem, SpendingByCategory } from "../../api/contracts";
+import type { CategoryBreakdown, CategoryDirection, CategorySpendingItem } from "../../api/contracts";
+import { useCategoryBreakdown } from "../../hooks/useCategoryBreakdown";
 import { currentMonthFilters } from "../../hooks/useTransactions";
-import { useSpendingByCategory } from "../../hooks/useSpendingByCategory";
 import { renderCategoryIcon } from "../../presentation/categoryLabels";
 import { formatBRL } from "../../presentation/money";
+import { LoadingState, UnavailableState } from "../AsyncState";
 import { filtersToSearchParams } from "../filters/filterUrl";
-import { SummaryCard } from "../shared/SummaryCard";
-
-const MAX_VISIBLE_CATEGORIES = 5;
-// Neutral fallback for buckets with no single stable category color: the
-// "Outras categorias" aggregate (a blend of several categories) and any
-// genuinely uncategorized spend.
-const FALLBACK_COLOR = "#c3c2b7";
+import { WidgetCard } from "../shared/WidgetCard";
 
 const monthFormatter = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" });
+const percentFormatter = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const palette = ["#2a78d6", "#eb6834", "#17a2b8", "#b54d81", "#8b6cc2", "#8a731b"];
 
-function monthLabel(month: string): string {
-  const [year, monthNumber] = month.split("-").map(Number);
-  return monthFormatter.format(new Date(year, monthNumber - 1, 1));
+function monthText(date: Date) {
+  return `${String(date.getFullYear()).padStart(4, "0")}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+function monthDate(month: string) {
+  const [year, number] = month.split("-").map(Number);
+  const date = new Date(0);
+  date.setFullYear(year, number - 1, 1);
+  date.setHours(12, 0, 0, 0);
+  return date;
+}
+function categoryColor(item: CategorySpendingItem) {
+  if (!item.category_id) return "#898781";
+  let hash = 0;
+  for (const char of item.category_id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return item.category_color || palette[hash % palette.length];
+}
+function percent(amount: number, total: number) {
+  const value = total > 0 ? amount / total * 100 : 0;
+  return value > 0 && value < 0.1 ? "<0,1%" : `${percentFormatter.format(value)}%`;
+}
+function transactionLink(month: string, classification: CategoryDirection, item?: CategorySpendingItem) {
+  const params = filtersToSearchParams({
+    ...currentMonthFilters(monthDate(month)),
+    classification,
+    category_id: item?.category_id ?? null,
+    uncategorized: item ? item.category_id === null : null,
+  });
+  return `/transacoes?${params}`;
 }
 
-interface Segment {
-  key: string;
-  name: string;
-  amount: number;
-  color: string;
-  icon: string | undefined;
-}
+function Breakdown({ data, month, direction }: { data: CategoryBreakdown; month: string; direction: CategoryDirection }) {
+  const [active, setActive] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const total = Number(data.total);
+  const label = direction === "outflow" ? "saídas" : "entradas";
+  const items = [...data.items].sort((a, b) => Number(b.amount) - Number(a.amount));
+  const segments = items.map((item) => ({ ...item, value: Number(item.amount), key: item.category_id ?? "uncategorized" }));
 
-function buildSegments(items: CategorySpendingItem[]): Segment[] {
-  const segments = items.slice(0, MAX_VISIBLE_CATEGORIES).map((item) => ({
-    key: item.category_id ?? "uncategorized",
-    name: item.category_name,
-    amount: Number(item.amount),
-    color: item.category_color || FALLBACK_COLOR,
-    icon: item.category_icon || undefined,
-  }));
-
-  const rest = items.slice(MAX_VISIBLE_CATEGORIES);
-  if (rest.length > 0) {
-    segments.push({
-      key: "other",
-      name: "Outras categorias",
-      amount: rest.reduce((sum, item) => sum + Number(item.amount), 0),
-      color: FALLBACK_COLOR,
-      icon: undefined,
-    });
-  }
-  return segments;
-}
-
-function SpendingByCategoryBreakdown({ spending }: { spending: SpendingByCategory }) {
-  const total = Number(spending.total);
-
-  if (spending.items.length === 0 || total <= 0) {
-    return (
-      <div className="spending-by-category-body">
-        <p className="dashboard-hero-figure">{formatBRL(spending.total)}</p>
-        <p className="dashboard-empty">Nenhum gasto categorizado neste mês.</p>
-      </div>
-    );
+  if (total <= 0 || items.length === 0) {
+    return <div className="category-empty"><strong>{formatBRL("0.00")}</strong><p>Nenhuma {direction === "outflow" ? "saída" : "entrada"} neste mês.</p></div>;
   }
 
-  const segments = buildSegments(spending.items);
-
-  return (
-    <div className="spending-by-category-body">
-      <p className="dashboard-hero-figure">{formatBRL(spending.total)}</p>
-      <p className="spending-by-category-subtitle">{monthLabel(spending.month)}</p>
-      <div className="dashboard-meter" aria-hidden="true">
-        {segments.map((segment) => (
-          <span
-            key={segment.key}
-            className="dashboard-meter-segment"
-            style={{ width: `${(segment.amount / total) * 100}%`, backgroundColor: segment.color }}
-          />
-        ))}
+  return <div className="category-breakdown">
+    <div className="category-donut">
+      <div className="category-donut-total">
+        <span>Total de {label}</span>
+        <strong title={formatBRL(data.total)}>{formatBRL(data.total)}</strong>
       </div>
-      <ul className="dashboard-legend">
-        {segments.map((segment) => (
-          <li key={segment.key}>
-            <span className="dashboard-swatch" style={{ backgroundColor: segment.color }} aria-hidden="true" />
-            <span className="dashboard-legend-label">
-              {segment.icon && (
-                <span style={{ color: segment.color }} aria-hidden="true">
-                  {renderCategoryIcon(segment.icon)}
-                </span>
-              )}{" "}
-              {segment.name}
-            </span>
-            <span className="spending-by-category-legend-amount">
-              <strong>{formatBRL(segment.amount.toFixed(2))}</strong>
-              <span className="spending-by-category-legend-percent">
-                {Math.round((segment.amount / total) * 100)}%
-              </span>
-            </span>
-          </li>
-        ))}
-      </ul>
+      <ResponsiveContainer width="100%" height={220}>
+        <PieChart>
+          <Pie data={segments} dataKey="value" nameKey="category_name" innerRadius="72%" outerRadius="95%"
+            isAnimationActive={false} strokeWidth={1}
+            onMouseEnter={(_, index) => setActive(segments[index].key)}
+            onMouseLeave={() => setActive(null)}
+            onClick={(_, index) => navigate(transactionLink(month, direction, segments[index]))}>
+            {segments.map((item) => <Cell key={item.key} fill={categoryColor(item)}
+              opacity={active === null || active === item.key ? 1 : 0.35} style={{ cursor: "pointer" }} />)}
+          </Pie>
+          <Tooltip content={({ active: visible, payload }) => {
+            const item = payload?.[0]?.payload as (typeof segments)[number] | undefined;
+            return visible && item ? <div className="timeline-chart-tooltip">
+              <strong>{item.category_name}</strong>
+              <div>{formatBRL(item.amount)} · {percent(item.value, total)}</div>
+            </div> : null;
+          }} />
+        </PieChart>
+      </ResponsiveContainer>
     </div>
-  );
+    <ul className="category-breakdown-list" aria-label={`Categorias de ${label}`}>
+      {segments.map((item) => <li key={item.key} data-active={active === item.key}>
+        <Link to={transactionLink(month, direction, item)}
+          onFocus={() => setActive(item.key)} onBlur={() => setActive(null)}
+          onMouseEnter={() => setActive(item.key)} onMouseLeave={() => setActive(null)}>
+          <span className="category-breakdown-icon" style={{ color: categoryColor(item) }} aria-hidden="true">
+            {item.category_icon ? renderCategoryIcon(item.category_icon) : <span style={{ background: categoryColor(item) }} />}
+          </span>
+          <span className="category-breakdown-name">{item.category_name}</span>
+          <span className="category-breakdown-amount"><strong>{formatBRL(item.amount)}</strong><span>{percent(item.value, total)}</span></span>
+        </Link>
+      </li>)}
+    </ul>
+  </div>;
 }
 
 export function SpendingByCategoryCard() {
-  const { spending, isLoading, error, refetch } = useSpendingByCategory();
+  const currentMonth = monthText(new Date());
+  const [month, setMonth] = useState(currentMonth);
+  const [direction, setDirection] = useState<CategoryDirection>("outflow");
+  const { data, isLoading, error, refetch } = useCategoryBreakdown(month, direction);
+  function moveMonth(delta: number) {
+    const date = monthDate(month);
+    date.setMonth(date.getMonth() + delta);
+    setMonth(monthText(date));
+  }
 
-  const params = filtersToSearchParams({
-    ...currentMonthFilters(),
-    classification: "outflow",
-  });
-
-  return (
-    <SummaryCard
-      icon={<PieChartOutlined aria-hidden="true" />}
-      title="Gastos por categoria"
-      extra={<Link to={`/transacoes?${params.toString()}`}>Ver transações</Link>}
-      isLoading={isLoading}
-      error={error}
-      hasData={Boolean(spending)}
-      loadingLabel="Carregando gastos por categoria…"
-      errorLabel="Não foi possível carregar os gastos por categoria."
-      onRetry={refetch}
-    >
-      {spending && <SpendingByCategoryBreakdown spending={spending} />}
-    </SummaryCard>
-  );
+  return <WidgetCard icon={<PieChartOutlined aria-hidden="true" />} title="Por categoria">
+    <Tabs activeKey={direction} onChange={(key) => setDirection(key as CategoryDirection)}
+      items={[{ key: "outflow", label: "Saídas" }, { key: "inflow", label: "Entradas" }]} />
+    <div className="category-month-navigation">
+      <Button type="text" icon={<LeftOutlined />} aria-label="Mês anterior" onClick={() => moveMonth(-1)} disabled={month === "0001-01"} />
+      <span aria-live="polite">{monthFormatter.format(monthDate(month))}</span>
+      <Button type="text" icon={<RightOutlined />} aria-label="Próximo mês" onClick={() => moveMonth(1)} disabled={month >= currentMonth} />
+    </div>
+    {month !== currentMonth && <Button className="category-current-month" type="link" size="small" onClick={() => setMonth(currentMonth)}>Voltar ao mês atual</Button>}
+    <div aria-live="polite" aria-busy={isLoading}>
+      {isLoading ? <LoadingState>Carregando categorias…</LoadingState>
+        : error || !data ? <UnavailableState onRetry={() => void refetch()}>Não foi possível carregar as categorias.</UnavailableState>
+        : <Breakdown key={`${month}-${direction}`} data={data} month={month} direction={direction} />}
+    </div>
+    <Link className="category-transactions-link" to={transactionLink(month, direction)}>Ver transações</Link>
+  </WidgetCard>;
 }
