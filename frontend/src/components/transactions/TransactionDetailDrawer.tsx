@@ -93,6 +93,7 @@ export function TransactionDetailDrawer({
   onEditManual,
   onDeleteManual,
   deleteManualPending = false,
+  deleteManualError = null,
 }: {
   item: TransactionItem | null;
   categories?: Category[];
@@ -104,6 +105,7 @@ export function TransactionDetailDrawer({
   onEditManual?: (item: TransactionItem) => void;
   onDeleteManual?: (id: string) => void;
   deleteManualPending?: boolean;
+  deleteManualError?: string | null;
 }) {
   const screens = Grid.useBreakpoint();
   const reason = item?.totals_eligibility.reason;
@@ -266,6 +268,9 @@ export function TransactionDetailDrawer({
               </>
             )}
           </div>
+          {deleteManualError && (
+            <Alert type="error" showIcon message={deleteManualError} />
+          )}
 
           <TransactionReconciliationSection
             transactionId={item.id}
