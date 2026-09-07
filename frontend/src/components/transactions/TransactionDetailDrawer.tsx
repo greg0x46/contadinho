@@ -54,8 +54,18 @@ function installmentLabel(card: TransactionItem["card"]): string | null {
   return `Parcela ${card.installment_number}/${card.total_installments}`;
 }
 
+function matchesClassification(kind: Category["kind"], classification: TransactionItem["classification"] | undefined): boolean {
+  if (classification === "inflow") return kind === "income" || kind === "transfer";
+  if (classification === "outflow") return kind === "expense" || kind === "transfer";
+  return true;
+}
+
 function categoryOptions(categories: Category[], item: TransactionItem | null) {
-  const byId = new Map(categories.filter((category) => category.is_active).map((category) => [category.id, category]));
+  const byId = new Map(
+    categories
+      .filter((category) => category.is_active && matchesClassification(category.kind, item?.classification))
+      .map((category) => [category.id, category]),
+  );
   if (item?.internal_category) {
     byId.set(item.internal_category.id, {
       id: item.internal_category.id,
