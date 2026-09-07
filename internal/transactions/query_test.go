@@ -452,3 +452,29 @@ func TestSpendingByCategoryExcludesTransfers(t *testing.T) {
 		t.Errorf("Amount = %s, want 30.00", items[0].Amount)
 	}
 }
+
+func TestCategoryBreakdownInflowEligibility(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(account{CurrencyCode: strp("BRL")})
+	occurred := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	add := func(amount, category string) string {
+		id := f.addTransaction(txn{AccountID: acc, Amount: strp(amount), AmountInAccountCurrency: strp(amount), CurrencyCode: strp("BRL"), OccurredAt: &occurred, ProviderStatus: strp("POSTED"), MovementType: strp("CREDIT")})
+		f.setCategory(id, category)
+		return id
+	}
+	add("100.00", categorySalario)
+	add("25.00", categorySalario)
+	add("500.00", categoryTransferencia)
+	ignored := add("900.00", categorySalario)
+	if _, err := transactions.SetInclusion(context.Background(), f.conn, ignored, money.Ignored, transactions.InclusionOriginManual, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	from, to := money.Date{Year: 2026, Month: 3, Day: 1}, money.Date{Year: 2026, Month: 3, Day: 31}
+	items, err := transactions.CategoryBreakdown(context.Background(), f.conn, transactions.Filters{DateFrom: &from, DateTo: &to}, "UTC", money.Inflow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].CategoryID == nil || *items[0].CategoryID != categorySalario || items[0].Amount != "125.00" {
+		t.Fatalf("unexpected inflow categories: %+v", items)
+	}
+}

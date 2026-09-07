@@ -9,7 +9,7 @@ import * as transactionsApi from "../api/transactions";
 import type {
   PayableTotalOwed,
   PayableTotalToReceive,
-  SpendingByCategory,
+  CategoryBreakdown,
   TimelineResponse,
 } from "../api/contracts";
 import { QueryTestProvider } from "../test/QueryTestProvider";
@@ -32,7 +32,8 @@ const totalToReceive: PayableTotalToReceive = {
   currency_code: "BRL",
 };
 
-const spendingByCategory: SpendingByCategory = {
+const spendingByCategory: CategoryBreakdown = {
+  classification: "outflow",
   month: "2026-08",
   currency_code: "BRL",
   total: "150.00",
@@ -93,7 +94,7 @@ function renderPage() {
 }
 
 beforeEach(() => {
-  vi.mocked(transactionsApi.getSpendingByCategory).mockResolvedValue(spendingByCategory);
+  vi.mocked(transactionsApi.getCategoryBreakdown).mockResolvedValue(spendingByCategory);
   vi.mocked(payablesApi.getPayableTotalToReceive).mockResolvedValue(totalToReceive);
   vi.mocked(timelineApi.getTimeline).mockResolvedValue(projection);
 });
@@ -201,13 +202,14 @@ describe("SpendingByCategoryCard", () => {
     expect(screen.getByText("Sem categoria")).toBeVisible();
     expect(screen.getByText(/150,00/)).toBeVisible();
     expect(screen.getByText(/100,00/)).toBeVisible();
-    expect(screen.getByText("67%")).toBeVisible();
-    expect(screen.getByText("33%")).toBeVisible();
+    expect(screen.getByText("66,7%")).toBeVisible();
+    expect(screen.getByText("33,3%")).toBeVisible();
   });
 
-  it("folds categories beyond the top five into Outras categorias", async () => {
-    vi.mocked(transactionsApi.getSpendingByCategory).mockResolvedValue({
+  it("shows all categories without aggregating smaller shares", async () => {
+    vi.mocked(transactionsApi.getCategoryBreakdown).mockResolvedValue({
       month: "2026-08",
+      classification: "outflow",
       currency_code: "BRL",
       total: "600.00",
       items: [
@@ -221,26 +223,68 @@ describe("SpendingByCategoryCard", () => {
     });
     renderPage();
     expect(await screen.findByText("Cinco")).toBeVisible();
-    expect(screen.getByText("Outras categorias")).toBeVisible();
-    expect(screen.queryByText("Seis")).not.toBeInTheDocument();
+    expect(screen.queryByText("Outras categorias")).not.toBeInTheDocument();
+    expect(screen.getByText("Seis")).toBeVisible();
   });
 
   it("shows a retry option when spending fails to load", async () => {
-    vi.mocked(transactionsApi.getSpendingByCategory).mockRejectedValue(new Error("boom"));
+    vi.mocked(transactionsApi.getCategoryBreakdown).mockRejectedValue(new Error("boom"));
     renderPage();
     expect(
-      await screen.findByText("Não foi possível carregar os gastos por categoria."),
+      await screen.findByText("Não foi possível carregar as categorias."),
     ).toBeVisible();
   });
 
   it("shows an empty state instead of a zero-width proportion bar when there is no spending", async () => {
-    vi.mocked(transactionsApi.getSpendingByCategory).mockResolvedValue({
+    vi.mocked(transactionsApi.getCategoryBreakdown).mockResolvedValue({
       month: "2026-08",
+      classification: "outflow",
       currency_code: "BRL",
       total: "0.00",
       items: [],
     });
     renderPage();
-    expect(await screen.findByText("Nenhum gasto categorizado neste mês.")).toBeVisible();
+    expect(await screen.findByText("Nenhuma saída neste mês.")).toBeVisible();
+  });
+});
+
+describe("Category breakdown navigation", () => {
+  beforeEach(() => {
+    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
+  });
+
+  it("preserves the month on tab changes and builds category and uncategorized links", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Mercado");
+    expect(screen.getByRole("button", { name: "Próximo mês" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Mês anterior" }));
+    await screen.findByText("Mercado");
+    const calls = vi.mocked(transactionsApi.getCategoryBreakdown).mock.calls;
+    const month = calls[calls.length - 1][1];
+    await user.click(screen.getByRole("tab", { name: "Entradas" }));
+    await screen.findByText("Total de entradas");
+    expect(transactionsApi.getCategoryBreakdown).toHaveBeenLastCalledWith(expect.any(String), month, "inflow", expect.any(AbortSignal));
+    const link = screen.getByRole("link", { name: /Mercado/ });
+    const params = new URL(link.getAttribute("href")!, "http://localhost").searchParams;
+    expect(params.get("classification")).toBe("inflow");
+    expect(params.get("category_id")).toBe("cat-mercado");
+    expect(params.get("date_from")).toBe(month + "-01");
+    const uncategorized = screen.getByRole("link", { name: /Sem categoria/ });
+    expect(uncategorized.getAttribute("href")).toContain("uncategorized=true");
+    await user.click(screen.getByRole("button", { name: "Voltar ao mês atual" }));
+    expect(screen.getByRole("button", { name: "Próximo mês" })).toBeDisabled();
+    expect(screen.getByRole("tab", { name: "Entradas" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("keeps controls available on errors and shows an inflow empty state after retry", async () => {
+    vi.mocked(transactionsApi.getCategoryBreakdown).mockRejectedValue(new Error("offline"));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Não foi possível carregar as categorias.");
+    expect(screen.getByRole("button", { name: "Mês anterior" })).toBeEnabled();
+    vi.mocked(transactionsApi.getCategoryBreakdown).mockResolvedValue({ ...spendingByCategory, classification: "inflow", total: "0.00", items: [] });
+    await user.click(screen.getByRole("tab", { name: "Entradas" }));
+    expect(await screen.findByText("Nenhuma entrada neste mês.")).toBeVisible();
   });
 });

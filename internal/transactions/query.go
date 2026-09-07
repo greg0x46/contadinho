@@ -765,6 +765,11 @@ type CategorySpending struct {
 // instead of by date period, and — unlike Query — always restricts to
 // outflow, since that is the only direction "spending" means here.
 func SpendingByCategory(ctx context.Context, q Querier, filters Filters, timezone string) ([]CategorySpending, error) {
+	return CategoryBreakdown(ctx, q, filters, timezone, money.Outflow)
+}
+
+// CategoryBreakdown groups eligible BRL transactions by category and direction.
+func CategoryBreakdown(ctx context.Context, q Querier, filters Filters, timezone string, classification money.Classification) ([]CategorySpending, error) {
 	allViews, err := fetchAllViews(ctx, q, QueryRequest{GroupBy: money.GroupNone, Filters: filters})
 	if err != nil {
 		return nil, err
@@ -787,7 +792,7 @@ func SpendingByCategory(ctx context.Context, q Querier, filters Filters, timezon
 		if !matches(v, filters, bounds) || !v.included {
 			continue
 		}
-		if v.classification != money.Outflow || v.effective == nil || v.effective.CurrencyCode != "BRL" {
+		if v.classification != classification || v.effective == nil || v.effective.CurrencyCode != "BRL" {
 			continue
 		}
 		key, name, icon, color := uncategorizedKey, "Sem categoria", "", ""

@@ -1076,3 +1076,69 @@ func TestQueryTransactionsOverHTTP(t *testing.T) {
 		t.Errorf("invalid timezone status = %d, want 400", resp.StatusCode)
 	}
 }
+
+func TestCategoryBreakdownOverHTTP(t *testing.T) {
+	srv, conn := newTestServer(t)
+	for _, entry := range []struct {
+		date, amount, movement string
+	}{
+		{"2024-02-29T15:00:00Z", "100.00", "CREDIT"},
+		{"2024-03-01T01:00:00Z", "25.00", "CREDIT"},  // Still February in São Paulo.
+		{"2024-03-01T03:00:00Z", "500.00", "CREDIT"}, // March locally.
+		{"2024-02-10T15:00:00Z", "-42.00", "DEBIT"},
+		{"2023-12-31T23:00:00Z", "70.00", "CREDIT"},
+		{"2024-01-01T03:00:00Z", "80.00", "CREDIT"},
+	} {
+		id := insertTransaction(t, conn)
+		date, err := time.Parse(time.RFC3339, entry.date)
+		if err != nil {
+			t.Fatal(err)
+		}
+		setCardDebtTransaction(t, conn, id, date, entry.amount, entry.movement, nil)
+	}
+	for _, tc := range []struct {
+		month, direction, total string
+	}{
+		{"2024-02", "inflow", "125.00"},
+		{"2024-02", "outflow", "42.00"},
+		{"2024-03", "inflow", "500.00"},
+		{"2023-12", "inflow", "70.00"},
+		{"2024-01", "inflow", "80.00"},
+		{"2024-04", "inflow", "0"},
+	} {
+		t.Run(tc.month+"/"+tc.direction, func(t *testing.T) {
+			resp := doJSON(t, http.MethodGet, srv.URL+"/api/transactions/category-breakdown?timezone=America%2FSao_Paulo&month="+tc.month+"&classification="+tc.direction, nil)
+			if resp.StatusCode != 200 {
+				t.Fatalf("status = %d", resp.StatusCode)
+			}
+			var body map[string]any
+			decodeJSON(t, resp, &body)
+			if body["total"] != tc.total || body["month"] != tc.month || body["classification"] != tc.direction {
+				t.Fatalf("unexpected response: %+v", body)
+			}
+			items := body["items"].([]any)
+			if tc.total == "0" {
+				if len(items) != 0 {
+					t.Fatalf("expected empty items: %+v", items)
+				}
+			} else if len(items) != 1 || items[0].(map[string]any)["category_name"] != "Sem categoria" {
+				t.Fatalf("unexpected categories: %+v", items)
+			}
+		})
+	}
+	for _, query := range []string{
+		"timezone=UTC&month=2024-02",
+		"timezone=UTC&classification=inflow",
+		"month=2024-02&classification=inflow",
+		"timezone=Invalid&month=2024-02&classification=inflow",
+		"timezone=UTC&month=2024-13&classification=inflow",
+		"timezone=UTC&month=2024-2&classification=inflow",
+		"timezone=UTC&month=2024-02&classification=transfer",
+	} {
+		resp := doJSON(t, http.MethodGet, srv.URL+"/api/transactions/category-breakdown?"+query, nil)
+		resp.Body.Close()
+		if resp.StatusCode != 400 {
+			t.Errorf("%s: status = %d, want 400", query, resp.StatusCode)
+		}
+	}
+}
