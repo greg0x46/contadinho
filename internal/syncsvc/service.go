@@ -639,6 +639,19 @@ func (s *Service) upsertTransaction(ctx context.Context, accountID string, snaps
 	// automation-rule staleness case below has an observed bug, so widening
 	// categorization's trigger is left for whoever actually needs it.
 	if outcome == "inserted" {
+		// Card-payment goes first: it only ever matches one of the two
+		// specific card-bill-payment legs (see IsCardPaymentTransaction), but
+		// a card-bill DEBIT leg's source_category can still happen to also
+		// be a key in SourceCategoryMapping (e.g. "Services"). Both funcs
+		// no-op once a decision exists, so whichever runs first wins — and
+		// the more specific card-payment transfer categorization must win
+		// over the generic mapping, not the other way around.
+		if err := categories.ApplyAutomaticCardPayment(ctx, s.DB, transactionID,
+			stringOrEmpty(snapshot.MovementType), stringOrEmpty(snapshot.SourceCategory),
+			stringOrEmpty(snapshot.SourceCategoryID), stringOrEmpty(snapshot.OperationTypeAdditionalInfo),
+		); err != nil {
+			return err
+		}
 		if err := categories.ApplyAutomatic(ctx, s.DB, transactionID, snapshot.SourceCategory); err != nil {
 			return err
 		}
@@ -658,6 +671,13 @@ func nullBytes(b []byte) any {
 		return nil
 	}
 	return string(b)
+}
+
+func stringOrEmpty(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func (s *Service) incrementInvestmentsProcessed(ctx context.Context) error {

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"contadinho-go/internal/categories"
 	"contadinho-go/internal/dates"
 	"contadinho-go/internal/db"
 )
@@ -18,7 +19,7 @@ import (
 // mirror Pluggy's own transaction metadata: an exact bill (via billId) and,
 // failing that, an inferred date from the account's monthly cycle cadence.
 type CardDueDates struct {
-	byAccount map[string][]cardBill // known bills per account, sorted by due date ascending
+	byAccount map[string][]cardBill // known bills per account, sorted by closesOn() ascending (due date as tiebreaker)
 	byBillID  map[string]time.Time  // accountID+"\x00"+billID (external or internal) -> due date
 }
 
@@ -80,8 +81,18 @@ func FetchCardDueDates(ctx context.Context, q Querier) (CardDueDates, error) {
 		return CardDueDates{}, err
 	}
 	for accountID := range result.byAccount {
-		sort.Slice(result.byAccount[accountID], func(i, j int) bool {
-			return result.byAccount[accountID][i].due.Before(result.byAccount[accountID][j].due)
+		bills := result.byAccount[accountID]
+		// closesOn() ascending, not due ascending: inferredDueDateOnOrAfter
+		// and mostRecentlyClosedOnOrBefore both walk this slice looking for a
+		// closing-date boundary, and the two only coincide with due-date
+		// order by the (normally true but unenforced) assumption that a
+		// card's cycles never reorder between closing and falling due.
+		// Sorting on closesOn() directly makes that a guarantee instead.
+		sort.Slice(bills, func(i, j int) bool {
+			if !bills[i].closesOn().Equal(bills[j].closesOn()) {
+				return bills[i].closesOn().Before(bills[j].closesOn())
+			}
+			return bills[i].due.Before(bills[j].due)
 		})
 	}
 	return result, nil
@@ -99,17 +110,36 @@ type cardTransactionMetadata struct {
 // ProjectedEntryDate returns the calendar day a credit-card transaction's
 // cost should be projected onto, in priority order:
 //  1. The due_date of the bill named by the transaction's own billId.
-//  2. The due_date of the bill matching its billForecastDate month.
-//  3. The due date of the first bill that had not closed yet when the
-//     purchase happened — projecting the account's own monthly cadence
-//     forward past the last known bill — for a forecast month with no
-//     bill yet or for a transaction with neither field (still on the
-//     open, unbilled cycle).
+//  2. For anything but a bill-payment leg (see below), the due_date of the
+//     bill matching its billForecastDate month.
+//  3. For anything but a bill-payment leg, the due date of the first bill
+//     that had not closed yet when the transaction happened — projecting
+//     the account's own monthly cadence forward past the last known bill —
+//     for a forecast month with no bill yet or for a transaction with
+//     neither field (still on the open, unbilled cycle).
+//  4. For a bill-payment leg only (isPaymentLeg — see
+//     categories.IsCardPaymentTransaction), the due date of the bill that
+//     had *already* closed by the time it posted, since a payment doesn't
+//     accrue new debt on whichever cycle happens to be open — it
+//     discharges whatever bill just closed. Falls back to case 3's cadence
+//     inference only if no bill had closed yet at all.
 //
-// occurredAt is only the fallback anchor for case 3 — never itself the
-// answer, since a card transaction's own date is exactly what this
-// projection exists to correct.
-func (d CardDueDates) ProjectedEntryDate(accountID string, occurredAt time.Time, cardMetadataRaw *string) time.Time {
+// isPaymentLeg changes cases 2-4 because billForecastDate and the "still
+// open" cadence inference both answer "which future bill will this add
+// to", the right question for a purchase but the wrong one for a payment:
+// real Pluggy data shows a "Pagamento recebido" transaction's
+// billForecastDate pointing at whichever bill is next to close, not the
+// one it actually settles, and case 3's "next open cycle" fallback lands
+// it there too if billForecastDate doesn't resolve — both misdate a
+// payment forward by a full cycle, decoupling it from the purchases it
+// was meant to cancel out (see categories.CardPaymentCategoryID's own
+// mechanism, which relies on the payment landing on the very same day as
+// those purchases).
+//
+// occurredAt is only the fallback anchor — never itself the answer, since
+// a card transaction's own date is exactly what this projection exists to
+// correct.
+func (d CardDueDates) ProjectedEntryDate(accountID string, occurredAt time.Time, cardMetadataRaw *string, isPaymentLeg bool) time.Time {
 	if cardMetadataRaw != nil {
 		var meta cardTransactionMetadata
 		if err := json.Unmarshal([]byte(*cardMetadataRaw), &meta); err == nil {
@@ -118,14 +148,38 @@ func (d CardDueDates) ProjectedEntryDate(accountID string, occurredAt time.Time,
 					return due
 				}
 			}
-			if meta.BillForecastDate != nil && *meta.BillForecastDate != "" {
+			if !isPaymentLeg && meta.BillForecastDate != nil && *meta.BillForecastDate != "" {
 				if due, ok := d.dueDateForMonth(accountID, *meta.BillForecastDate); ok {
 					return due
 				}
 			}
 		}
 	}
+	if isPaymentLeg {
+		if due, ok := d.mostRecentlyClosedOnOrBefore(accountID, dates.Day(occurredAt)); ok {
+			return due
+		}
+	}
 	return d.inferredDueDateOnOrAfter(accountID, dates.Day(occurredAt))
+}
+
+// mostRecentlyClosedOnOrBefore returns the due date of the last known bill
+// that had already closed by `after` — the bill a payment made on that day
+// is most likely settling, since bills are paid in the order they close.
+// The second return value is false when no bill had closed by `after` at
+// all (an unusually early payment, or no billing history yet), leaving the
+// caller to fall back to ProjectedEntryDate's ordinary cadence inference.
+func (d CardDueDates) mostRecentlyClosedOnOrBefore(accountID string, after time.Time) (time.Time, bool) {
+	known := d.byAccount[accountID]
+	var found time.Time
+	ok := false
+	for _, b := range known {
+		if b.closesOn().After(after) {
+			break // byAccount is closesOn()-ascending: everything past this one closes later still
+		}
+		found, ok = b.due, true
+	}
+	return found, ok
 }
 
 // dueDateForMonth finds a known due date falling in the given "YYYY-MM"
@@ -223,30 +277,49 @@ func CreditAccountIDs(ctx context.Context, q Querier) (map[string]bool, error) {
 	return ids, rows.Err()
 }
 
-// CardMetadataByTransaction batch-loads credit_card_metadata for the given
+// CardTransactionSignal bundles the two raw-provider signals
+// ProjectedEntryDate needs per credit-card transaction: the Pluggy
+// credit_card_metadata blob (for billId/billForecastDate) and IsPaymentLeg
+// (see categories.IsCardPaymentTransaction, for the isPaymentLeg
+// parameter). Bundled because both come off the same financial_transactions
+// row, so CardTransactionSignals loads them in one query instead of two.
+type CardTransactionSignal struct {
+	Metadata     *string
+	IsPaymentLeg bool
+}
+
+// CardTransactionSignals batch-loads CardTransactionSignal for the given
 // transaction ids, for accounts whose transactions need ProjectedEntryDate.
-func CardMetadataByTransaction(ctx context.Context, q Querier, transactionIDs []string) (map[string]*string, error) {
-	result := make(map[string]*string, len(transactionIDs))
+// Reads the raw provider fields directly rather than a category decision,
+// so IsPaymentLeg works immediately for a freshly synced transaction with
+// no category yet.
+func CardTransactionSignals(ctx context.Context, q Querier, transactionIDs []string) (map[string]CardTransactionSignal, error) {
+	result := make(map[string]CardTransactionSignal, len(transactionIDs))
 	if len(transactionIDs) == 0 {
 		return result, nil
 	}
 	in, args := db.InClause(transactionIDs)
-	query := `SELECT id, credit_card_metadata FROM financial_transactions WHERE id IN (` + in + `)`
+	query := `SELECT id, credit_card_metadata, movement_type, source_category, source_category_id, operation_type_additional_info
+		FROM financial_transactions WHERE id IN (` + in + `)`
 	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("query credit card metadata: %w", err)
+		return nil, fmt.Errorf("query credit card transaction signals: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var id string
-		var metadata sql.NullString
-		if err := rows.Scan(&id, &metadata); err != nil {
+		var metadata, movementType, sourceCategory, sourceCategoryID, additionalInfo sql.NullString
+		if err := rows.Scan(&id, &metadata, &movementType, &sourceCategory, &sourceCategoryID, &additionalInfo); err != nil {
 			return nil, err
+		}
+		signal := CardTransactionSignal{
+			IsPaymentLeg: categories.IsCardPaymentTransaction(movementType.String, sourceCategory.String, sourceCategoryID.String, additionalInfo.String),
 		}
 		if metadata.Valid {
 			value := metadata.String
-			result[id] = &value
+			signal.Metadata = &value
 		}
+		result[id] = signal
 	}
 	return result, rows.Err()
 }

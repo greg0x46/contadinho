@@ -82,8 +82,8 @@ func TestPostgresCategoriesAreSeeded(t *testing.T) {
 	if err := conn.QueryRow("SELECT COUNT(*) FROM categories").Scan(&count); err != nil {
 		t.Fatalf("count categories: %v", err)
 	}
-	if count != 28 {
-		t.Errorf("got %d seeded categories, want 28", count)
+	if count != 29 {
+		t.Errorf("got %d seeded categories, want 29", count)
 	}
 
 	var kind string

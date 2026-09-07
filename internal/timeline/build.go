@@ -101,7 +101,10 @@ func eligibleRealItems(ctx context.Context, q Querier, from, to time.Time, accou
 // purchase already happened, but the cash only leaves the paying account
 // when the bill is due, so their entry is dated (and ranked) as
 // TierConfirmado at the projected due date instead of occurred_at — see
-// transactions.CardDueDates.ProjectedEntryDate.
+// transactions.CardDueDates.ProjectedEntryDate. A card-payment leg (see
+// categories.CardPaymentCategoryID) is dated the same way but by the bill
+// it settles rather than the one still accruing, so it lands on the same
+// day as the purchases it cancels out instead of a full cycle later.
 func realEntries(ctx context.Context, q Querier, items []transactions.Item) ([]Entry, error) {
 	creditAccounts, err := transactions.CreditAccountIDs(ctx, q)
 	if err != nil {
@@ -113,7 +116,7 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item) ([]E
 			transactionIDs = append(transactionIDs, item.ID)
 		}
 	}
-	cardMetadata, err := transactions.CardMetadataByTransaction(ctx, q, transactionIDs)
+	cardSignals, err := transactions.CardTransactionSignals(ctx, q, transactionIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +153,8 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item) ([]E
 		date := dates.Day(*item.OccurredAt)
 		tier := TierRealizado
 		if creditAccounts[item.Account.ID] {
-			date = dates.Day(dueDates.ProjectedEntryDate(item.Account.ID, *item.OccurredAt, cardMetadata[item.ID]))
+			signal := cardSignals[item.ID]
+			date = dates.Day(dueDates.ProjectedEntryDate(item.Account.ID, *item.OccurredAt, signal.Metadata, signal.IsPaymentLeg))
 			tier = TierConfirmado
 		}
 		entries = append(entries, Entry{

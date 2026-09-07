@@ -57,6 +57,15 @@ func main() {
 		log.Printf("categorized %d %q transactions as transfers", applied, categories.SamePersonTransferLabel)
 	}
 
+	// Same reasoning as the same-person-transfer backfill above: card-bill
+	// payment legs synced before this rule existed need a one-time pass, and
+	// it is logged rather than fatal for the same reason.
+	if applied, err := categories.BackfillAutomaticCardPayment(context.Background(), conn); err != nil {
+		log.Printf("backfill card payment categories failed, leaving those rows uncategorized: %v", err)
+	} else if applied > 0 {
+		log.Printf("categorized %d card payment transactions as transfers", applied)
+	}
+
 	frontend, err := webui.DistFS()
 	if err != nil {
 		log.Fatalf("load embedded frontend: %v", err)

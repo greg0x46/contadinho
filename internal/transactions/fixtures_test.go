@@ -114,16 +114,18 @@ func (f *fixture) setPreference(key, value string) {
 // txn is the input to addTransaction; nil pointers stay NULL, matching a
 // provider omitting that field.
 type txn struct {
-	AccountID               string
-	Description             *string
-	Amount                  *string
-	AmountInAccountCurrency *string
-	CurrencyCode            *string
-	OccurredAt              *time.Time
-	ProviderStatus          *string
-	MovementType            *string
-	SourceCategory          *string
-	CreditCardMetadata      *string
+	AccountID                   string
+	Description                 *string
+	Amount                      *string
+	AmountInAccountCurrency     *string
+	CurrencyCode                *string
+	OccurredAt                  *time.Time
+	ProviderStatus              *string
+	MovementType                *string
+	SourceCategory              *string
+	SourceCategoryID            *string
+	OperationTypeAdditionalInfo *string
+	CreditCardMetadata          *string
 }
 
 func (f *fixture) addTransaction(tx txn) string {
@@ -137,11 +139,13 @@ func (f *fixture) addTransaction(tx txn) string {
 	f.exec(`INSERT INTO financial_transactions (
 			id, source_id, account_id, external_id, description, amount,
 			amount_in_account_currency, currency_code, occurred_at, provider_status,
-			movement_type, source_category, credit_card_metadata, current_raw_import_id,
+			movement_type, source_category, source_category_id, operation_type_additional_info,
+			credit_card_metadata, current_raw_import_id,
 			normalized_hash, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'hash', ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'hash', ?, ?)`,
 		id, f.sourceID, tx.AccountID, id, tx.Description, tx.Amount, tx.AmountInAccountCurrency,
 		tx.CurrencyCode, occurredAt, tx.ProviderStatus, tx.MovementType, tx.SourceCategory,
+		tx.SourceCategoryID, tx.OperationTypeAdditionalInfo,
 		tx.CreditCardMetadata, f.rawImportID, now, now)
 	return id
 }
