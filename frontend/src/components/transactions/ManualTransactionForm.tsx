@@ -34,10 +34,14 @@ function draftFrom(transaction: TransactionItem | null, defaultAccountId: string
   };
 }
 
-function categoryOptions(categories: Category[]) {
+function matchesDirection(kind: Category["kind"], direction: Direction): boolean {
+  return direction === "inflow" ? kind === "income" || kind === "transfer" : kind === "expense" || kind === "transfer";
+}
+
+function categoryOptions(categories: Category[], direction: Direction) {
   const kindOrder = ["expense", "income", "transfer"] as const;
   return categories
-    .filter((category) => category.is_active)
+    .filter((category) => category.is_active && matchesDirection(category.kind, direction))
     .sort((a, b) => {
       if (a.kind !== b.kind) return kindOrder.indexOf(a.kind) - kindOrder.indexOf(b.kind);
       return a.name.localeCompare(b.name, "pt-BR");
@@ -177,7 +181,14 @@ export function ManualTransactionForm({
               { value: "outflow", label: "Saída" },
               { value: "inflow", label: "Entrada" },
             ]}
-            onChange={(value) => setDraft((current) => ({ ...current, direction: value as Direction }))}
+            onChange={(value) => {
+              const direction = value as Direction;
+              setDraft((current) => {
+                const selected = categories.find((category) => category.id === current.categoryId);
+                const categoryId = selected && !matchesDirection(selected.kind, direction) ? null : current.categoryId;
+                return { ...current, direction, categoryId };
+              });
+            }}
           />
         </div>
 
@@ -212,7 +223,7 @@ export function ManualTransactionForm({
           <Select
             id="manual-transaction-category"
             value={draft.categoryId ?? undefined}
-            options={categoryOptions(categories)}
+            options={categoryOptions(categories, draft.direction)}
             allowClear={!isEditing}
             showSearch
             optionFilterProp="label"
