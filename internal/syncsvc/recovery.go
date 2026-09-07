@@ -3,6 +3,7 @@ package syncsvc
 import (
 	"context"
 	"database/sql"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -64,4 +65,45 @@ func RecoverStaleRuns(ctx context.Context, conn *sql.DB, now time.Time) ([]strin
 		}
 	}
 	return ids, tx.Commit()
+}
+
+// FailRun marks syncRunID failed with a general, item-stage error, mirroring
+// failGeneral but callable before a Service exists for the run — needed when
+// a run can't even start, e.g. its connection was deactivated after
+// ClaimNextRun claimed the run but before a worker got to it (ClaimNextRun
+// only looks at unclaimed rows, so it can't see a deactivation that happens
+// after the claim). A no-op if the run is no longer in_progress.
+func FailRun(ctx context.Context, conn *sql.DB, syncRunID, errorCode string) error {
+	log.Printf("sync_run_general_failure run_id=%s stage=item code=%s", syncRunID, errorCode)
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var status string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM sync_runs WHERE id = ?`, syncRunID).Scan(&status); err != nil {
+		return err
+	}
+	if status != "in_progress" {
+		return tx.Commit()
+	}
+
+	now := db.FormatTime(time.Now())
+	message := SafeMessage(errorCode)
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO sync_failures (id, sync_run_id, stage, error_code, safe_message, created_at)
+		VALUES (?, ?, 'item', ?, ?, ?)`,
+		uuid.NewString(), syncRunID, errorCode, message, now,
+	); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE sync_runs SET status = 'failed', finished_at = ?, general_error_code = ?, general_error_message = ?
+		WHERE id = ?`,
+		now, errorCode, message, syncRunID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

@@ -117,6 +117,13 @@ func ProcessClaim(ctx context.Context, conn *sql.DB, session *settings.Session, 
 	if err != nil {
 		return fmt.Errorf("resolve data source %s: %w", sourceID, err)
 	}
+	// The connection can be deactivated after ClaimNextRun claims this run
+	// but before we get here — ClaimNextRun only looks at unclaimed rows, so
+	// it has no way to see that. Check here, before syncing an item the user
+	// no longer wants synced.
+	if !source.IsActive {
+		return syncsvc.FailRun(ctx, conn, syncRunID, "connection_inactive")
+	}
 	pluggyConfig := cfg.Pluggy
 	pluggyConfig.ClientID = clientID
 	pluggyConfig.ClientSecret = clientSecret

@@ -37,6 +37,7 @@ var safeMessages = map[string]string{
 	"internal_error":                 "Synchronization stopped because of an internal error",
 	"interrupted":                    "Synchronization was interrupted before completion",
 	"worker_unavailable":             "No worker claimed synchronization before the deadline",
+	"connection_inactive":            "The financial connection is no longer active",
 }
 
 // SafeMessage mirrors safe_message.
