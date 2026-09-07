@@ -67,7 +67,17 @@ export function DataSourceConnections({ sync }: { sync: ReturnType<typeof useCre
           <Space>
             <Typography.Text
               editable={{
-                onChange: (next) => update.mutate({ id: source.id, changes: { label: next } }),
+                onChange: (next) => {
+                  // Typography.Text fires onChange on every confirm, even one
+                  // that changed nothing — opening the editor and confirming
+                  // without typing must not overwrite a connection that has
+                  // no label yet (falling back to display_name) with that
+                  // same display_name as a now-permanent label.
+                  if (next.trim() === source.name) {
+                    return;
+                  }
+                  update.mutate({ id: source.id, changes: { label: next } });
+                },
                 tooltip: "Renomear conexão",
                 triggerType: ["icon", "text"],
               }}

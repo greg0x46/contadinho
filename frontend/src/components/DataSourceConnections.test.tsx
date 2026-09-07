@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -96,5 +96,39 @@ describe("connection registry", () => {
     renderConnections();
     await userEvent.click(await screen.findByRole("button", { name: /Sincronizar$/ }));
     expect(idleSync.submit).toHaveBeenCalledWith(dataSource.id);
+  });
+
+  // Confirming the inline editor always fires onChange, even with no edit —
+  // opening it and blurring must not pin the displayed name as a permanent
+  // label.
+  it("does not update the label when the inline editor is confirmed unchanged", async () => {
+    renderConnections();
+    const list = await screen.findByLabelText("Conexões");
+    await userEvent.click(within(list).getByRole("button", { name: "Renomear conexão" }));
+    fireEvent.blur(within(list).getByRole("textbox"));
+
+    await waitFor(() => expect(within(list).queryByRole("textbox")).not.toBeInTheDocument());
+    expect(dataSourcesApi.updateDataSource).not.toHaveBeenCalled();
+  });
+
+  it("updates the label when the inline editor is confirmed with a real change", async () => {
+    vi.mocked(dataSourcesApi.updateDataSource).mockResolvedValue({
+      ...dataSource,
+      label: "Nova conta",
+      name: "Nova conta",
+    });
+    renderConnections();
+    const list = await screen.findByLabelText("Conexões");
+    await userEvent.click(within(list).getByRole("button", { name: "Renomear conexão" }));
+    const textbox = within(list).getByRole("textbox");
+    await userEvent.clear(textbox);
+    await userEvent.type(textbox, "Nova conta");
+    fireEvent.blur(textbox);
+
+    await waitFor(() =>
+      expect(dataSourcesApi.updateDataSource).toHaveBeenCalledWith(dataSource.id, {
+        label: "Nova conta",
+      }),
+    );
   });
 });
