@@ -79,9 +79,8 @@ function TransactionRow({
       onClick={() => onSelect(item.id)}
       aria-label={`Ver detalhes de ${item.description ?? "transação sem descrição"}`}
     >
-      <span className="transaction-date">
+      <span className="transaction-date" title={occurred.time || undefined}>
         <strong>{occurred.date}</strong>
-        <small>{occurred.time}</small>
       </span>
       <span className="transaction-identity">
         <strong>
@@ -160,15 +159,7 @@ export function TransactionGroup({
           </div>
           <dl>
             <div>
-              <dt>Entradas</dt>
-              <dd>{formatBRL(brl?.inflow ?? "0")}</dd>
-            </div>
-            <div>
-              <dt>Saídas</dt>
-              <dd>{formatBRL(brl?.outflow ?? "0")}</dd>
-            </div>
-            <div>
-              <dt>Saldo</dt>
+              <dt>Resultado</dt>
               <dd>{formatBRL(brl?.balance ?? "0")}</dd>
             </div>
           </dl>

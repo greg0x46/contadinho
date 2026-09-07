@@ -87,13 +87,6 @@ function initialState(searchParams: URLSearchParams): {
 function ResultsSkeleton() {
   return (
     <div className="transaction-results-skeleton" role="status" aria-label="Carregando transações">
-      <section className="transaction-summary" aria-hidden="true">
-        {[0, 1, 2].map((key) => (
-          <Card key={key} size="small">
-            <Skeleton active paragraph={false} title={{ width: "70%" }} />
-          </Card>
-        ))}
-      </section>
       <Skeleton active paragraph={{ rows: 5 }} />
       <span className="visually-hidden">Carregando transações…</span>
     </div>
@@ -179,7 +172,8 @@ export function TransactionsPage() {
     setPage(1);
     setSelectedId(null);
   };
-  const clear = () => apply(initialFilters);
+  const clear = () => apply({ ...initialFilters, date_from: filters.date_from, date_to: filters.date_to });
+  const hasExtraFilters = Object.entries(filters).some(([key, value]) => !key.startsWith("date_") && value !== null);
   const isInitialMonth =
     filters.date_from === initialFilters.date_from &&
     filters.date_to === initialFilters.date_to &&
@@ -196,13 +190,15 @@ export function TransactionsPage() {
       <header className="transactions-header">
         <div>
           <h1>Transações</h1>
-          <p>Acompanhe suas movimentações e o saldo do período.</p>
+          <p>Acompanhe suas entradas, saídas e o resultado do período.</p>
         </div>
         <Flex gap="small">
           <Button icon={<PlusOutlined aria-hidden="true" />} onClick={openManualCreate}>
-            Novo lançamento manual
+            Novo lançamento
           </Button>
           <Button
+            aria-label="Atualizar"
+            title="Atualizar transações"
             icon={<ReloadOutlined aria-hidden="true" />}
             loading={query.isFetching}
             disabled={!query.timezoneValid}
@@ -214,6 +210,16 @@ export function TransactionsPage() {
       </header>
 
       <TransactionFilterBar
+        overview={
+          data ? <div aria-busy={query.isFetching}>
+            <TransactionTotals totals={data.page.total_items === 0 ? [] : data.totals} />
+            <p className="transaction-inclusion-explanation">Totais dos filtros aplicados, sem transações ignoradas.</p>
+          </div> : query.isPending && query.timezoneValid ? (
+            <section className="transaction-summary" aria-label="Carregando resumo financeiro" aria-busy="true">
+              {[0, 1, 2].map((key) => <Card key={key} size="small"><Skeleton active paragraph={false} /></Card>)}
+            </section>
+          ) : undefined
+        }
         applied={filters}
         emptyValues={initialFilters}
         facets={data?.available_filters ?? facets}
@@ -325,7 +331,7 @@ export function TransactionsPage() {
                     : "Nenhum resultado encontrado para os filtros selecionados."
               }
               description={
-                data.stored_total > 0 && !isInitialMonth ? (
+                data.stored_total > 0 && hasExtraFilters ? (
                   <Button type="link" onClick={clear}>
                     Limpar filtros
                   </Button>
@@ -334,10 +340,6 @@ export function TransactionsPage() {
             />
           ) : (
             <>
-              <TransactionTotals totals={data.totals} />
-              <p className="transaction-inclusion-explanation">
-                Transações ignoradas permanecem na lista e não entram nos totais.
-              </p>
               <div className="transaction-list-controls">
                 <strong>
                   {data.page.total_items.toLocaleString("pt-BR")}{" "}

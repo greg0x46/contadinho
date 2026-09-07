@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -63,6 +63,9 @@ describe("TransactionsPage", () => {
     );
     renderPage();
     expect(await screen.findByText(message)).toBeVisible();
+    const summary = screen.getByRole("region", { name: "Resumo financeiro" });
+    expect(within(summary).getByText("Resultado do período")).toBeVisible();
+    expect(within(summary).getAllByText(/R\$\s*0,00/)).toHaveLength(3);
   });
 
   it("renders initial unavailability with manual retry", async () => {
@@ -99,6 +102,20 @@ describe("TransactionsPage", () => {
         { timeout: 10_000 },
       ),
     ).toBeVisible();
+  });
+
+  it("clears filters while keeping the selected period and resets pagination", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(transactionJsonResponse());
+    renderPage("/transacoes?date_from=2024-01-01&date_to=2024-12-31&description=Mercado&page=2");
+    await screen.findByText("1 transação");
+    await user.click(screen.getByRole("button", { name: "Limpar filtros" }));
+    await waitFor(() => {
+      const requests = fetchMock.mock.calls.flatMap(([, init]) => init?.body ? [JSON.parse(String(init.body))] : []);
+      expect(requests.at(-1)).toMatchObject({ page: 1, filters: {
+        date_from: "2024-01-01", date_to: "2024-12-31", description: null,
+      } });
+    });
   });
 
   it("restores filters and grouping from the URL", async () => {
@@ -138,7 +155,7 @@ describe("TransactionsPage", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Ignorada")).toBeVisible();
     expect(screen.getByText("1 transação")).toBeVisible();
-    expect(screen.getByText(/permanecem na lista/)).toBeVisible();
+    expect(screen.getByText(/sem transações ignoradas/)).toBeVisible();
   });
 
   it("keeps a persistent error and retries the same explicit target", async () => {

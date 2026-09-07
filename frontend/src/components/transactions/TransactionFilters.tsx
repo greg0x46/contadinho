@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 
 import type {
   TransactionFilters as Filters,
@@ -60,12 +60,14 @@ export function TransactionFilters({
   facets,
   onApply,
   onClear,
+  overview,
 }: {
   applied: Filters;
   emptyValues?: Filters;
   facets: TransactionQueryResult["available_filters"] | undefined;
   onApply: (filters: Filters) => void;
   onClear: () => void;
+  overview?: ReactNode;
 }) {
   const config = useMemo<FilterConfig<Filters>[]>(
     () => [
@@ -76,6 +78,7 @@ export function TransactionFilters({
         type: "date-range",
         placement: "main",
         presets: periodPresets(),
+        navigatePeriod: true,
         hideChip: true,
       },
       {
@@ -92,7 +95,7 @@ export function TransactionFilters({
         label: "Conta",
         type: "select",
         placement: "main",
-        placeholder: facets?.accounts.length ? "Todas as contas" : "Nenhuma conta",
+        placeholder: facets?.accounts.length ? "Conta" : "Nenhuma conta",
         options:
           facets?.accounts.map((account) => ({
             value: account.id,
@@ -107,7 +110,7 @@ export function TransactionFilters({
         label: "Categoria",
         type: "select",
         placement: "main",
-        placeholder: facets?.categories.length ? "Todas as categorias" : "Nenhuma categoria",
+        placeholder: facets?.categories.length ? "Categoria" : "Nenhuma categoria",
         options: categoryFilterOptions(facets?.categories),
         optionRender: (option) => (
           <span>
@@ -132,9 +135,9 @@ export function TransactionFilters({
       },
       {
         key: "classification",
-        label: "Classificação",
+        label: "Movimentação",
         type: "segmented",
-        placement: "advanced",
+        placement: "main",
         options: [
           { value: "all", label: "Todas" },
           { value: "inflow", label: "Entradas" },
@@ -177,6 +180,7 @@ export function TransactionFilters({
 
   return (
     <ConfigurableFilters
+      overview={overview}
       values={applied}
       emptyValues={emptyValues ?? applied}
       config={config}
