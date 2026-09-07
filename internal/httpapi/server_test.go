@@ -1063,6 +1063,26 @@ func TestQueryTransactionsOverHTTP(t *testing.T) {
 		t.Errorf("outflow = %v, want 42.00", total["outflow"])
 	}
 
+	body["filters"].(map[string]any)["credit_card"] = true
+	for _, accountType := range []string{"BANK", "CREDIT"} {
+		if _, err := conn.Exec(`UPDATE financial_accounts SET account_type = ? WHERE id = (SELECT account_id FROM financial_transactions WHERE id = ?)`, accountType, txID); err != nil {
+			t.Fatal(err)
+		}
+		resp = doJSON(t, http.MethodPost, srv.URL+"/api/transactions/query", body)
+		if resp.StatusCode != 200 {
+			t.Fatalf("credit card query status: %d", resp.StatusCode)
+		}
+		decodeJSON(t, resp, &result)
+		items, _ = result["items"].([]any)
+		want := 0
+		if accountType == "CREDIT" {
+			want = 1
+		}
+		if len(items) != want {
+			t.Fatalf("account type %s: got %d items, want %d", accountType, len(items), want)
+		}
+	}
+
 	badBody := map[string]any{"timezone": "Not/AZone", "group_by": "none", "page": 1, "page_size": 50,
 		"filters": map[string]any{
 			"date_from": nil, "date_to": nil, "description": nil, "account_id": nil,

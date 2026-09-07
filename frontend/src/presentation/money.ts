@@ -59,3 +59,7 @@ function fromCents(cents: bigint): string {
 export function sumBRL(values: string[]): string {
   return fromCents(values.reduce((total, value) => total + toCents(value), 0n));
 }
+
+export function subtractBRL(minuend: string, subtrahend: string): string {
+  return fromCents(toCents(minuend) - toCents(subtrahend));
+}

@@ -34,6 +34,11 @@ func CreditCardTransactionTotal(ctx context.Context, q Querier, currencyCode str
 // timezone (for example, the TZ setting); it is intentionally used for
 // local calendar days instead of comparing only UTC dates.
 func CreditCardTransactionTotalAt(ctx context.Context, q Querier, currencyCode string, now time.Time, loc *time.Location) (decimal.Decimal, error) {
+	return creditCardTransactionTotalAt(ctx, q, currencyCode, now, loc, nil)
+}
+
+// selected optionally collects exactly the transactions contributing to the total.
+func creditCardTransactionTotalAt(ctx context.Context, q Querier, currencyCode string, now time.Time, loc *time.Location, selected map[string]bool) (decimal.Decimal, error) {
 	if loc == nil {
 		return decimal.Zero, fmt.Errorf("credit card cycle timezone is nil")
 	}
@@ -65,7 +70,7 @@ func CreditCardTransactionTotalAt(ctx context.Context, q Querier, currencyCode s
 
 	total := decimal.Zero
 	for _, accountID := range accounts {
-		amount, err := consideredCardTransactionTotal(ctx, q, accountID, currencyCode, bills, now, loc)
+		amount, err := consideredCardTransactionTotal(ctx, q, accountID, currencyCode, bills, now, loc, selected)
 		if err != nil {
 			return decimal.Zero, err
 		}
@@ -207,6 +212,7 @@ func inferredNextClosing(lastClosing time.Time, closings []time.Time, loc *time.
 }
 
 type cardDebtTransaction struct {
+	id                      string
 	amount                  *decimal.Decimal
 	amountInAccountCurrency *decimal.Decimal
 	currencyCode            *string
@@ -246,6 +252,7 @@ func consideredCardTransactionTotal(
 	bills cardBillClosingDates,
 	now time.Time,
 	loc *time.Location,
+	selected map[string]bool,
 ) (decimal.Decimal, error) {
 	cycle, ok := currentCreditCardCycle(bills, accountID, now, loc)
 	if !ok {
@@ -285,6 +292,9 @@ func consideredCardTransactionTotal(
 		included, _ := money.Eligibility(classification, transaction.providerStatus, effective, money.Considered, "")
 		if !included || effective == nil || effective.CurrencyCode != currencyCode {
 			continue
+		}
+		if selected != nil {
+			selected[transaction.id] = true
 		}
 		switch classification {
 		case money.Outflow:
@@ -367,7 +377,7 @@ func cardTransactionBelongsToCurrentCycle(accountID string, transaction cardDebt
 
 func fetchCardDebtTransactions(ctx context.Context, q Querier, accountID string) ([]cardDebtTransaction, error) {
 	rows, err := q.QueryContext(ctx, `
-		SELECT ft.amount, ft.amount_in_account_currency, ft.currency_code,
+		SELECT ft.id, ft.amount, ft.amount_in_account_currency, ft.currency_code,
 		       ft.occurred_at, ft.provider_status, ft.movement_type,
 		       ft.source_category, ft.source_category_id, ft.operation_type_additional_info,
 		       ft.credit_card_metadata, tid.state
@@ -381,12 +391,13 @@ func fetchCardDebtTransactions(ctx context.Context, q Querier, accountID string)
 
 	result := make([]cardDebtTransaction, 0)
 	for rows.Next() {
+		var transactionID string
 		var amountRaw, amountInAccountCurrencyRaw, currencyCodeRaw sql.NullString
 		var occurredAtRaw, providerStatusRaw, movementTypeRaw sql.NullString
 		var sourceCategoryRaw, sourceCategoryIDRaw, additionalInfoRaw sql.NullString
 		var metadataRaw, inclusionStateRaw sql.NullString
 		if err := rows.Scan(
-			&amountRaw, &amountInAccountCurrencyRaw, &currencyCodeRaw,
+			&transactionID, &amountRaw, &amountInAccountCurrencyRaw, &currencyCodeRaw,
 			&occurredAtRaw,
 			&providerStatusRaw, &movementTypeRaw,
 			&sourceCategoryRaw, &sourceCategoryIDRaw, &additionalInfoRaw,
@@ -407,6 +418,7 @@ func fetchCardDebtTransactions(ctx context.Context, q Querier, accountID string)
 			return nil, err
 		}
 		result = append(result, cardDebtTransaction{
+			id:                      transactionID,
 			amount:                  amount,
 			amountInAccountCurrency: amountInAccountCurrency,
 			currencyCode:            stringFromNullString(currencyCodeRaw),

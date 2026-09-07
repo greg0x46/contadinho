@@ -103,6 +103,8 @@ export const categoryOrigins = ["manual", "automatic", "rule"] as const;
 export type CategoryOrigin = (typeof categoryOrigins)[number];
 
 export interface TransactionFilters {
+  card_balance?: boolean | null;
+  credit_card?: boolean | null;
   date_from: string | null;
   date_to: string | null;
   description: string | null;

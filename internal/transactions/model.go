@@ -25,6 +25,8 @@ type Querier interface {
 // Filters mirrors TransactionFilters. DateFrom/DateTo only take effect as a
 // pair — matching the reference, setting just one has no effect.
 type Filters struct {
+	CardBalance    bool
+	CreditCard     bool
 	DateFrom       *money.Date
 	DateTo         *money.Date
 	Description    *string

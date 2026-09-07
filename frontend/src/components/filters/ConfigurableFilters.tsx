@@ -315,7 +315,7 @@ export function ConfigurableFilters<Values extends object>({
                   {customContent}
                 </>}>
                 <Button className="filter-period-heading" aria-label="Selecionar período" aria-expanded={customDateOpen}>
-                  <span aria-live="polite" aria-atomic="true">{navigation?.label ?? "Selecione um período"}</span>
+                  <span aria-live="polite" aria-atomic="true">{navigation?.label ?? (value === null && secondary === null ? "Todo o período" : "Selecione um período")}</span>
                   <DownOutlined aria-hidden="true" />
                 </Button>
               </Popover>

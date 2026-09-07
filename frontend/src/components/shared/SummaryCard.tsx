@@ -19,8 +19,8 @@ interface SummaryCardProps {
 /**
  * Standard shell for the small metric cards used on the Home dashboard
  * (title + icon, an optional link in the corner, and the three async
- * states — loading / unavailable / content). Centralizing this keeps the
- * three cards visually identical without each one re-declaring the same
+ * states — loading / unavailable / content). Centralizing this keeps summary
+ * cards visually consistent without each one re-declaring the same
  * Card + LoadingState + UnavailableState wiring.
  */
 export function SummaryCard({

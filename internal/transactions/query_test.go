@@ -478,3 +478,36 @@ func TestCategoryBreakdownInflowEligibility(t *testing.T) {
 		t.Fatalf("unexpected inflow categories: %+v", items)
 	}
 }
+
+func TestQueryCreditCardFilter(t *testing.T) {
+	f := newFixture(t)
+	occurred := time.Date(2026, 3, 15, 12, 0, 0, 0, time.UTC)
+	var cardAccount string
+	for _, kind := range []string{"CREDIT", "BANK", ""} {
+		acc := f.addAccount(account{CurrencyCode: strp("BRL"), AccountType: strp(kind)})
+		if kind == "CREDIT" {
+			cardAccount = acc
+		}
+		f.addTransaction(txn{AccountID: acc, Amount: strp("-25.00"), AmountInAccountCurrency: strp("-25.00"), CurrencyCode: strp("BRL"), OccurredAt: &occurred, ProviderStatus: strp("POSTED"), MovementType: strp("DEBIT")})
+	}
+	for _, enabled := range []bool{true, false} {
+		result, err := transactions.Query(context.Background(), f.conn, transactions.QueryRequest{Timezone: "UTC", GroupBy: money.GroupNone, Page: 1, PageSize: 50, Filters: transactions.Filters{CreditCard: enabled}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := 3
+		if enabled {
+			want = 1
+		}
+		if len(result.Items) != want {
+			t.Fatalf("credit_card=%v: got %d items, want %d", enabled, len(result.Items), want)
+		}
+		if enabled && (len(result.Totals) != 1 || result.Totals[0].Outflow != "25.00") {
+			t.Fatalf("unexpected filtered totals: %+v", result.Totals)
+		}
+	}
+	result, err := transactions.Query(context.Background(), f.conn, transactions.QueryRequest{Timezone: "UTC", GroupBy: money.GroupNone, Page: 1, PageSize: 50, Filters: transactions.Filters{CreditCard: true, AccountID: &cardAccount}})
+	if err != nil || len(result.Items) != 1 {
+		t.Fatalf("combined account filter: %+v, %v", result, err)
+	}
+}
