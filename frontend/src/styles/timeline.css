@@ -24,6 +24,36 @@
   font-size: 12px;
 }
 
+.timeline-chart-tooltip-entries {
+  margin: 6px 0 0;
+  padding: 6px 0 0;
+  border-top: 1px solid var(--color-border);
+  list-style: none;
+  max-width: 22rem;
+}
+
+.timeline-chart-tooltip-entries li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--color-text-secondary);
+}
+
+.timeline-chart-tooltip-entries li span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-chart-tooltip-entries li span:last-child {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.timeline-chart-tooltip-more {
+  font-style: italic;
+}
+
 .timeline-category-impact-item {
   cursor: pointer;
   flex-direction: column;

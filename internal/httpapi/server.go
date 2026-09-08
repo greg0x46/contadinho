@@ -121,6 +121,7 @@ func NewServer(db *sql.DB, frontend fs.FS, session *settings.Session) http.Handl
 	mux.HandleFunc("DELETE /api/scenarios/{id}/transactions/{transactionId}/realizations/{realizationId}", handleDeleteRealization(db))
 
 	mux.HandleFunc("GET /api/timeline", handleGetTimeline(db))
+	mux.HandleFunc("GET /api/timeline/range", handleGetTimelineDataRange(db))
 
 	mux.HandleFunc("GET /api/net-worth", handleGetNetWorth(db))
 

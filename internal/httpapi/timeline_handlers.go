@@ -207,7 +207,7 @@ func splitCSV(raw string) []string {
 
 // handleGetTimeline serves GET /api/timeline?reference_date=...&from=...&to=...
 // &account_ids=...&category_ids=...&card_numbers=...&scenario_ids=...
-// &analysis_month=...
+// &analysis_month=...&aggregations=false
 // scenario_ids empty (the default) returns {base, simulation: null,
 // scenario_impacts: []}; non-empty adds Simulation (Base + those scenarios)
 // and one Impact per scenario, each isolated against Base — never all
@@ -272,15 +272,26 @@ func handleGetTimeline(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		months := timeline.MonthlyBreakdown(series)
-		monthDTOs := make([]monthSummaryDTO, len(months))
-		for i, m := range months {
-			monthDTOs[i] = monthSummaryToDTO(m)
-		}
-		categories := timeline.CategoryBreakdown(series, analysisMonth)
-		categoryDTOs := make([]categoryImpactDTO, len(categories))
-		for i, c := range categories {
-			categoryDTOs[i] = categoryImpactToDTO(c)
+		// aggregations=false serves callers that only plot the balance curve
+		// — the Home dashboard's — and would otherwise carry a month-by-month
+		// and a per-category breakdown of a whole year in every response.
+		// They cost no extra query (both fold over `series` in memory), so
+		// what is saved is the payload, and the default stays "send them".
+		var months []timeline.MonthSummary
+		monthDTOs := []monthSummaryDTO{}
+		categoryDTOs := []categoryImpactDTO{}
+		wantAggregations := query.Get("aggregations") != "false"
+		if wantAggregations {
+			months = timeline.MonthlyBreakdown(series)
+			monthDTOs = make([]monthSummaryDTO, len(months))
+			for i, m := range months {
+				monthDTOs[i] = monthSummaryToDTO(m)
+			}
+			categories := timeline.CategoryBreakdown(series, analysisMonth)
+			categoryDTOs = make([]categoryImpactDTO, len(categories))
+			for i, c := range categories {
+				categoryDTOs[i] = categoryImpactToDTO(c)
+			}
 		}
 
 		response := timelineResponseDTO{
@@ -288,7 +299,9 @@ func handleGetTimeline(conn *sql.DB) http.HandlerFunc {
 			MonthlyBreakdown:  monthDTOs,
 			CategoryBreakdown: categoryDTOs,
 			ScenarioImpacts:   []scenarioImpactDTO{},
-			MonthOverMonth:    comparison2FromResult(timeline.MonthOverMonth(months, analysisMonth)),
+		}
+		if wantAggregations {
+			response.MonthOverMonth = comparison2FromResult(timeline.MonthOverMonth(months, analysisMonth))
 		}
 
 		if len(scenarioIDs) > 0 {
@@ -346,5 +359,28 @@ func handleGetTimeline(conn *sql.DB) http.HandlerFunc {
 		}
 
 		writeJSON(w, http.StatusOK, response)
+	}
+}
+
+type timelineRangeDTO struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// handleGetTimelineDataRange serves GET /api/timeline/range — the widest
+// window the balance curve can meaningfully cover. It exists so a client
+// offering a "todo o período" option doesn't have to guess a start date, or
+// ask for a decade of days to be safe.
+func handleGetTimelineDataRange(conn *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		dataRange, err := timeline.LoadDataRange(r.Context(), conn, time.Now().UTC())
+		if err != nil {
+			timelineUnavailableProblem(w)
+			return
+		}
+		writeJSON(w, http.StatusOK, timelineRangeDTO{
+			From: dataRange.From.Format(dateOnlyLayout),
+			To:   dataRange.To.Format(dateOnlyLayout),
+		})
 	}
 }

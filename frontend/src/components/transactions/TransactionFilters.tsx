@@ -6,53 +6,11 @@ import type {
 } from "../../api/contracts";
 import {
   ConfigurableFilters,
-  type DateRangePreset,
   type FilterConfig,
 } from "../filters/ConfigurableFilters";
+import { periodPresets } from "../filters/periodPresets";
 import { categoryFilterOptions, renderCategoryIcon } from "../../presentation/categoryLabels";
 import { classificationLabel } from "../../presentation/transactionStatus";
-
-function dateText(date: Date): string {
-  return [
-    String(date.getFullYear()).padStart(4, "0"),
-    String(date.getMonth() + 1).padStart(2, "0"),
-    String(date.getDate()).padStart(2, "0"),
-  ].join("-");
-}
-
-function monthRange(offset: number): [string, string] {
-  const today = new Date();
-  const start = new Date(today.getFullYear(), today.getMonth() + offset, 1);
-  const end = new Date(today.getFullYear(), today.getMonth() + offset + 1, 0);
-  return [dateText(start), dateText(end)];
-}
-
-function periodPresets(): DateRangePreset[] {
-  return [
-    { value: "this-month", label: "Este mês", range: () => monthRange(0) },
-    { value: "last-month", label: "Mês passado", range: () => monthRange(-1) },
-    {
-      value: "last-30-days",
-      label: "Últimos 30 dias",
-      range: () => {
-        const end = new Date();
-        const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() - 29);
-        return [dateText(start), dateText(end)];
-      },
-    },
-    {
-      value: "this-year",
-      label: "Este ano",
-      range: () => {
-        const today = new Date();
-        return [
-          dateText(new Date(today.getFullYear(), 0, 1)),
-          dateText(new Date(today.getFullYear(), 11, 31)),
-        ];
-      },
-    },
-  ];
-}
 
 export function TransactionFilters({
   applied,

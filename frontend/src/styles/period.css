@@ -1,0 +1,78 @@
+/* The period navigator, shared by the transactions filter bar and the Home
+   balance widget. Lives on its own so both screens read the same rules. */
+.filter-period-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.filter-period-navigation > span {
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.filter-period-navigation .ant-btn {
+  flex: none;
+  min-height: 40px;
+}
+
+.filter-period-navigation .filter-period-heading {
+  font-weight: 600;
+
+  height: auto;
+  white-space: normal;
+}
+
+/* Without chrome: the period reads as the heading of whatever it labels,
+   not as one more form control. */
+.filter-period-navigation-bare {
+  gap: 0.125rem;
+}
+
+.filter-period-navigation-bare .ant-btn {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.filter-period-navigation-bare .ant-btn:hover {
+  background: #eaf0f8;
+}
+
+.filter-period-navigation-bare .filter-period-heading {
+  padding-inline: 0.5rem;
+  font-size: 1.125rem;
+  color: var(--color-text-primary);
+}
+
+.filter-period-presets {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.filter-date-panel {
+  display: grid;
+  width: min(18rem, calc(100vw - 3rem));
+  gap: 0.5rem;
+}
+
+.filter-date-panel label {
+  color: #44546f;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+@media (max-width: 47.99rem) {
+  .filter-period-navigation-bare {
+    justify-content: center;
+  }
+
+  .filter-period-navigation-bare .filter-period-heading {
+    font-size: 1rem;
+  }
+}

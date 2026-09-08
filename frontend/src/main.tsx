@@ -12,6 +12,7 @@ import { theme } from "./theme/tokens";
 import "antd/dist/reset.css";
 import "./styles/global.css";
 import "./styles/sync-runs.css";
+import "./styles/period.css";
 import "./styles/transactions.css";
 import "./styles/home.css";
 import "./styles/payables.css";

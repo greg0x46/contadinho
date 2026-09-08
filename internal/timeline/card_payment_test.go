@@ -138,6 +138,56 @@ func TestBuildSeriesCardPaymentWithoutBillIDCancelsOnItsOwnDueDate(t *testing.T)
 	}
 }
 
+// TestBuildSeriesPastBillCountsOnlyTheRealCashPayment covers the past half of
+// the split cashEntries introduces. A bill that already fell due was paid for
+// real, from a cash account, and that payment is in the series; the purchases
+// re-dated onto the same due date are a forecast of a payment that has since
+// happened, so walking them too charges the bill twice.
+//
+// The damage only shows when the two sides do not match, which is the normal
+// case for any window that does not start at the account's birth: here the
+// August bill settles a purchase from May, far outside even the fetch's
+// reach-back, so the payment leg has no purchases to cancel against. Before
+// the split the +300 card leg exactly offset the -300 bank leg in the anchor
+// and the payment never appeared in the past curve at all — the same
+// mechanism that put "Todo período" tens of thousands below reality.
+func TestBuildSeriesPastBillCountsOnlyTheRealCashPayment(t *testing.T) {
+	f := newFixture(t)
+	bank := f.addAccount("1000.00")
+	card := f.addCreditCardAccount("0")
+	f.addBillWithClosing(card, "bill-august", "2026-08-02", "2026-08-10")
+	cardPaymentCategory := "dd10c680-fb35-4457-8595-4e51c8d279a7"
+	sourceCategoryID := "05100000"
+	metadata := `{"billForecastDate":"2026-09"}`
+
+	// The bank leg: 300 really left the checking account on the due date.
+	f.addTransaction(txn{
+		AccountID: bank, Amount: "-300.00", OccurredAt: date(t, "2026-08-10"),
+		CategoryID: &cardPaymentCategory,
+	})
+	// The card leg, settling purchases made months before the window.
+	f.addTransaction(txn{
+		AccountID: card, Amount: "300.00", OccurredAt: date(t, "2026-08-10"),
+		CategoryID: &cardPaymentCategory, SourceCategoryID: &sourceCategoryID,
+		CreditCardMetadata: &metadata,
+	})
+
+	series, err := timeline.BuildSeries(context.Background(), f.conn, timeline.BuildParams{
+		From: date(t, "2026-08-01"), To: date(t, "2026-09-30"), ReferenceDate: date(t, "2026-09-07"),
+	})
+	if err != nil {
+		t.Fatalf("BuildSeries: %v", err)
+	}
+	if len(series.Entries) != 2 {
+		t.Fatalf("Entries = %+v, want both legs still listed (only the walk changes)", series.Entries)
+	}
+	for day, want := range map[string]string{"2026-08-09": "1300", "2026-08-10": "1000", "2026-09-07": "1000"} {
+		if got := balanceOn(t, series, day); got != want {
+			t.Errorf("balance on %s = %s, want %s", day, got, want)
+		}
+	}
+}
+
 func TestBuildSeriesCardPaymentWithDelayedBill(t *testing.T) {
 	for _, tc := range []struct{ name, payment, september, october string }{
 		{"full payment", "150.00", "1000", "960"},

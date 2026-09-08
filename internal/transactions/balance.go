@@ -21,6 +21,14 @@ import (
 // claim that the money never left. Backing such a transaction out of the
 // balance would report cash the user does not have.
 //
+// That is a statement about this number only, not about what a balance
+// *reconstruction* should walk: timeline's series drops ignored rows (via
+// money.MovedCash) because the ones seen in practice are duplicates and
+// reversals the bank never counted as separate movements. The two rules
+// never conflict on the number itself — nothing ever backs an ignored
+// transaction out of the reported balance — and internal/timeline's
+// eligibleRealItems documents where the remaining disagreement lands.
+//
 // This is the opposite of the credit-card side, where
 // CreditCardTransactionTotal computes what is owed from eligible
 // transactions rather than the reported balance — there, the question is

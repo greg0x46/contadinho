@@ -80,6 +80,51 @@ func TestTimelineOverHTTP(t *testing.T) {
 	}
 }
 
+// aggregations=false is what the Home dashboard sends: it plots the balance
+// curve alone, so the breakdowns are pure payload for it.
+func TestTimelineAggregationsFalseKeepsTheSeriesAndDropsTheBreakdowns(t *testing.T) {
+	srv, conn := newTestServer(t)
+
+	groceriesID := insertTransaction(t, conn)
+	setCardDebtTransaction(t, conn, groceriesID, time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC), "100.00", "DEBIT", nil)
+
+	var accountID string
+	if err := conn.QueryRow(`SELECT account_id FROM financial_transactions WHERE id = ?`, groceriesID).Scan(&accountID); err != nil {
+		t.Fatalf("account id: %v", err)
+	}
+	if _, err := conn.Exec(`UPDATE financial_accounts SET balance = '5000.00' WHERE id = ?`, accountID); err != nil {
+		t.Fatalf("set balance: %v", err)
+	}
+
+	resp := doJSON(t, http.MethodGet,
+		srv.URL+"/api/timeline?reference_date=2026-08-15&from=2026-08-01&to=2026-08-31&aggregations=false", nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("get timeline status = %d, want 200", resp.StatusCode)
+	}
+	var body map[string]any
+	decodeJSON(t, resp, &body)
+
+	base := body["base"].(map[string]any)
+	if base["starting_balance"] != "5000.00" {
+		t.Errorf("starting_balance = %v, want 5000.00", base["starting_balance"])
+	}
+	if points := base["points"].([]any); len(points) != 31 {
+		t.Errorf("points = %d, want 31 — the series itself must not be affected", len(points))
+	}
+	if entries := base["entries"].([]any); len(entries) != 1 {
+		t.Errorf("entries = %+v, want 1", entries)
+	}
+	if breakdown := body["monthly_breakdown"].([]any); len(breakdown) != 0 {
+		t.Errorf("monthly_breakdown = %+v, want empty", breakdown)
+	}
+	if breakdown := body["category_breakdown"].([]any); len(breakdown) != 0 {
+		t.Errorf("category_breakdown = %+v, want empty", breakdown)
+	}
+	if body["month_over_month"] != nil {
+		t.Errorf("month_over_month = %+v, want null", body["month_over_month"])
+	}
+}
+
 func TestTimelineWithScenarioIDsReturnsSimulationAndImpacts(t *testing.T) {
 	srv, conn := newTestServer(t)
 
@@ -337,4 +382,54 @@ func TestTimelineRejectsInvalidAnalysisMonth(t *testing.T) {
 		t.Fatalf("status = %d, want 422", resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+// The Home dashboard's "Todo Período" option asks for these bounds instead
+// of guessing a start date or requesting a decade of days to be safe.
+func TestTimelineDataRangeSpansOldestTransactionToLastPlannedInstallment(t *testing.T) {
+	srv, conn := newTestServer(t)
+
+	txID := insertTransaction(t, conn)
+	setCardDebtTransaction(t, conn, txID, time.Date(2024, 3, 7, 0, 0, 0, 0, time.UTC), "-42.00", "DEBIT", nil)
+
+	resp := doJSON(t, http.MethodGet, srv.URL+"/api/timeline/range", nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("get range status = %d, want 200", resp.StatusCode)
+	}
+	var body map[string]any
+	decodeJSON(t, resp, &body)
+	if body["from"] != "2024-03-07" {
+		t.Errorf("from = %v, want 2024-03-07 (the oldest transaction's day)", body["from"])
+	}
+	// No planned installment yet, so `to` is the current month's end — never
+	// a past date, whatever the transaction history looks like.
+	now := time.Now().UTC()
+	monthEnd := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, 1, -1).Format("2006-01-02")
+	if body["to"] != monthEnd {
+		t.Errorf("to = %v, want %s (this month's end)", body["to"], monthEnd)
+	}
+
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios", map[string]any{"name": "Notebook"})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create scenario status = %d, want 201", resp.StatusCode)
+	}
+	var scenario map[string]any
+	decodeJSON(t, resp, &scenario)
+	lastInstallment := time.Date(now.Year()+2, 6, 15, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/scenarios/"+scenario["id"].(string)+"/transactions", map[string]any{
+		"description": "Parcela final", "amount": "-300.00", "projected_at": lastInstallment,
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create scenario transaction status = %d, want 201", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/timeline/range", nil)
+	decodeJSON(t, resp, &body)
+	if body["to"] != lastInstallment {
+		t.Errorf("to = %v, want %s (the last planned installment)", body["to"], lastInstallment)
+	}
+	if body["from"] != "2024-03-07" {
+		t.Errorf("from = %v, want 2024-03-07", body["from"])
+	}
 }

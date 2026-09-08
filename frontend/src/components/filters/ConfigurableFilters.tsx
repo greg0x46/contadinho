@@ -1,5 +1,4 @@
-import { FilterOutlined, SearchOutlined, LeftOutlined, RightOutlined, DownOutlined } from "@ant-design/icons";
-import { periodNavigation } from "./periodNavigation";
+import { FilterOutlined, SearchOutlined } from "@ant-design/icons";
 import {
   Button,
   Checkbox,
@@ -7,12 +6,15 @@ import {
   Form,
   Input,
   InputNumber,
-  Popover,
   Segmented,
   Select,
   Tag,
 } from "antd";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+
+import { PeriodNavigator, type DateRangePreset } from "./PeriodNavigator";
+
+export type { DateRangePreset };
 
 export type FilterFieldType =
   | "text"
@@ -30,12 +32,6 @@ export interface FilterOption {
   /** Purely additive — only consumers that opt in via FilterConfig.optionRender read these. */
   icon?: string;
   color?: string;
-}
-
-export interface DateRangePreset {
-  value: string;
-  label: string;
-  range: () => [string, string];
 }
 
 export interface FilterConfig<Values extends object> {
@@ -131,8 +127,6 @@ export function ConfigurableFilters<Values extends object>({
   overview,
 }: Props<Values>) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [customDateOpen, setCustomDateOpen] = useState(false);
-  const [customDates, setCustomDates] = useState<[string, string]>(["", ""]);
   const [quickValues, setQuickValues] = useState(values);
   const [draft, setDraft] = useState(values);
   const [error, setError] = useState<string | null>(null);
@@ -241,149 +235,18 @@ export function ConfigurableFilters<Values extends object>({
     const id = `filter-${field.key}`;
 
     if (field.type === "date-range") {
-      const navigation = field.navigatePeriod ? periodNavigation(value, secondary) : null;
-      const selectedPreset = field.presets?.find((preset) => {
-        const [from, to] = preset.range();
-        return value === from && secondary === to;
-      });
-      const customContent = (
-        <div className="filter-date-panel">
-          <label htmlFor={`${id}-from`}>Data inicial</label>
-          <Input
-            id={`${id}-from`}
-            type="date"
-            value={customDates[0]}
-            onChange={(event) =>
-              setCustomDates((current) => [event.target.value, current[1]])
-            }
-          />
-          <label htmlFor={`${id}-to`}>Data final</label>
-          <Input
-            id={`${id}-to`}
-            type="date"
-            value={customDates[1]}
-            onChange={(event) =>
-              setCustomDates((current) => [current[0], event.target.value])
-            }
-          />
-          {error && <p role="alert">{error}</p>}
-          <Button
-            type="primary"
-            onClick={() => {
-              const candidate = update(
-                quick ? quickValues : draft,
-                field,
-                customDates[0] || null,
-                customDates[1] || null,
-              );
-              if (validate(candidate)) {
-                if (quick) applyQuick(field, customDates[0] || null, customDates[1] || null);
-                else setDraft(candidate);
-                setCustomDateOpen(false);
-              }
-            }}
-          >
-            Confirmar período
-          </Button>
-        </div>
-      );
-      if (field.navigatePeriod) {
-        const current = field.presets?.find((preset) => preset.value === "this-month");
-        const currentRange = current?.range();
-        return (
-          <div className="filter-field filter-field-period" key={field.key}>
-            <div className="filter-period-navigation" role="group" aria-label="Navegar entre períodos">
-              <Button aria-label={navigation?.previousLabel ?? "Período anterior"}
-                title={navigation?.previousLabel ?? "Período anterior"}
-                icon={<LeftOutlined aria-hidden="true" />} disabled={!navigation?.previous}
-                onClick={() => { if (navigation?.previous) commit(...navigation.previous); }} />
-              <Popover title="Selecionar período" trigger="click" open={customDateOpen}
-                onOpenChange={(open) => {
-                  setError(null);
-                  if (open) setCustomDates([typeof value === "string" ? value : "", typeof secondary === "string" ? secondary : ""]);
-                  setCustomDateOpen(open);
-                }}
-                content={<>
-                  <div className="filter-period-presets">
-                    {field.presets?.map((preset) => (
-                      <Button key={preset.value} type={selectedPreset?.value === preset.value ? "primary" : "default"}
-                        onClick={() => { commit(...preset.range()); setCustomDateOpen(false); }}>
-                        {preset.label}
-                      </Button>
-                    ))}
-                  </div>
-                  {customContent}
-                </>}>
-                <Button className="filter-period-heading" aria-label="Selecionar período" aria-expanded={customDateOpen}>
-                  <span aria-live="polite" aria-atomic="true">{navigation?.label ?? (value === null && secondary === null ? "Todo o período" : "Selecione um período")}</span>
-                  <DownOutlined aria-hidden="true" />
-                </Button>
-              </Popover>
-              <Button aria-label={navigation?.nextLabel ?? "Próximo período"}
-                title={navigation?.nextLabel ?? "Próximo período"}
-                icon={<RightOutlined aria-hidden="true" />} disabled={!navigation?.next}
-                onClick={() => { if (navigation?.next) commit(...navigation.next); }} />
-              {currentRange && (value !== currentRange[0] || secondary !== currentRange[1]) && (
-                <Button type="link" onClick={() => commit(...currentRange)}>Mês atual</Button>
-              )}
-            </div>
-          </div>
-        );
-      }
       return (
         <div className="filter-field filter-field-period" key={field.key}>
-          <label htmlFor={id}>{field.label}</label>
-          <div className="filter-period-control">
-            <Select
-              id={id}
-              aria-label={field.label}
-              value={selectedPreset?.value ?? "custom"}
-              options={[
-                ...(field.presets?.map(({ value: presetValue, label }) => ({
-                  value: presetValue,
-                  label,
-                })) ?? []),
-                { value: "custom", label: "Personalizado" },
-              ]}
-              onChange={(presetValue) => {
-                if (presetValue === "custom") {
-                  setCustomDates([
-                    typeof value === "string" ? value : "",
-                    typeof secondary === "string" ? secondary : "",
-                  ]);
-                  setCustomDateOpen(true);
-                  return;
-                }
-                const preset = field.presets?.find((item) => item.value === presetValue);
-                if (preset) commit(...preset.range());
-              }}
-            />
-            {(!selectedPreset || customDateOpen) && (
-              <Popover
-                title="Período personalizado"
-                trigger="click"
-                open={customDateOpen}
-                onOpenChange={(open) => {
-                  if (open) {
-                    setCustomDates([
-                      typeof value === "string" ? value : "",
-                      typeof secondary === "string" ? secondary : "",
-                    ]);
-                  }
-                  setCustomDateOpen(open);
-                }}
-                content={customContent}
-              >
-                <Button
-                  className="filter-custom-period-trigger"
-                  aria-label="Editar período personalizado"
-                >
-                  Editar
-                </Button>
-              </Popover>
-            )}
-          </div>
-
+          <PeriodNavigator
+            id={id}
+            value={[
+              typeof value === "string" ? value : null,
+              typeof secondary === "string" ? secondary : null,
+            ]}
+            presets={field.presets ?? []}
+            onChange={(from, to) => commit(from, to)}
+            bare
+          />
         </div>
       );
     }

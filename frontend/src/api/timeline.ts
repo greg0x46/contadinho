@@ -1,7 +1,9 @@
 import {
   parseProblem,
+  parseTimelineDataRange,
   parseTimelineResponse,
   type Problem,
+  type TimelineDataRange,
   type TimelineParams,
   type TimelineResponse,
 } from "./contracts";
@@ -22,13 +24,22 @@ function buildQuery(params: TimelineParams): string {
   if (params.scenarioIds && params.scenarioIds.length > 0) search.set("scenario_ids", params.scenarioIds.join(","));
   if (params.yearOverYear) search.set("year_over_year", "true");
   if (params.categoryEvolutionId) search.set("category_evolution_id", params.categoryEvolutionId);
+  if (params.aggregations === false) search.set("aggregations", "false");
   return search.toString();
 }
 
+export async function getTimelineDataRange(signal?: AbortSignal): Promise<TimelineDataRange> {
+  return readJSON(await request("/api/timeline/range", signal), parseTimelineDataRange);
+}
+
 export async function getTimeline(params: TimelineParams, signal?: AbortSignal): Promise<TimelineResponse> {
+  return readJSON(await request(`/api/timeline?${buildQuery(params)}`, signal), parseTimelineResponse);
+}
+
+async function request(url: string, signal?: AbortSignal): Promise<Response> {
   let response: Response;
   try {
-    response = await fetch(`/api/timeline?${buildQuery(params)}`, {
+    response = await fetch(url, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal,
@@ -55,8 +66,14 @@ export async function getTimeline(params: TimelineParams, signal?: AbortSignal):
   if (contentType !== "application/json") {
     throw new ApiError("response", defaultMessage);
   }
+  return response;
+}
+
+// Parsing lives behind readJSON so a malformed body reads as the same
+// "response" failure whether it broke at JSON.parse or at the contract.
+async function readJSON<T>(response: Response, parse: (value: unknown) => T): Promise<T> {
   try {
-    return parseTimelineResponse(await response.json());
+    return parse(await response.json());
   } catch {
     throw new ApiError("response", defaultMessage);
   }

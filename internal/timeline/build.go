@@ -55,6 +55,18 @@ func contains(list []string, value string) bool {
 // from today's real balance, so dropping one leaves every day before it short
 // by the transfer's full amount. On an account-filtered series, where the
 // counterpart leg is not in the set at all, that error never cancels out.
+//
+// A transaction the user marked "ignored" is the one place where the walk and
+// the anchor genuinely disagree, and MovesCash's answer (drop it) is the one
+// this package takes: "ignored" marks a row that should not be in the ledger
+// — a duplicate, a reversal — and such a row is not a distinct movement the
+// bank's reported balance counted either, so dropping it keeps the two
+// definitions aligned in the common case. The cost is the uncommon one: an
+// ignored row that *did* move money (transactions.CashOnHand's example of a
+// transfer to an untracked account) leaves every past day before it short by
+// its amount. The anchor is unaffected — today's point is the reported
+// balance whatever the ledger says — so the error is confined to the shape of
+// the past, never to the balance the user is shown for today.
 func eligibleRealItems(ctx context.Context, q Querier, from, to time.Time, accountIDs, categoryIDs, cardNumbers []string) ([]transactions.Item, error) {
 	fromDate := money.Date{Year: from.Year(), Month: from.Month(), Day: from.Day()}
 	toDate := money.Date{Year: to.Year(), Month: to.Month(), Day: to.Day()}
@@ -105,10 +117,15 @@ func eligibleRealItems(ctx context.Context, q Querier, from, to time.Time, accou
 // categories.CardPaymentCategoryID) is dated the same way but by the bill
 // it settles rather than the one still accruing, so it lands on the same
 // day as the purchases it cancels out instead of a full cycle later.
-func realEntries(ctx context.Context, q Querier, items []transactions.Item) ([]Entry, error) {
+//
+// The second return value is the set of EventKeys of the card entries whose
+// bill already fell due on or before reference — the past half of the
+// series, where the re-dating is a substitute for a payment that is no
+// longer hypothetical. buildPoints must not walk those; see cashEntries.
+func realEntries(ctx context.Context, q Querier, items []transactions.Item, reference time.Time) ([]Entry, map[string]bool, error) {
 	creditAccounts, err := transactions.CreditAccountIDs(ctx, q)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	transactionIDs := make([]string, 0, len(items))
 	for _, item := range items {
@@ -118,21 +135,22 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item) ([]E
 	}
 	cardSignals, err := transactions.CardTransactionSignals(ctx, q, transactionIDs)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var dueDates transactions.CardDueDates
 	if len(transactionIDs) > 0 {
 		dueDates, err = transactions.FetchCardDueDates(ctx, q)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
 	entries := make([]Entry, 0, len(items))
+	settled := map[string]bool{}
 	for _, item := range items {
 		amount, err := decimal.NewFromString(item.EffectiveMoney.Value)
 		if err != nil {
-			return nil, fmt.Errorf("parse transaction amount %q: %w", item.EffectiveMoney.Value, err)
+			return nil, nil, fmt.Errorf("parse transaction amount %q: %w", item.EffectiveMoney.Value, err)
 		}
 		// Classification, not the raw value's sign, decides direction —
 		// mirrors currencyTotalsFor's Value.Abs() in transactions/query.go.
@@ -152,10 +170,14 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item) ([]E
 		}
 		date := dates.Day(*item.OccurredAt)
 		tier := TierRealizado
+		eventKey := "transaction:" + item.ID
 		if creditAccounts[item.Account.ID] {
 			signal := cardSignals[item.ID]
 			date = dates.Day(dueDates.ProjectedEntryDate(item.Account.ID, *item.OccurredAt, signal.Metadata, signal.IsPaymentLeg))
 			tier = TierConfirmado
+			if !date.After(reference) {
+				settled[eventKey] = true
+			}
 		}
 		entries = append(entries, Entry{
 			Date:         date,
@@ -166,10 +188,10 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item) ([]E
 			Tier:         tier,
 			Source:       SourceReal,
 			SourceRefID:  item.ID,
-			EventKey:     "transaction:" + item.ID,
+			EventKey:     eventKey,
 		})
 	}
-	return entries, nil
+	return entries, settled, nil
 }
 
 // BuildSeries merges real transactions and the unified Scenario projection
@@ -191,11 +213,17 @@ func BuildSeries(ctx context.Context, q Querier, params BuildParams) (Series, er
 	// only [from, to] would leave that bill — real money about to leave the
 	// account — out of the projection. Entries whose projected date still
 	// falls outside the window are dropped by withinWindow below.
+	//
+	// Only the window's future half needs the reach-back: a bill that already
+	// fell due is paid by a real cash transaction inside [from, to], and its
+	// re-dated purchases are dropped from the walk by cashEntries either way.
+	// The two months stay because they cost one wider query and nothing else,
+	// and because the entries they bring in still belong in Series.Entries.
 	items, err := eligibleRealItems(ctx, q, from.AddDate(0, -2, 0), to, params.AccountIDs, params.CategoryIDs, params.CardNumbers)
 	if err != nil {
 		return Series{}, err
 	}
-	entries, err := realEntries(ctx, q, items)
+	entries, settled, err := realEntries(ctx, q, items, reference)
 	if err != nil {
 		return Series{}, err
 	}
@@ -229,7 +257,7 @@ func BuildSeries(ctx context.Context, q Querier, params BuildParams) (Series, er
 
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Date.Before(entries[j].Date) })
 
-	points := buildPoints(entries, balance, from, to, reference)
+	points := buildPoints(cashEntries(entries, settled), balance, from, to, reference)
 	lowest, firstNegative := lowestAndFirstNegative(points, reference)
 
 	return Series{
@@ -262,7 +290,47 @@ func withinWindow(entries []Entry, from, to time.Time) []Entry {
 	return kept
 }
 
-// buildPoints produces one DayPoint per calendar day in [from, to],
+// cashEntries drops the entries in settled — the ones buildPoints must not
+// walk — while leaving Series.Entries itself untouched.
+//
+// The split exists because the series answers two different questions on
+// either side of the reference date, and only the balance walk cares:
+//
+//   - After reference the bill has not been paid yet, so the only way to
+//     model its future cash impact is the purchases themselves, re-dated to
+//     the due date (see realEntries). That is a forecast of a payment.
+//   - On or before reference the payment is not hypothetical: it is a real
+//     transaction on a cash account, already in this very series (a card-bill
+//     payment carries a transfer-kind category, and MovesCash deliberately
+//     keeps those — see eligibleRealItems). Walking the re-dated purchases
+//     too charges the same bill twice.
+//
+// The second charge is invisible in a short window, where each bill's
+// purchases and its payment leg roughly cancel, and grows without bound in a
+// long one: the payments settle debt accrued before the window while the
+// purchases are only those inside it, so the leftover shifts every past
+// point by the difference — it was what put "Todo período" tens of
+// thousands below any balance the user ever had.
+//
+// Entries stay in the Series regardless: the drill-down and the Relatório
+// Financeiro's breakdowns read them as a ledger of what was spent, a
+// question the anchor's cash-only definition does not govern.
+func cashEntries(entries []Entry, settled map[string]bool) []Entry {
+	if len(settled) == 0 {
+		return entries
+	}
+	kept := make([]Entry, 0, len(entries))
+	for _, e := range entries {
+		if settled[e.EventKey] {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	return kept
+}
+
+// buildPoints produces one DayPoint per calendar day in [from, to] from the
+// entries that model cash (cashEntries, not Series.Entries),
 // anchoring the running balance so it equals startingBalance on
 // reference (see the package's build.go comment for the reasoning): the
 // balance right after every entry up to and including reference must sum

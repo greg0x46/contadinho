@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import dayjs from "dayjs";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -94,9 +95,13 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  // The projection window is remembered per browser, so one test's choice
+  // would otherwise decide the next test's request.
+  window.localStorage.clear();
   vi.mocked(transactionsApi.getCategoryBreakdown).mockResolvedValue(spendingByCategory);
   vi.mocked(payablesApi.getPayableTotalToReceive).mockResolvedValue(totalToReceive);
   vi.mocked(timelineApi.getTimeline).mockResolvedValue(projection);
+  vi.mocked(timelineApi.getTimelineDataRange).mockResolvedValue({ from: "2024-03-07", to: "2028-06-15" });
 });
 
 describe("PendingBalanceCard", () => {
@@ -171,33 +176,193 @@ describe("PendingBalanceCard", () => {
   });
 });
 
+function timelineParams() {
+  return vi.mocked(timelineApi.getTimeline).mock.calls.map((call) => call[0]);
+}
+
 describe("HomePage", () => {
   it("renders a compact projection summary on the Home dashboard", async () => {
     vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
     renderPage();
-    expect(await screen.findByText("Próximos 3 meses")).toBeVisible();
-    expect(screen.getByText("Projeção de saldo")).toBeVisible();
-    expect(screen.getByText("Saldo hoje")).toBeVisible();
+    expect(await screen.findByText("Saldo hoje")).toBeVisible();
+    expect(screen.getByText("Evolução do saldo")).toBeVisible();
+
+    const today = dayjs();
+    expect(screen.getByText(String(today.year()))).toBeVisible();
   });
 
-  it("keeps the projection horizon options in the card header", async () => {
+  it("asks for the current year by default, anchored on today", async () => {
+    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
+    renderPage();
+    await screen.findByText("Saldo hoje");
+
+    const today = dayjs();
+    expect(timelineParams()).toContainEqual({
+      // The anchor stays today even though the window opens in January:
+      // days before it are the real balance, days after it the projection.
+      referenceDate: today.format("YYYY-MM-DD"),
+      from: today.startOf("year").format("YYYY-MM-DD"),
+      to: today.endOf("year").format("YYYY-MM-DD"),
+      aggregations: false,
+    });
+  });
+
+  it("offers the same period shortcuts as the transactions filter", async () => {
     vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
     const user = userEvent.setup();
     renderPage();
+    await screen.findByText("Saldo hoje");
 
-    expect(await screen.findByText("Fim do mês")).toBeVisible();
-    expect(screen.getByText("3 meses")).toBeVisible();
-    expect(screen.getByText("6 meses")).toBeVisible();
-    expect(screen.getByText("12 meses")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Selecionar período" }));
 
-    await user.click(screen.getByText("6 meses"));
-    expect(await screen.findByText("Próximos 6 meses")).toBeVisible();
+    const presets = await screen.findByText("Este mês");
+    expect(
+      [...presets.closest(".filter-period-presets")!.children].map((button) => button.textContent),
+    ).toEqual(["Este mês", "Mês passado", "Últimos 30 dias", "Este ano", "Todo o período"]);
   });
+
+  it("walks back a year at a time with the period arrows", async () => {
+    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Saldo hoje");
+
+    await user.click(screen.getByRole("button", { name: "Ano anterior" }));
+
+    const today = dayjs();
+    const previous = today.subtract(1, "year");
+    await vi.waitFor(() =>
+      expect(timelineParams()).toContainEqual({
+        // The anchor stays today even when the window is entirely in the past.
+        referenceDate: today.format("YYYY-MM-DD"),
+        from: previous.startOf("year").format("YYYY-MM-DD"),
+        to: previous.endOf("year").format("YYYY-MM-DD"),
+        aggregations: false,
+      }),
+    );
+    expect(await screen.findByText(String(previous.year()))).toBeVisible();
+  });
+
+  it("reports the period's own low point once the window ends today", async () => {
+    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
+    const today = dayjs();
+    // A window ending today has no point after the reference date, which is
+    // what flips the card from "previsto" to "no período".
+    const last30Days: TimelineResponse = {
+      ...projection,
+      base: {
+        ...projection.base,
+        points: [
+          { date: today.subtract(29, "day").format("YYYY-MM-DD"), balance: "300.00", inflow: "0.00", outflow: "0.00", lowest_tier: "realizado" },
+          { date: today.format("YYYY-MM-DD"), balance: "1900.00", inflow: "0.00", outflow: "0.00", lowest_tier: "realizado" },
+        ],
+      },
+    };
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Saldo hoje");
+
+    vi.mocked(timelineApi.getTimeline).mockResolvedValue(last30Days);
+    await user.click(screen.getByRole("button", { name: "Selecionar período" }));
+    await user.click(await screen.findByRole("button", { name: "Últimos 30 dias" }));
+
+    await vi.waitFor(() =>
+      expect(timelineParams()).toContainEqual({
+        referenceDate: today.format("YYYY-MM-DD"),
+        from: today.subtract(29, "day").format("YYYY-MM-DD"),
+        to: today.format("YYYY-MM-DD"),
+        aggregations: false,
+      }),
+    );
+    // No future left in the window, so the card stops calling it a forecast
+    // and reports the lowest balance the period actually saw.
+    expect(await screen.findByText(/^Menor saldo no período em/)).toBeVisible();
+    expect(screen.getByText(/R\$\s300,00/)).toBeVisible();
+  });
+
+  it("asks the API for the bounds of the whole period", async () => {
+    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Saldo hoje");
+
+    await user.click(screen.getByRole("button", { name: "Selecionar período" }));
+    await user.click(await screen.findByRole("button", { name: "Todo o período" }));
+
+    const today = dayjs();
+    await vi.waitFor(() =>
+      expect(timelineParams()).toContainEqual({
+        referenceDate: today.format("YYYY-MM-DD"),
+        from: "2024-03-07",
+        to: "2028-06-15",
+        aggregations: false,
+      }),
+    );
+    // The header keeps saying "todo o período"; the card spells out the span
+    // the database actually answered with.
+    expect(await screen.findByText("07/03/2024 – 15/06/2028")).toBeVisible();
+  });
+
+  it("remembers the chosen period across visits", async () => {
+    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
+    const user = userEvent.setup();
+    const first = renderPage();
+    await screen.findByText("Saldo hoje");
+    await user.click(screen.getByRole("button", { name: "Selecionar período" }));
+    await user.click(await screen.findByRole("button", { name: "Este mês" }));
+    first.unmount();
+
+    vi.mocked(timelineApi.getTimeline).mockClear();
+    renderPage();
+    await screen.findByText("Saldo hoje");
+
+    const today = dayjs();
+    expect(timelineParams()).toContainEqual({
+      referenceDate: today.format("YYYY-MM-DD"),
+      from: today.startOf("month").format("YYYY-MM-DD"),
+      to: today.endOf("month").format("YYYY-MM-DD"),
+      aggregations: false,
+    });
+  });
+
+  it("resolves a remembered shortcut again instead of freezing its dates", async () => {
+    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
+    // Stored while 2024 was current; the window must still be *this* year.
+    window.localStorage.setItem("contadinho.home.saldo-periodo", JSON.stringify({ preset: "this-year" }));
+    renderPage();
+    await screen.findByText("Saldo hoje");
+
+    const today = dayjs();
+    expect(timelineParams()).toContainEqual({
+      referenceDate: today.format("YYYY-MM-DD"),
+      from: today.startOf("year").format("YYYY-MM-DD"),
+      to: today.endOf("year").format("YYYY-MM-DD"),
+      aggregations: false,
+    });
+  });
+
+  it.each(["decada", JSON.stringify({ from: "2026-12-31", to: "2026-01-01" }), "{"])(
+    "falls back to the default window when the stored period is %s",
+    async (stored) => {
+      vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
+      window.localStorage.setItem("contadinho.home.saldo-periodo", stored);
+      renderPage();
+      await screen.findByText("Saldo hoje");
+
+      const today = dayjs();
+      expect(timelineParams()).toContainEqual({
+        referenceDate: today.format("YYYY-MM-DD"),
+        from: today.startOf("year").format("YYYY-MM-DD"),
+        to: today.endOf("year").format("YYYY-MM-DD"),
+        aggregations: false,
+      });
+    },
+  );
 
   it("keeps current cards on the left and projection metrics above its chart", async () => {
     vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
     renderPage();
-    await screen.findByText("Próximos 3 meses");
+    await screen.findByText("Saldo hoje");
 
     const layout = document.querySelector(".dashboard-layout");
     expect(layout?.firstElementChild).toHaveClass("dashboard-current-summary");
@@ -212,7 +377,7 @@ describe("HomePage", () => {
     vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
     vi.mocked(timelineApi.getTimeline).mockRejectedValue(new Error("boom"));
     renderPage();
-    expect(await screen.findByText("Não foi possível carregar a projeção.")).toBeVisible();
+    expect(await screen.findByText("Não foi possível carregar o saldo.")).toBeVisible();
   });
 
 
