@@ -40,9 +40,12 @@
   line-height: 1.45;
 }
 
+/* auto-fit rather than a fixed three columns: the last card is dropped when
+   the window ends today, and two cards must fill the row instead of leaving
+   a hole where the third would be. */
 .projection-summary-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
   gap: 0.75rem;
   min-width: 0;
 }
@@ -89,13 +92,20 @@
   gap: 0.5rem;
 }
 
-.projection-summary-horizon {
+.dashboard-widget .ant-card-extra .filter-period-navigation {
   max-width: 100%;
 }
 
+/* The period navigator is wider than a button: below this the card title and
+   the period stop sharing a line and stack instead. */
 @media (max-width: 48rem) {
-  .projection-summary-horizon {
-    overflow-x: auto;
+  .dashboard-widget .ant-card-head-wrapper {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+  }
+
+  .dashboard-widget .ant-card-extra {
+    margin-inline-start: 0;
   }
 }
 

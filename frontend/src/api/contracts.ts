@@ -2567,6 +2567,12 @@ export interface TimelineParams {
   scenarioIds?: string[];
   yearOverYear?: boolean;
   categoryEvolutionId?: string | null;
+  /**
+   * Set false to drop monthly_breakdown, category_breakdown and
+   * month_over_month from the response — for callers that only plot the
+   * balance curve. Defaults to true server-side.
+   */
+  aggregations?: boolean;
 }
 
 function isNullableCategoryId(value: unknown): value is string | null {
@@ -2763,6 +2769,24 @@ export function parseTimelineResponse(value: unknown): TimelineResponse {
     category_evolution:
       response.category_evolution === null ? null : (response.category_evolution as unknown[]).map(parseMonthAmount),
   };
+}
+
+/**
+ * The widest window the balance curve can cover, from internal/timeline's
+ * LoadDataRange: `from` is the oldest transaction on record, `to` the last
+ * planned installment (or this month's end when there is none).
+ */
+export interface TimelineDataRange {
+  from: string;
+  to: string;
+}
+
+export function parseTimelineDataRange(value: unknown): TimelineDataRange {
+  const range = requiredRecord(value, ["from", "to"], "Intervalo do relatório inválido.");
+  if (!dateOnlyPattern.test(range.from as string) || !dateOnlyPattern.test(range.to as string)) {
+    throw new TypeError("Intervalo do relatório inválido.");
+  }
+  return { from: range.from as string, to: range.to as string };
 }
 
 // NetWorthBreakdown mirrors internal/httpapi's netWorthBreakdownDTO: the
