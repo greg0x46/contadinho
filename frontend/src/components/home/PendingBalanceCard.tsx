@@ -33,6 +33,7 @@ export function PendingBalanceCard() {
     >
       {owed && toReceive && balance !== null && (
         <div className="pending-balance">
+          <p className="pending-balance-description">Total em aberto · independente do período</p>
           <div>
             <p className="pending-balance-figure">
               {balance !== "0.00" && !balance.startsWith("-") ? "+" : ""}{formatBRL(balance)}

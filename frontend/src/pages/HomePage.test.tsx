@@ -188,21 +188,21 @@ describe("HomePage", () => {
     expect(screen.getByText("Evolução do saldo")).toBeVisible();
 
     const today = dayjs();
-    expect(screen.getByText(String(today.year()))).toBeVisible();
+    expect(screen.getByRole("button", { name: "Selecionar período" })).toHaveTextContent(String(today.year()));
   });
 
-  it("asks for the current year by default, anchored on today", async () => {
+  it("asks for the current month by default, anchored on today", async () => {
     vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
     renderPage();
     await screen.findByText("Saldo hoje");
 
     const today = dayjs();
     expect(timelineParams()).toContainEqual({
-      // The anchor stays today even though the window opens in January:
+      // The anchor stays today even though the window opens earlier:
       // days before it are the real balance, days after it the projection.
       referenceDate: today.format("YYYY-MM-DD"),
-      from: today.startOf("year").format("YYYY-MM-DD"),
-      to: today.endOf("year").format("YYYY-MM-DD"),
+      from: today.startOf("month").format("YYYY-MM-DD"),
+      to: today.endOf("month").format("YYYY-MM-DD"),
       aggregations: false,
     });
   });
@@ -227,6 +227,8 @@ describe("HomePage", () => {
     renderPage();
     await screen.findByText("Saldo hoje");
 
+    await user.click(screen.getByRole("button", { name: "Selecionar período" }));
+    await user.click(await screen.findByRole("button", { name: "Este ano" }));
     await user.click(screen.getByRole("button", { name: "Ano anterior" }));
 
     const today = dayjs();
@@ -241,6 +243,72 @@ describe("HomePage", () => {
       }),
     );
     expect(await screen.findByText(String(previous.year()))).toBeVisible();
+  });
+
+  it("applies a custom range to both widgets and links while keeping pending totals stable", async () => {
+    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Mercado");
+    expect(screen.getAllByRole("button", { name: "Selecionar período" })).toHaveLength(1);
+    const debtCalls = vi.mocked(payablesApi.getPayableTotalOwed).mock.calls.length;
+    const receivableCalls = vi.mocked(payablesApi.getPayableTotalToReceive).mock.calls.length;
+    await user.click(screen.getByRole("button", { name: "Selecionar período" }));
+    await user.clear(screen.getByLabelText("Data inicial"));
+    await user.type(screen.getByLabelText("Data inicial"), "2025-02-15");
+    await user.clear(screen.getByLabelText("Data final"));
+    await user.type(screen.getByLabelText("Data final"), "2025-03-20");
+    await user.click(screen.getByRole("button", { name: "Confirmar período" }));
+    await screen.findByText("Mercado");
+    expect(transactionsApi.getCategoryBreakdown).toHaveBeenLastCalledWith(expect.any(String), { from: "2025-02-15", to: "2025-03-20" }, "outflow", expect.any(AbortSignal));
+    expect(timelineParams()).toContainEqual(expect.objectContaining({ from: "2025-02-15", to: "2025-03-20" }));
+    const params = new URL(screen.getByRole("link", { name: /Mercado/ }).getAttribute("href")!, "http://localhost").searchParams;
+    expect(params.get("date_from")).toBe("2025-02-15");
+    expect(params.get("date_to")).toBe("2025-03-20");
+    expect(screen.getByText("Total em aberto · independente do período")).toBeVisible();
+    expect(payablesApi.getPayableTotalOwed).toHaveBeenCalledTimes(debtCalls);
+    expect(payablesApi.getPayableTotalToReceive).toHaveBeenCalledTimes(receivableCalls);
+  });
+
+  it("allows a future month and cancels the previous category request", async () => {
+    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
+    vi.mocked(transactionsApi.getCategoryBreakdown).mockImplementationOnce(() => new Promise(() => {}));
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Saldo hoje");
+    const previousSignal = vi.mocked(transactionsApi.getCategoryBreakdown).mock.calls[0][3]!;
+    await user.click(screen.getByRole("button", { name: "Próximo mês" }));
+    await screen.findByText("Mercado");
+    const next = dayjs().add(1, "month");
+    const period = { from: next.startOf("month").format("YYYY-MM-DD"), to: next.endOf("month").format("YYYY-MM-DD") };
+    expect(transactionsApi.getCategoryBreakdown).toHaveBeenLastCalledWith(expect.any(String), period, "outflow", expect.any(AbortSignal));
+    expect(timelineParams()).toContainEqual(expect.objectContaining(period));
+    expect(previousSignal.aborted).toBe(true);
+  });
+
+  it("ignores the old balance-only preference", async () => {
+    window.localStorage.setItem("contadinho.home.saldo-periodo", JSON.stringify({ preset: "this-year" }));
+    renderPage();
+    await screen.findByText("Saldo hoje");
+    expect(timelineParams()).toContainEqual(expect.objectContaining({
+      from: dayjs().startOf("month").format("YYYY-MM-DD"),
+      to: dayjs().endOf("month").format("YYYY-MM-DD"),
+    }));
+  });
+
+  it("remains usable when browser storage is unavailable", async () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked"); });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked"); });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Mercado");
+    await user.click(screen.getByRole("button", { name: "Mês anterior" }));
+    await screen.findByText("Mercado");
+    const previous = dayjs().subtract(1, "month");
+    expect(timelineParams()).toContainEqual(expect.objectContaining({
+      from: previous.startOf("month").format("YYYY-MM-DD"),
+      to: previous.endOf("month").format("YYYY-MM-DD"),
+    }));
   });
 
   it("reports the period's own low point once the window ends today", async () => {
@@ -301,6 +369,9 @@ describe("HomePage", () => {
     // The header keeps saying "todo o período"; the card spells out the span
     // the database actually answered with.
     expect(await screen.findByText("07/03/2024 – 15/06/2028")).toBeVisible();
+    expect(transactionsApi.getCategoryBreakdown).toHaveBeenLastCalledWith(expect.any(String), { from: null, to: null }, "outflow", expect.any(AbortSignal));
+    expect(screen.getByRole("link", { name: "Ver transações" })).toHaveAttribute("href", "/transacoes?period=all&classification=outflow");
+    expect(screen.getByRole("link", { name: /Mercado/ }).getAttribute("href")).toContain("period=all");
   });
 
   it("remembers the chosen period across visits", async () => {
@@ -309,26 +380,10 @@ describe("HomePage", () => {
     const first = renderPage();
     await screen.findByText("Saldo hoje");
     await user.click(screen.getByRole("button", { name: "Selecionar período" }));
-    await user.click(await screen.findByRole("button", { name: "Este mês" }));
+    await user.click(await screen.findByRole("button", { name: "Este ano" }));
     first.unmount();
 
     vi.mocked(timelineApi.getTimeline).mockClear();
-    renderPage();
-    await screen.findByText("Saldo hoje");
-
-    const today = dayjs();
-    expect(timelineParams()).toContainEqual({
-      referenceDate: today.format("YYYY-MM-DD"),
-      from: today.startOf("month").format("YYYY-MM-DD"),
-      to: today.endOf("month").format("YYYY-MM-DD"),
-      aggregations: false,
-    });
-  });
-
-  it("resolves a remembered shortcut again instead of freezing its dates", async () => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
-    // Stored while 2024 was current; the window must still be *this* year.
-    window.localStorage.setItem("contadinho.home.saldo-periodo", JSON.stringify({ preset: "this-year" }));
     renderPage();
     await screen.findByText("Saldo hoje");
 
@@ -341,19 +396,35 @@ describe("HomePage", () => {
     });
   });
 
-  it.each(["decada", JSON.stringify({ from: "2026-12-31", to: "2026-01-01" }), "{"])(
+  it("resolves a remembered shortcut again instead of freezing its dates", async () => {
+    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
+    // Stored while 2024 was current; the window must still be *this* year.
+    window.localStorage.setItem("contadinho.home.periodo", JSON.stringify({ preset: "this-year" }));
+    renderPage();
+    await screen.findByText("Saldo hoje");
+
+    const today = dayjs();
+    expect(timelineParams()).toContainEqual({
+      referenceDate: today.format("YYYY-MM-DD"),
+      from: today.startOf("year").format("YYYY-MM-DD"),
+      to: today.endOf("year").format("YYYY-MM-DD"),
+      aggregations: false,
+    });
+  });
+
+  it.each([JSON.stringify({ from: "2026-02-30", to: "2026-03-20" }), "decada", JSON.stringify({ from: "2026-12-31", to: "2026-01-01" }), "{"])(
     "falls back to the default window when the stored period is %s",
     async (stored) => {
       vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
-      window.localStorage.setItem("contadinho.home.saldo-periodo", stored);
+      window.localStorage.setItem("contadinho.home.periodo", stored);
       renderPage();
       await screen.findByText("Saldo hoje");
 
       const today = dayjs();
       expect(timelineParams()).toContainEqual({
         referenceDate: today.format("YYYY-MM-DD"),
-        from: today.startOf("year").format("YYYY-MM-DD"),
-        to: today.endOf("year").format("YYYY-MM-DD"),
+        from: today.startOf("month").format("YYYY-MM-DD"),
+        to: today.endOf("month").format("YYYY-MM-DD"),
         aggregations: false,
       });
     },
@@ -436,7 +507,7 @@ describe("SpendingByCategoryCard", () => {
       items: [],
     });
     renderPage();
-    expect(await screen.findByText("Nenhuma saída neste mês.")).toBeVisible();
+    expect(await screen.findByText("Nenhuma saída neste período.")).toBeVisible();
   });
 });
 
@@ -449,23 +520,23 @@ describe("Category breakdown navigation", () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("Mercado");
-    expect(screen.getByRole("button", { name: "Próximo mês" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Próximo mês" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Mês anterior" }));
     await screen.findByText("Mercado");
     const calls = vi.mocked(transactionsApi.getCategoryBreakdown).mock.calls;
-    const month = calls[calls.length - 1][1];
+    const period = calls[calls.length - 1][1] as { from: string; to: string };
     await user.click(screen.getByRole("tab", { name: "Entradas" }));
     await screen.findByText("Total de entradas");
-    expect(transactionsApi.getCategoryBreakdown).toHaveBeenLastCalledWith(expect.any(String), month, "inflow", expect.any(AbortSignal));
+    expect(transactionsApi.getCategoryBreakdown).toHaveBeenLastCalledWith(expect.any(String), period, "inflow", expect.any(AbortSignal));
     const link = screen.getByRole("link", { name: /Mercado/ });
     const params = new URL(link.getAttribute("href")!, "http://localhost").searchParams;
     expect(params.get("classification")).toBe("inflow");
     expect(params.get("category_id")).toBe("cat-mercado");
-    expect(params.get("date_from")).toBe(month + "-01");
+    expect(params.get("date_from")).toBe(period.from);
     const uncategorized = screen.getByRole("link", { name: /Sem categoria/ });
     expect(uncategorized.getAttribute("href")).toContain("uncategorized=true");
-    await user.click(screen.getByRole("button", { name: "Voltar ao mês atual" }));
-    expect(screen.getByRole("button", { name: "Próximo mês" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Este mês" }));
+    expect(screen.getByRole("button", { name: "Próximo mês" })).toBeEnabled();
     expect(screen.getByRole("tab", { name: "Entradas" })).toHaveAttribute("aria-selected", "true");
   });
 
@@ -477,6 +548,6 @@ describe("Category breakdown navigation", () => {
     expect(screen.getByRole("button", { name: "Mês anterior" })).toBeEnabled();
     vi.mocked(transactionsApi.getCategoryBreakdown).mockResolvedValue({ ...spendingByCategory, classification: "inflow", total: "0.00", items: [] });
     await user.click(screen.getByRole("tab", { name: "Entradas" }));
-    expect(await screen.findByText("Nenhuma entrada neste mês.")).toBeVisible();
+    expect(await screen.findByText("Nenhuma entrada neste período.")).toBeVisible();
   });
 });

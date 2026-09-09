@@ -3,11 +3,13 @@ import { getCategoryBreakdown } from "../api/transactions";
 import type { CategoryDirection } from "../api/contracts";
 import { browserTimezone } from "./useTransactions";
 
-export function useCategoryBreakdown(month: string, classification: CategoryDirection) {
+import type { HomePeriod } from "./useHomePeriod";
+
+export function useCategoryBreakdown(period: HomePeriod, classification: CategoryDirection) {
   const timezone = browserTimezone();
   const query = useQuery({
-    queryKey: ["transactions", "category-breakdown", timezone, month, classification],
-    queryFn: ({ signal }) => getCategoryBreakdown(timezone!, month, classification, signal),
+    queryKey: ["transactions", "category-breakdown", timezone, period, classification],
+    queryFn: ({ signal }) => getCategoryBreakdown(timezone!, period, classification, signal),
     enabled: timezone !== null,
   });
   return { ...query, error: timezone === null ? new Error("Fuso horário indisponível.") : query.error };

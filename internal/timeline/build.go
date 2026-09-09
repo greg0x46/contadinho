@@ -400,9 +400,10 @@ func weaker(candidate, current CertaintyTier) bool {
 	return current == "" || tierRank[candidate] > tierRank[current]
 }
 
-// lowestAndFirstNegative only looks at points from reference onward — the
-// path still ahead — per the spec: a low balance the user already lived
-// through isn't a warning, only one still coming is.
+// lowestAndFirstNegative looks at points from reference onward for warnings.
+// A wholly historical window returns its own minimum, but never a future
+// negative-balance warning. This also keeps LowestBalance a valid day point
+// when the requested window ends before reference.
 func lowestAndFirstNegative(points []DayPoint, reference time.Time) (DayPoint, *time.Time) {
 	var lowest DayPoint
 	var firstNegative *time.Time
@@ -418,6 +419,14 @@ func lowestAndFirstNegative(points []DayPoint, reference time.Time) (DayPoint, *
 		if firstNegative == nil && p.Balance.IsNegative() {
 			d := p.Date
 			firstNegative = &d
+		}
+	}
+	if first && len(points) > 0 {
+		lowest = points[0]
+		for _, p := range points[1:] {
+			if p.Balance.LessThan(lowest.Balance) {
+				lowest = p
+			}
 		}
 	}
 	return lowest, firstNegative

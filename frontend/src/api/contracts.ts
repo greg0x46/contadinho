@@ -2874,14 +2874,32 @@ export function parseNetWorthSeries(value: unknown): NetWorthSeries {
 
 export type CategoryDirection = "inflow" | "outflow";
 
-export interface CategoryBreakdown extends SpendingByCategory {
+export type CategoryBreakdown = Omit<SpendingByCategory, "month"> & {
   classification: CategoryDirection;
-}
+} & ({ month: string } | { date_from: string | null; date_to: string | null });
 
 export function parseCategoryBreakdown(value: unknown): CategoryBreakdown {
-  const item = requiredRecord(value, ["month", "currency_code", "total", "items", "classification"], "Distribuição por categoria inválida.");
+  const periodKeys = isRecord(value) && "month" in value ? ["month"] : ["date_from", "date_to"];
+  const item = requiredRecord(value, [...periodKeys, "currency_code", "total", "items", "classification"], "Distribuição por categoria inválida.");
   if (item.classification !== "inflow" && item.classification !== "outflow") {
     throw new TypeError("Distribuição por categoria inválida.");
   }
-  return { ...parseSpendingByCategory({ month: item.month, currency_code: item.currency_code, total: item.total, items: item.items }), classification: item.classification };
+  if ("month" in item) return { ...parseSpendingByCategory({ month: item.month, currency_code: item.currency_code, total: item.total, items: item.items }), classification: item.classification };
+  const validDate = (date: unknown): date is string => {
+    if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date) || date < "0001-01-01") return false;
+    const parsed = new Date(`${date}T00:00:00Z`);
+    return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
+  };
+  const { date_from: from, date_to: to } = item;
+  if (!(from === null && to === null) && !(validDate(from) && validDate(to) && from <= to)) {
+    throw new TypeError("Distribuição por categoria inválida.");
+  }
+  if (typeof item.currency_code !== "string" || !item.currency_code || !Array.isArray(item.items)) {
+    throw new TypeError("Distribuição por categoria inválida.");
+  }
+  return {
+    date_from: from as string | null, date_to: to as string | null,
+    classification: item.classification, currency_code: item.currency_code,
+    total: decimal(item.total), items: item.items.map(parseCategorySpendingItem),
+  };
 }

@@ -9,6 +9,32 @@ import (
 const categorySupermercadoID = "000433b6-3094-5a9c-87df-465b70574a4b"
 const categorySalarioID = "3c5a9586-2a11-556d-b014-692ed51c3997"
 
+func TestHistoricalTimelineReturnsAValidLowestPoint(t *testing.T) {
+	srv, _ := newTestServer(t)
+	for _, window := range []struct{ from, to string }{
+		{"2026-08-01", "2026-08-31"},
+		{"2025-01-01", "2025-12-31"},
+		{"2026-08-10", "2026-08-10"},
+	} {
+		t.Run(window.from+"/"+window.to, func(t *testing.T) {
+			resp := doJSON(t, http.MethodGet, srv.URL+"/api/timeline?reference_date=2026-09-08&from="+window.from+"&to="+window.to+"&aggregations=false", nil)
+			if resp.StatusCode != 200 {
+				t.Fatalf("status = %d", resp.StatusCode)
+			}
+			var body map[string]any
+			decodeJSON(t, resp, &body)
+			base := body["base"].(map[string]any)
+			lowest := base["lowest_balance"].(map[string]any)
+			if lowest["date"] != window.from || lowest["lowest_tier"] != "realizado" || lowest["balance"] != "0" {
+				t.Fatalf("invalid historical minimum: %+v", lowest)
+			}
+			if base["first_negative"] != nil {
+				t.Fatalf("historical window has a future warning: %v", base["first_negative"])
+			}
+		})
+	}
+}
+
 func TestTimelineOverHTTP(t *testing.T) {
 	srv, conn := newTestServer(t)
 

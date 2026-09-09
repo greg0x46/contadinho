@@ -1146,6 +1146,47 @@ func TestCategoryBreakdownOverHTTP(t *testing.T) {
 			}
 		})
 	}
+	for _, tc := range []struct {
+		query, total string
+		from, to     any
+	}{
+		{"date_from=2024-02-29&date_to=2024-02-29", "125.00", "2024-02-29", "2024-02-29"},
+		{"date_from=2024-02-29&date_to=2024-03-01", "625.00", "2024-02-29", "2024-03-01"},
+		{"date_from=2024-01-01&date_to=2024-12-31", "705.00", "2024-01-01", "2024-12-31"},
+		{"date_from=2099-01-01&date_to=2099-12-31", "0", "2099-01-01", "2099-12-31"},
+		{"period=all", "775.00", nil, nil},
+	} {
+		t.Run(tc.query, func(t *testing.T) {
+			resp := doJSON(t, http.MethodGet, srv.URL+"/api/transactions/category-breakdown?timezone=America%2FSao_Paulo&classification=inflow&"+tc.query, nil)
+			if resp.StatusCode != 200 {
+				t.Fatalf("status = %d", resp.StatusCode)
+			}
+			var body map[string]any
+			decodeJSON(t, resp, &body)
+			if body["total"] != tc.total || body["date_from"] != tc.from || body["date_to"] != tc.to {
+				t.Fatalf("unexpected response: %+v", body)
+			}
+			if _, ok := body["month"]; ok {
+				t.Fatalf("range response includes month: %+v", body)
+			}
+		})
+	}
+	for _, query := range []string{
+		"date_from=2024-02-01", "date_to=2024-02-01",
+		"date_from=2024-02-30&date_to=2024-03-01",
+		"date_from=2024-03-01&date_to=2024-02-01",
+		"date_from=0000-01-01&date_to=2024-01-01",
+		"month=2024-02&date_from=2024-02-01&date_to=2024-02-29",
+		"month=2024-02&period=all", "period=all&date_from=2024-02-01",
+		"period=month", "date_from=&date_to=",
+	} {
+		resp := doJSON(t, http.MethodGet, srv.URL+"/api/transactions/category-breakdown?timezone=UTC&classification=inflow&"+query, nil)
+		resp.Body.Close()
+		if resp.StatusCode != 400 {
+			t.Errorf("%s: status = %d, want 400", query, resp.StatusCode)
+		}
+	}
+
 	for _, query := range []string{
 		"timezone=UTC&month=2024-02",
 		"timezone=UTC&classification=inflow",
