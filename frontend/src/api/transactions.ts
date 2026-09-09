@@ -1,3 +1,4 @@
+import type { HomePeriod } from "../hooks/useHomePeriod";
 import { requestJson } from "./client";
 import { parseCategoryBreakdown, type CategoryDirection } from "./contracts";
 import {
@@ -361,8 +362,14 @@ export async function getTransactionReconciliation(
   }
 }
 
-export function getCategoryBreakdown(timezone: string, month: string, classification: CategoryDirection, signal?: AbortSignal) {
-  const params = new URLSearchParams({ timezone, month, classification });
+export function getCategoryBreakdown(timezone: string, period: HomePeriod | string, classification: CategoryDirection, signal?: AbortSignal) {
+  const params = new URLSearchParams({ timezone, classification });
+  if (typeof period === "string") params.set("month", period);
+  else if (period.from === null) params.set("period", "all");
+  else {
+    params.set("date_from", period.from);
+    params.set("date_to", period.to);
+  }
   return requestJson(
     `/api/transactions/category-breakdown?${params}`,
     { method: "GET", headers: { Accept: "application/json" }, signal },

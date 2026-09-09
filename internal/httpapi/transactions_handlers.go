@@ -828,7 +828,7 @@ func handleDeleteManualTransaction(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-// handleCategoryBreakdown returns real category totals for a calendar month.
+// handleCategoryBreakdown returns real category totals for a month, range, or all dates.
 func handleCategoryBreakdown(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		params := r.URL.Query()
@@ -838,20 +838,50 @@ func handleCategoryBreakdown(db *sql.DB) http.HandlerFunc {
 			writeProblem(w, 400, "invalid-timezone", "Fuso horário inválido", "Informe um nome de fuso IANA reconhecido.")
 			return
 		}
-		month, err := time.ParseInLocation("2006-01", params.Get("month"), loc)
-		if err != nil || month.Year() < 1 {
-			writeProblem(w, 400, "invalid-month", "Mês inválido", "Informe o mês no formato YYYY-MM.")
-			return
+		var filters transactions.Filters
+		var monthLabel string
+		var dateFrom, dateTo *string
+		invalidPeriod := func() {
+			writeProblem(w, 400, "invalid-date-range", "Intervalo de datas inválido", "Informe month; ou date_from e date_to juntos; ou period=all. Não combine os modos.")
+		}
+		switch {
+		case params.Has("month"):
+			if params.Has("date_from") || params.Has("date_to") || params.Has("period") {
+				invalidPeriod()
+				return
+			}
+			month, err := time.ParseInLocation("2006-01", params.Get("month"), loc)
+			if err != nil || month.Year() < 1 {
+				writeProblem(w, 400, "invalid-month", "Mês inválido", "Informe o mês no formato YYYY-MM.")
+				return
+			}
+			last := month.AddDate(0, 1, -1)
+			from := money.Date{Year: month.Year(), Month: month.Month(), Day: 1}
+			to := money.Date{Year: last.Year(), Month: last.Month(), Day: last.Day()}
+			filters.DateFrom, filters.DateTo = &from, &to
+			monthLabel = month.Format("2006-01")
+		case params.Has("period"):
+			if params.Get("period") != "all" || params.Has("date_from") || params.Has("date_to") {
+				invalidPeriod()
+				return
+			}
+		default:
+			fromText, toText := params.Get("date_from"), params.Get("date_to")
+			from, errFrom := parseDateOnly(fromText)
+			to, errTo := parseDateOnly(toText)
+			if errFrom != nil || errTo != nil || from.Year < 1 || to.Year < 1 || fromText > toText {
+				invalidPeriod()
+				return
+			}
+			filters.DateFrom, filters.DateTo = &from, &to
+			dateFrom, dateTo = &fromText, &toText
 		}
 		classification := money.Classification(params.Get("classification"))
 		if classification != money.Inflow && classification != money.Outflow {
 			writeProblem(w, 400, "invalid-classification", "Classificação inválida", "Informe inflow ou outflow.")
 			return
 		}
-		last := month.AddDate(0, 1, -1)
-		from := money.Date{Year: month.Year(), Month: month.Month(), Day: 1}
-		to := money.Date{Year: last.Year(), Month: last.Month(), Day: last.Day()}
-		items, err := transactions.CategoryBreakdown(r.Context(), db, transactions.Filters{DateFrom: &from, DateTo: &to}, timezone, classification)
+		items, err := transactions.CategoryBreakdown(r.Context(), db, filters, timezone, classification)
 		if err != nil {
 			writeProblem(w, 503, "category-breakdown-unavailable", "Categorias temporariamente indisponíveis", "Tente novamente em instantes.")
 			return
@@ -867,9 +897,20 @@ func handleCategoryBreakdown(db *sql.DB) http.HandlerFunc {
 			total = total.Add(amount)
 			result = append(result, categorySpendingItemDTO{CategoryID: item.CategoryID, CategoryName: item.CategoryName, CategoryIcon: item.CategoryIcon, CategoryColor: item.CategoryColor, Amount: item.Amount, Source: "real"})
 		}
+		if monthLabel != "" {
+			writeJSON(w, http.StatusOK, struct {
+				spendingByCategoryDTO
+				Classification money.Classification `json:"classification"`
+			}{spendingByCategoryDTO{Month: monthLabel, CurrencyCode: "BRL", Total: money.CanonicalDecimal(total), Items: result}, classification})
+			return
+		}
 		writeJSON(w, http.StatusOK, struct {
-			spendingByCategoryDTO
-			Classification money.Classification `json:"classification"`
-		}{spendingByCategoryDTO{Month: month.Format("2006-01"), CurrencyCode: "BRL", Total: money.CanonicalDecimal(total), Items: result}, classification})
+			DateFrom       *string                   `json:"date_from"`
+			DateTo         *string                   `json:"date_to"`
+			CurrencyCode   string                    `json:"currency_code"`
+			Total          string                    `json:"total"`
+			Items          []categorySpendingItemDTO `json:"items"`
+			Classification money.Classification      `json:"classification"`
+		}{dateFrom, dateTo, "BRL", money.CanonicalDecimal(total), result, classification})
 	}
 }

@@ -81,6 +81,6 @@ type Series struct {
 	Points          []DayPoint
 	Entries         []Entry
 	StartingBalance decimal.Decimal
-	LowestBalance   DayPoint   // meaningful from M4 on; M3 has no future sources to dip below the starting point
-	FirstNegative   *time.Time // nil in M3 unless real transactions already carry the balance negative
+	LowestBalance   DayPoint   // minimum from reference onward, or the window's minimum for a wholly historical series
+	FirstNegative   *time.Time // first negative point from reference onward; nil for wholly historical windows
 }

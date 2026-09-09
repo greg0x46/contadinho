@@ -6,9 +6,8 @@ import { useNavigate } from "react-router-dom";
 
 import type { TimelineDayPoint } from "../../api/contracts";
 import { LoadingState, UnavailableState } from "../AsyncState";
-import { PeriodNavigator } from "../filters/PeriodNavigator";
+import type { HomePeriod } from "../../hooks/useHomePeriod";
 import { periodNavigation } from "../filters/periodNavigation";
-import { periodPresets } from "../filters/periodPresets";
 import { ProjectionTimeline } from "../timeline/ProjectionTimeline";
 import { useTimeline } from "../../hooks/useTimeline";
 import { useTimelineDataRange } from "../../hooks/useTimelineDataRange";
@@ -18,74 +17,6 @@ import { colors } from "../../theme/tokens";
 import { WidgetCard } from "../shared/WidgetCard";
 
 const dateFormat = "YYYY-MM-DD";
-
-/** A window, in the same shape the transactions filter uses: nulls mean "all of it". */
-type Period = { from: string | null; to: string | null };
-
-const storageKey = "contadinho.home.saldo-periodo";
-const defaultPreset = "this-year";
-
-function presetPeriod(value: string): Period | null {
-  const preset = periodPresets().find((candidate) => candidate.value === value);
-  if (!preset) return null;
-  const [from, to] = preset.range();
-  return { from, to };
-}
-
-function defaultPeriod(): Period {
-  return presetPeriod(defaultPreset) ?? { from: null, to: null };
-}
-
-function isDate(value: unknown): value is string {
-  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
-}
-
-/**
- * The chosen window is a per-browser preference, not part of the page's
- * address: coming back to the Home through the menu must keep it, so it lives
- * in localStorage. Reading and writing it can throw outright — private
- * browsing, or a browser set to block site data — so neither side may be the
- * thing that breaks the dashboard.
- *
- * A window that came from a shortcut is stored as the shortcut and resolved
- * again on the way back in: "este ano" saved in December must still mean this
- * year in January, not the year it was picked.
- */
-function storedPeriod(): Period {
-  let raw: string | null = null;
-  try {
-    raw = window.localStorage.getItem(storageKey);
-  } catch {
-    return defaultPeriod();
-  }
-  if (raw === null) return defaultPeriod();
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) return defaultPeriod();
-    const { preset, from, to } = parsed as Record<string, unknown>;
-    if (typeof preset === "string") return presetPeriod(preset) ?? defaultPeriod();
-    if (isDate(from) && isDate(to) && from <= to) return { from, to };
-  } catch {
-    // Anything unreadable — including the range names this key held before —
-    // is simply not a window.
-  }
-  return defaultPeriod();
-}
-
-function storePeriod(period: Period): void {
-  const preset = periodPresets().find((candidate) => {
-    const [from, to] = candidate.range();
-    return period.from === from && period.to === to;
-  });
-  try {
-    window.localStorage.setItem(
-      storageKey,
-      JSON.stringify(preset ? { preset: preset.value } : period),
-    );
-  } catch {
-    // A window that can't be remembered is still a usable window.
-  }
-}
 
 function negativeValueStyle(value: string): { color: string } | undefined {
   return value.startsWith("-") ? { color: colors.error } : undefined;
@@ -111,21 +42,9 @@ function useToday(): dayjs.Dayjs {
   return today;
 }
 
-/**
- * The Home dashboard owns the balance view: it shows how the balance got to
- * today and where it is heading, while scenario editing remains available in
- * Cenários. The window is picked with the same control and the same shortcuts
- * as the transactions filter — the current year by default — so a period means
- * the same thing on both screens, even though each remembers its own.
- */
-export function ProjectionSummaryCard() {
+export function ProjectionSummaryCard({ period }: { period: HomePeriod }) {
   const today = useToday();
   const navigate = useNavigate();
-  const [period, setPeriodState] = useState<Period>(storedPeriod);
-  const setPeriod = (from: string | null, to: string | null) => {
-    setPeriodState({ from, to });
-    storePeriod({ from, to });
-  };
 
   // "Todo o período" is the one window whose bounds live in the database — the
   // oldest transaction, the last planned installment — so it stays unresolved
@@ -172,16 +91,6 @@ export function ProjectionSummaryCard() {
     <WidgetCard
       icon={<LineChartOutlined aria-hidden="true" />}
       title="Evolução do saldo"
-      extra={
-        <PeriodNavigator
-          id="saldo-period"
-          value={[period.from, period.to]}
-          presets={periodPresets()}
-          onChange={setPeriod}
-          reset={{ preset: defaultPreset, label: "Este ano" }}
-          bare
-        />
-      }
     >
       {isLoading && <LoadingState>Carregando o saldo…</LoadingState>}
       {error && !isLoading && (
@@ -192,7 +101,7 @@ export function ProjectionSummaryCard() {
         <div className="projection-summary">
           <div className="projection-summary-intro">
             <div>
-              {/* The header already names the chosen window, so spelling it
+              {/* The global control already names the chosen window, so spelling it
                   out again would only repeat it — except under "todo o
                   período", where the bounds come from the database and are
                   worth showing. */}

@@ -20,6 +20,30 @@ describe("category breakdown API", () => {
     expect(init.signal).toBe(signal);
   });
 
+  it.each([
+    [{ from: "2024-02-15", to: "2024-03-20" }, { date_from: "2024-02-15", date_to: "2024-03-20" }],
+    [{ from: null, to: null }, { period: "all" }],
+  ] as const)("sends a global period %j", async (period, query) => {
+    const totals = { classification: body.classification, currency_code: body.currency_code, total: body.total, items: body.items };
+    const response = { ...totals, date_from: period.from, date_to: period.to };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), { headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const signal = new AbortController().signal;
+    expect(await getCategoryBreakdown("UTC", period, "inflow", signal)).toEqual(response);
+    expect(Object.fromEntries(new URL(fetchMock.mock.calls[0][0], "http://localhost").searchParams)).toEqual({ timezone: "UTC", classification: "inflow", ...query });
+    expect(fetchMock.mock.calls[0][1].signal).toBe(signal);
+  });
+
+  it.each([
+    { date_from: "2024-02-30", date_to: "2024-03-20" },
+    { date_from: "2024-03-20", date_to: "2024-02-15" },
+    { date_from: null, date_to: "2024-03-20" },
+    {},
+  ])("rejects invalid range metadata %j", (dates) => {
+    const totals = { classification: body.classification, currency_code: body.currency_code, total: body.total, items: body.items };
+    expect(() => parseCategoryBreakdown({ ...totals, ...dates })).toThrow();
+  });
+
   it("rejects invalid direction and monetary values", () => {
     expect(() => parseCategoryBreakdown({ ...body, classification: "transfer" })).toThrow();
     expect(() => parseCategoryBreakdown({ ...body, total: 25 })).toThrow();

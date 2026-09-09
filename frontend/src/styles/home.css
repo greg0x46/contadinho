@@ -1,3 +1,16 @@
+.dashboard-period {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.dashboard-period .filter-period-navigation {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 100%;
+}
+
 .dashboard-layout {
   display: grid;
   grid-template-columns: minmax(16rem, 0.7fr) minmax(0, 2.3fr);
@@ -160,16 +173,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.category-month-navigation {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.25rem;
-  font-size: 0.8125rem;
-  color: var(--color-text-secondary);
-}
-.category-month-navigation > span { text-align: center; text-transform: capitalize; }
-.category-current-month { display: block; margin: 0 auto; }
 .category-donut { position: relative; max-width: 280px; margin: 0 auto; }
 .category-donut-total {
   position: absolute;
