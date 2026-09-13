@@ -9,6 +9,7 @@ import (
 	"path"
 	"strings"
 
+	"contadinho-go/internal/auth"
 	"contadinho-go/internal/payables"
 	"contadinho-go/internal/recurrences"
 	"contadinho-go/internal/settings"
@@ -32,20 +33,22 @@ func onIgnoredHook(ctx context.Context, q transactions.Querier, transactionID st
 	return recurrences.UnlinkIfPresent(ctx, q, transactionID)
 }
 
-// NewServer wires every route this phase implements (health, setup/unlock,
-// categories, transactions) plus the embedded frontend with SPA fallback,
-// mirroring backend/app/main.py's create_app + backend/app/web/spa.py.
-// Routes for sync runs, automation rules, and payables join this mux in
-// later phases. session holds the passphrase-derived encryption key in memory once
-// setup/unlock succeeds — see package settings.
-func NewServer(db *sql.DB, frontend fs.FS, session *settings.Session) http.Handler {
+// NewServer protects API routes with per-browser authentication. The separate
+// secrets holder is used only to encrypt configuration, never to grant access.
+func NewServer(db *sql.DB, frontend fs.FS, secrets *settings.Secrets, config auth.Config) http.Handler {
+	if err := config.Validate(); err != nil {
+		panic(err)
+	}
+	authentication := newAuthAPI(auth.NewStore(db), config)
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", handleHealth(db))
 
-	mux.HandleFunc("GET /api/setup/status", handleSetupStatus(db, session))
-	mux.HandleFunc("POST /api/setup", handleSetup(db, session))
-	mux.HandleFunc("POST /api/unlock", handleUnlock(db, session))
+	mux.HandleFunc("POST /api/auth/login", authentication.login)
+	mux.HandleFunc("GET /api/auth/session", authentication.session)
+	mux.HandleFunc("POST /api/auth/logout", authentication.logout)
+	mux.HandleFunc("PUT /api/auth/password", authentication.password)
+	mux.HandleFunc("PUT /api/settings/pluggy", handlePluggySettings(db, secrets))
 
 	mux.HandleFunc("GET /api/preferences", handleGetPreferences(db))
 	mux.HandleFunc("PUT /api/preferences", handleUpdatePreferences(db))
@@ -154,38 +157,7 @@ func NewServer(db *sql.DB, frontend fs.FS, session *settings.Session) http.Handl
 
 	mux.Handle("/", spaHandler(frontend))
 
-	return lockGate(session, mux)
-}
-
-// unlockExemptAPIPaths are the only /api/* routes lockGate lets through
-// while the session is locked — the ones that exist specifically to ask
-// "are we configured/unlocked?" or to become so. Every other /api/* route
-// requires an unlocked session, closing the gap where the frontend's
-// SetupGate decided what to *render* but the API underneath never actually
-// enforced it: nothing stopped a direct request from reading or writing
-// financial data while the app was locked or never configured.
-var unlockExemptAPIPaths = map[string]bool{
-	"/api/setup/status": true,
-	"/api/setup":        true,
-	"/api/unlock":       true,
-}
-
-// lockGate mirrors nothing in the Python reference (which had no lock state
-// at all — credentials came from a .env file present from process start).
-// It sits in front of the whole mux rather than as a per-route middleware so
-// no future route can be added to NewServer and accidentally forget it.
-func lockGate(session *settings.Session, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") && !unlockExemptAPIPaths[r.URL.Path] {
-			if _, unlocked := session.Key(); !unlocked {
-				writeProblem(w, http.StatusLocked, "locked",
-					"Aplicação bloqueada",
-					"Desbloqueie com a senha definida na configuração antes de continuar.")
-				return
-			}
-		}
-		next.ServeHTTP(w, r)
-	})
+	return authentication.gate(mux)
 }
 
 func handleHealth(db *sql.DB) http.HandlerFunc {

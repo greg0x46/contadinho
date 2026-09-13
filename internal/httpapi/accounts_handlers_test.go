@@ -98,7 +98,7 @@ func setBalanceCloseDate(t *testing.T, conn *sql.DB, seed accountSeed, closeDate
 
 func getAccountJSON(t *testing.T, baseURL, accountID string) map[string]any {
 	t.Helper()
-	resp, err := http.Get(baseURL + "/api/accounts/" + accountID)
+	resp, err := testGet(t, baseURL+"/api/accounts/"+accountID)
 	if err != nil {
 		t.Fatalf("GET /api/accounts/{id}: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestListAccountsReturnsBankAndCreditAccounts(t *testing.T) {
 	insertAccount(t, conn, "BANK", "Conta Corrente", strPtr("500.00"), nil)
 	insertAccount(t, conn, "CREDIT", "Cartão Platinum", strPtr("1234.56"), strPtr("5000.00"))
 
-	resp, err := http.Get(srv.URL + "/api/accounts")
+	resp, err := testGet(t, srv.URL+"/api/accounts")
 	if err != nil {
 		t.Fatalf("GET /api/accounts: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestListAccountsReturnsBankAndCreditAccounts(t *testing.T) {
 func TestListAccountsReturnsEmptyArrayNotNull(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	resp, err := http.Get(srv.URL + "/api/accounts")
+	resp, err := testGet(t, srv.URL+"/api/accounts")
 	if err != nil {
 		t.Fatalf("GET /api/accounts: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestListAccountsComputesCreditUsageRatio(t *testing.T) {
 	srv, conn := newTestServer(t)
 	insertAccount(t, conn, "CREDIT", "Cartão", strPtr("1234.56"), strPtr("5000.00"))
 
-	resp, err := http.Get(srv.URL + "/api/accounts")
+	resp, err := testGet(t, srv.URL+"/api/accounts")
 	if err != nil {
 		t.Fatalf("GET /api/accounts: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestListAccountsOmitsUsageRatioWhenNotComputable(t *testing.T) {
 			srv, conn := newTestServer(t)
 			insertAccount(t, conn, tc.accountType, "Conta", tc.balance, tc.creditLimit)
 
-			resp, err := http.Get(srv.URL + "/api/accounts")
+			resp, err := testGet(t, srv.URL+"/api/accounts")
 			if err != nil {
 				t.Fatalf("GET /api/accounts: %v", err)
 			}
@@ -207,7 +207,7 @@ func TestGetAccountReturnsAccount(t *testing.T) {
 	srv, conn := newTestServer(t)
 	seed := insertAccount(t, conn, "CREDIT", "Cartão", strPtr("10.00"), strPtr("100.00"))
 
-	resp, err := http.Get(srv.URL + "/api/accounts/" + seed.accountID)
+	resp, err := testGet(t, srv.URL+"/api/accounts/"+seed.accountID)
 	if err != nil {
 		t.Fatalf("GET /api/accounts/{id}: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestGetAccountReturnsAccount(t *testing.T) {
 func TestGetAccountReturns404WhenMissing(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	resp, err := http.Get(srv.URL + "/api/accounts/" + uuid.NewString())
+	resp, err := testGet(t, srv.URL+"/api/accounts/"+uuid.NewString())
 	if err != nil {
 		t.Fatalf("GET /api/accounts/{id}: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestListAccountCardsGroupsDistinctCardNumbers(t *testing.T) {
 	insertAccountTransaction(t, conn, seed, strPtr(`{"cardNumber":"1111"}`), newer)
 	insertAccountTransaction(t, conn, seed, strPtr(`{"cardNumber":"2222"}`), older)
 
-	resp, err := http.Get(srv.URL + "/api/accounts/" + seed.accountID + "/cards")
+	resp, err := testGet(t, srv.URL+"/api/accounts/"+seed.accountID+"/cards")
 	if err != nil {
 		t.Fatalf("GET cards: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestListAccountCardsSkipsMalformedMetadata(t *testing.T) {
 	insertAccountTransaction(t, conn, seed, strPtr(`{"installmentNumber":1}`), occurred)
 	insertAccountTransaction(t, conn, seed, strPtr(`{"cardNumber":"3333"}`), occurred)
 
-	resp, err := http.Get(srv.URL + "/api/accounts/" + seed.accountID + "/cards")
+	resp, err := testGet(t, srv.URL+"/api/accounts/"+seed.accountID+"/cards")
 	if err != nil {
 		t.Fatalf("GET cards: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestListAccountCardsSkipsMalformedMetadata(t *testing.T) {
 func TestListAccountCardsReturns404WhenAccountMissing(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	resp, err := http.Get(srv.URL + "/api/accounts/" + uuid.NewString() + "/cards")
+	resp, err := testGet(t, srv.URL+"/api/accounts/"+uuid.NewString()+"/cards")
 	if err != nil {
 		t.Fatalf("GET cards: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestListAccountBillsReturnsClosedBillsNewestFirst(t *testing.T) {
 	insertBill(t, conn, seed, time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC), "800.00")
 	insertBill(t, conn, seed, time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC), "1234.56")
 
-	resp, err := http.Get(srv.URL + "/api/accounts/" + seed.accountID + "/bills")
+	resp, err := testGet(t, srv.URL+"/api/accounts/"+seed.accountID+"/bills")
 	if err != nil {
 		t.Fatalf("GET bills: %v", err)
 	}
@@ -486,7 +486,7 @@ func TestListAccountBillsReturnsEmptyArrayForBankAccount(t *testing.T) {
 	srv, conn := newTestServer(t)
 	seed := insertAccount(t, conn, "BANK", "Conta Corrente", strPtr("500.00"), nil)
 
-	resp, err := http.Get(srv.URL + "/api/accounts/" + seed.accountID + "/bills")
+	resp, err := testGet(t, srv.URL+"/api/accounts/"+seed.accountID+"/bills")
 	if err != nil {
 		t.Fatalf("GET bills: %v", err)
 	}

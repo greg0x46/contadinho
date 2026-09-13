@@ -109,7 +109,7 @@ func TestListInvestmentsReturnsSyncedHoldings(t *testing.T) {
 	srv, conn := newTestServer(t)
 	investmentID := insertInvestment(t, conn)
 
-	resp, err := http.Get(srv.URL + "/api/investments")
+	resp, err := testGet(t, srv.URL+"/api/investments")
 	if err != nil {
 		t.Fatalf("GET /api/investments: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestListInvestmentsReturnsSyncedHoldings(t *testing.T) {
 func TestListInvestmentsReturnsEmptyArrayNotNull(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	resp, err := http.Get(srv.URL + "/api/investments")
+	resp, err := testGet(t, srv.URL+"/api/investments")
 	if err != nil {
 		t.Fatalf("GET /api/investments: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestGetInvestmentReturnsHolding(t *testing.T) {
 	srv, conn := newTestServer(t)
 	investmentID := insertInvestment(t, conn)
 
-	resp, err := http.Get(srv.URL + "/api/investments/" + investmentID)
+	resp, err := testGet(t, srv.URL+"/api/investments/"+investmentID)
 	if err != nil {
 		t.Fatalf("GET /api/investments/{id}: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestGetInvestmentReturnsHolding(t *testing.T) {
 func TestGetInvestmentReturns404WhenMissing(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	resp, err := http.Get(srv.URL + "/api/investments/" + uuid.NewString())
+	resp, err := testGet(t, srv.URL+"/api/investments/"+uuid.NewString())
 	if err != nil {
 		t.Fatalf("GET /api/investments/{id}: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestListInvestmentTransactionsReturnsHistory(t *testing.T) {
 	investmentID := insertInvestment(t, conn)
 	insertInvestmentTransaction(t, conn, investmentID, "BUY", "1000.00")
 
-	resp, err := http.Get(srv.URL + "/api/investments/" + investmentID + "/transactions")
+	resp, err := testGet(t, srv.URL+"/api/investments/"+investmentID+"/transactions")
 	if err != nil {
 		t.Fatalf("GET /api/investments/{id}/transactions: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestListInvestmentsComputesYieldFromTransactionHistory(t *testing.T) {
 	insertInvestmentTransaction(t, conn, investmentID, "SELL", "300.00")
 	// net contributed = 1200.00 - 300.00 = 900.00; yield = balance - net = 100.50
 
-	resp, err := http.Get(srv.URL + "/api/investments")
+	resp, err := testGet(t, srv.URL+"/api/investments")
 	if err != nil {
 		t.Fatalf("GET /api/investments: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestListInvestmentsPrefersProviderAmountProfitOverHistory(t *testing.T) {
 		t.Fatalf("set amount_profit: %v", err)
 	}
 
-	resp, err := http.Get(srv.URL + "/api/investments")
+	resp, err := testGet(t, srv.URL+"/api/investments")
 	if err != nil {
 		t.Fatalf("GET /api/investments: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestListInvestmentsOmitsYieldWithoutProfitOrHistory(t *testing.T) {
 	srv, conn := newTestServer(t)
 	insertInvestment(t, conn)
 
-	resp, err := http.Get(srv.URL + "/api/investments")
+	resp, err := testGet(t, srv.URL+"/api/investments")
 	if err != nil {
 		t.Fatalf("GET /api/investments: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestListInvestmentsOmitsCalculatedYieldWhenHistoryHasNoInflow(t *testing.T)
 	}
 	insertInvestmentTransaction(t, conn, investmentID, "SELL", "11370.20")
 
-	resp, err := http.Get(srv.URL + "/api/investments")
+	resp, err := testGet(t, srv.URL+"/api/investments")
 	if err != nil {
 		t.Fatalf("GET /api/investments: %v", err)
 	}
@@ -428,7 +428,7 @@ func TestListInvestmentsReportsAMissingBalanceAsItsOwnReason(t *testing.T) {
 // firstInvestment GETs the list endpoint and returns the only holding in it.
 func firstInvestment(t *testing.T, baseURL string) map[string]any {
 	t.Helper()
-	resp, err := http.Get(baseURL + "/api/investments")
+	resp, err := testGet(t, baseURL+"/api/investments")
 	if err != nil {
 		t.Fatalf("GET /api/investments: %v", err)
 	}
@@ -443,7 +443,7 @@ func firstInvestment(t *testing.T, baseURL string) map[string]any {
 func TestListInvestmentTransactionsReturns404WhenInvestmentMissing(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	resp, err := http.Get(srv.URL + "/api/investments/" + uuid.NewString() + "/transactions")
+	resp, err := testGet(t, srv.URL+"/api/investments/"+uuid.NewString()+"/transactions")
 	if err != nil {
 		t.Fatalf("GET /api/investments/{id}/transactions: %v", err)
 	}

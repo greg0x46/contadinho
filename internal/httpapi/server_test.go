@@ -15,54 +15,58 @@ import (
 
 	"github.com/google/uuid"
 
+	"contadinho-go/internal/auth"
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/httpapi"
 	"contadinho-go/internal/settings"
+	"net/url"
+	"sync"
 )
 
 const testPassword = "correct horse battery staple"
 
-func newTestServerWithSession(t *testing.T) (*httptest.Server, *sql.DB, *settings.Session) {
+// API-domain fixtures authenticate through real persisted sessions. Auth tests use
+// their own clients without registering a token in this fixture registry.
+var fixtureTokens sync.Map
+
+const testOrigin = "http://localhost:4200"
+
+func newTestServerWithSession(t *testing.T) (*httptest.Server, *sql.DB, *settings.Secrets) {
 	t.Helper()
 	conn, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
-		t.Fatalf("Open: %v", err)
+		t.Fatal(err)
 	}
 	t.Cleanup(func() { conn.Close() })
-
-	frontend := fstest.MapFS{
-		"index.html":    {Data: []byte("<html>spa</html>")},
-		"assets/app.js": {Data: []byte("console.log(1)")},
+	frontend := fstest.MapFS{"index.html": {Data: []byte("<html>spa</html>")}, "assets/app.js": {Data: []byte("console.log(1)")}}
+	master := bytes.Repeat([]byte{42}, 32)
+	store := auth.NewStore(conn)
+	if err := store.Initialize(context.Background(), "owner@example.com", testPassword, master, nil); err != nil {
+		t.Fatal(err)
 	}
-	session := settings.NewSession()
-	srv := httptest.NewServer(httpapi.NewServer(conn, fs.FS(frontend), session))
+	keys := settings.NewSecrets(master)
+	srv := httptest.NewServer(httpapi.NewServer(conn, fs.FS(frontend), keys, auth.Config{PublicURL: testOrigin}))
 	t.Cleanup(srv.Close)
-	return srv, conn, session
+	return srv, conn, keys
 }
-
-// newTestServer returns a server that is already configured and unlocked —
-// what every test exercising categories/transactions/payables/automation/
-// sync-runs behavior wants, since it isn't testing the lock gate itself
-// (see newLockedTestServer, TestSetupAndUnlockFlow, and TestLockGate* for
-// that). It bypasses the HTTP /api/setup handler and calls settings.Setup
-// directly, so — deliberately — it does NOT set any pluggy.* config values;
-// tests that need those (e.g. pluggy.item_id) still set them explicitly.
 func newTestServer(t *testing.T) (*httptest.Server, *sql.DB) {
 	t.Helper()
-	srv, conn, session := newTestServerWithSession(t)
-	key, err := settings.Setup(context.Background(), conn, testPassword)
+	srv, conn, _ := newTestServerWithSession(t)
+	token, err := auth.NewStore(conn).Login(context.Background(), "owner@example.com", testPassword)
 	if err != nil {
-		t.Fatalf("Setup: %v", err)
+		t.Fatal(err)
 	}
-	session.Unlock(key)
+	u, _ := url.Parse(srv.URL)
+	fixtureTokens.Store(u.Host, token)
+	t.Cleanup(func() { fixtureTokens.Delete(u.Host) })
 	return srv, conn
 }
-
-// newLockedTestServer returns a server in its fresh, never-configured state.
 func newLockedTestServer(t *testing.T) (*httptest.Server, *sql.DB) {
-	t.Helper()
 	srv, conn, _ := newTestServerWithSession(t)
 	return srv, conn
+}
+func testGet(t *testing.T, endpoint string) (*http.Response, error) {
+	return doJSON(t, http.MethodGet, endpoint, nil), nil
 }
 
 // insertTransaction inserts the minimal sync-schema chain plus one
@@ -118,6 +122,12 @@ func doJSON(t *testing.T, method, url string, body any) *http.Response {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", testOrigin)
+	req.Header.Set("X-Contadinho-Request", "1")
+	if token, ok := fixtureTokens.Load(req.URL.Host); ok {
+		req.AddCookie(&http.Cookie{Name: "contadinho_session", Value: token.(string)})
+	}
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -130,102 +140,6 @@ func decodeJSON(t *testing.T, resp *http.Response, v any) {
 	defer resp.Body.Close()
 	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
 		t.Fatalf("decode response: %v", err)
-	}
-}
-
-func TestLockGateRejectsAPIWhileLocked(t *testing.T) {
-	srv, _ := newLockedTestServer(t)
-
-	locked := []struct {
-		method string
-		path   string
-	}{
-		{http.MethodGet, "/api/categories"},
-		{http.MethodPost, "/api/transactions/query"},
-		{http.MethodGet, "/api/payables"},
-		{http.MethodGet, "/api/automation-rules"},
-		{http.MethodGet, "/api/sync-runs"},
-	}
-	for _, tc := range locked {
-		resp := doJSON(t, tc.method, srv.URL+tc.path, nil)
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusLocked {
-			t.Errorf("%s %s while locked: status = %d, want 423", tc.method, tc.path, resp.StatusCode)
-		}
-	}
-
-	exempt := []struct {
-		method string
-		path   string
-	}{
-		{http.MethodGet, "/api/setup/status"},
-		{http.MethodGet, "/health"},
-	}
-	for _, tc := range exempt {
-		resp := doJSON(t, tc.method, srv.URL+tc.path, nil)
-		resp.Body.Close()
-		if resp.StatusCode == http.StatusLocked {
-			t.Errorf("%s %s should not be gated by the lock, got 423", tc.method, tc.path)
-		}
-	}
-
-	// Once configured and unlocked, the same route that was 423 must work.
-	resp := doJSON(t, http.MethodPost, srv.URL+"/api/setup", map[string]string{
-		"password": testPassword, "pluggy_client_id": "cid",
-		"pluggy_client_secret": "csecret", "pluggy_item_id": "item-1",
-	})
-	resp.Body.Close()
-	if resp.StatusCode != 201 {
-		t.Fatalf("setup status = %d, want 201", resp.StatusCode)
-	}
-	resp = doJSON(t, http.MethodGet, srv.URL+"/api/categories", nil)
-	resp.Body.Close()
-	if resp.StatusCode != 200 {
-		t.Errorf("categories after setup: status = %d, want 200", resp.StatusCode)
-	}
-}
-
-func TestSetupAndUnlockFlow(t *testing.T) {
-	srv, _ := newLockedTestServer(t)
-
-	resp := doJSON(t, http.MethodGet, srv.URL+"/api/setup/status", nil)
-	var status map[string]any
-	decodeJSON(t, resp, &status)
-	if status["configured"] != false || status["unlocked"] != false {
-		t.Fatalf("initial status = %+v, want configured=false unlocked=false", status)
-	}
-
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/setup", map[string]string{
-		"password": "correct horse battery staple", "pluggy_client_id": "cid",
-		"pluggy_client_secret": "csecret", "pluggy_item_id": "item-1",
-	})
-	if resp.StatusCode != 201 {
-		t.Fatalf("setup status = %d, want 201", resp.StatusCode)
-	}
-	decodeJSON(t, resp, &status)
-	if status["configured"] != true || status["unlocked"] != true {
-		t.Errorf("post-setup status = %+v", status)
-	}
-
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/setup", map[string]string{"password": "another password", "pluggy_client_id": "a", "pluggy_client_secret": "b", "pluggy_item_id": "c"})
-	resp.Body.Close()
-	if resp.StatusCode != 409 {
-		t.Errorf("second setup status = %d, want 409", resp.StatusCode)
-	}
-
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/unlock", map[string]string{"password": "wrong"})
-	resp.Body.Close()
-	if resp.StatusCode != 401 {
-		t.Errorf("wrong password unlock status = %d, want 401", resp.StatusCode)
-	}
-
-	resp = doJSON(t, http.MethodPost, srv.URL+"/api/unlock", map[string]string{"password": "correct horse battery staple"})
-	if resp.StatusCode != 200 {
-		t.Fatalf("unlock status = %d, want 200", resp.StatusCode)
-	}
-	decodeJSON(t, resp, &status)
-	if status["unlocked"] != true {
-		t.Errorf("unlock result = %+v", status)
 	}
 }
 

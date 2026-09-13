@@ -10,10 +10,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/google/uuid"
-
 	"contadinho-go/internal/datasources"
 	"contadinho-go/internal/db"
+	"contadinho-go/internal/syncsvc"
 )
 
 var resultMessages = map[string]string{
@@ -137,11 +136,8 @@ func handleCreateSyncRun(conn *sql.DB) http.HandlerFunc {
 		var active sql.NullString
 		failed, busy := 0, 0
 		for _, target := range targets {
-			runID := uuid.NewString()
-			_, err := conn.ExecContext(r.Context(),
-				`INSERT INTO sync_runs (id, source_id, status, started_at) VALUES (?, ?, 'in_progress', ?)`,
-				runID, target.ID, db.FormatTime(time.Now()))
-			if db.IsUniqueViolationOn(err, db.ConstraintActiveSyncRunSQLite, db.ConstraintActiveSyncRunPostgres) {
+			runID, isBusy, err := syncsvc.Enqueue(r.Context(), conn, target.ID, time.Now())
+			if isBusy {
 				// uq_sync_runs_active_source rejected it: this connection is
 				// mid-sync. Remember the first one so a request that starts
 				// nothing can still point at something to watch.

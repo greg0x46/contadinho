@@ -1,3 +1,4 @@
+import { apiFetch } from "./transport";
 import {
   parseProblem,
   parseTimelineDataRange,
@@ -39,7 +40,7 @@ export async function getTimeline(params: TimelineParams, signal?: AbortSignal):
 async function request(url: string, signal?: AbortSignal): Promise<Response> {
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await apiFetch(url, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal,

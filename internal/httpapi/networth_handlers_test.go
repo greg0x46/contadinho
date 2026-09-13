@@ -64,7 +64,7 @@ func TestGetNetWorthComputesBreakdownFromLiveData(t *testing.T) {
 	exec(`INSERT INTO payables (id, kind, name, total_amount, starting_settled_amount, created_at, updated_at)
 		VALUES (?, 'receivable', 'A receber', '150.00', '0', ?, ?)`, uuid.NewString(), now, now)
 
-	resp, err := http.Get(srv.URL + "/api/net-worth")
+	resp, err := testGet(t, srv.URL+"/api/net-worth")
 	if err != nil {
 		t.Fatalf("GET /api/net-worth: %v", err)
 	}
@@ -103,14 +103,14 @@ func TestGetNetWorthComputesBreakdownFromLiveData(t *testing.T) {
 func TestGetNetWorthIsIdempotentWithinTheSameDay(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	first, err := http.Get(srv.URL + "/api/net-worth")
+	first, err := testGet(t, srv.URL+"/api/net-worth")
 	if err != nil {
 		t.Fatalf("GET /api/net-worth (first): %v", err)
 	}
 	var firstBody map[string]any
 	decodeJSON(t, first, &firstBody)
 
-	second, err := http.Get(srv.URL + "/api/net-worth")
+	second, err := testGet(t, srv.URL+"/api/net-worth")
 	if err != nil {
 		t.Fatalf("GET /api/net-worth (second): %v", err)
 	}

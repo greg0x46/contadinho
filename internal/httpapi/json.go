@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 )
 
@@ -16,7 +17,10 @@ func decodeStrict(r *http.Request, v any) error {
 	}
 	var extra json.RawMessage
 	if err := dec.Decode(&extra); err != nil {
-		return nil // io.EOF is the well-formed case: no trailing data.
+		if err == io.EOF {
+			return nil
+		}
+		return err
 	}
 	return errTrailingData
 }

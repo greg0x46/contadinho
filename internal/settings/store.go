@@ -10,12 +10,12 @@ import (
 	"contadinho-go/internal/db"
 )
 
-// ErrLocked is returned by Get/Set for an encrypted key when no unlock key
-// is supplied — the caller must have the user unlock first.
+// ErrLocked means that an encryption key was not supplied by the caller.
+// It does not represent browser authentication.
 var ErrLocked = errors.New("settings: locked")
 
 // Set stores value under key. When encrypted is true, key is a byte
-// requiring unlockKey (from a successful Setup or VerifyPassword) to encrypt
+// requiring the externally configured encryption key to encrypt
 // it before writing — plaintext config (e.g. sync intervals) should pass
 // encrypted=false and a nil key.
 func Set(ctx context.Context, q Querier, key, value string, encrypted bool, unlockKey []byte) error {

@@ -85,7 +85,7 @@ func Setup(ctx context.Context, q Querier, password string) ([]byte, error) {
 }
 
 // VerifyPassword derives a key from password and confirms it against the
-// stored verifier, returning the key for the caller to hold (see Session)
+// stored legacy verifier, returning the key for migration
 // only when it's actually correct.
 func VerifyPassword(ctx context.Context, q Querier, password string) ([]byte, error) {
 	var saltB64, verifierB64 string

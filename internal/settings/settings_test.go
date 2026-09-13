@@ -134,18 +134,17 @@ func TestGetMissingKey(t *testing.T) {
 	}
 }
 
-func TestSessionLifecycle(t *testing.T) {
-	s := settings.NewSession()
-	if _, unlocked := s.Key(); unlocked {
-		t.Fatal("new session should start locked")
+func TestSecretsCopiesKey(t *testing.T) {
+	key := make([]byte, 32)
+	keys := settings.NewSecrets(key)
+	key[0] = 1
+	got, ok := keys.Key()
+	if !ok || got[0] != 0 {
+		t.Fatal("input key was aliased")
 	}
-	s.Unlock([]byte("key-material"))
-	key, unlocked := s.Key()
-	if !unlocked || string(key) != "key-material" {
-		t.Errorf("after Unlock: key=%q unlocked=%v", key, unlocked)
-	}
-	s.Lock()
-	if _, unlocked := s.Key(); unlocked {
-		t.Error("session should be locked after Lock")
+	got[0] = 2
+	again, _ := keys.Key()
+	if again[0] != 0 {
+		t.Fatal("returned key was aliased")
 	}
 }
