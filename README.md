@@ -1,7 +1,7 @@
 # Contadinho
 
 Contadinho é um rastreador de finanças pessoais self-hosted, feito para uma
-única pessoa rodar no próprio computador. Ele sincroniza a movimentação da
+única pessoa acessar localmente ou em uma instalação online. Ele sincroniza a movimentação da
 sua conta bancária e cartão de crédito através da API de Open Finance da
 [Pluggy](#open-finance--pluggy) — que autoriza você a ler seus próprios
 dados financeiros, não a gerenciar os de outras pessoas — e então permite
@@ -10,8 +10,8 @@ acompanhar dívidas (como compras parceladas ou empréstimos) em relação às
 transações que as quitam.
 
 Ele roda como um único binário Go com o frontend React embutido dentro dele
-— não há servidor de frontend separado, proxy reverso ou container para
-rodar em produção. Os dados ficam em um único arquivo SQLite local.
+— sem runtime de frontend em produção. O banco padrão é SQLite, com
+Postgres opcional. Para acesso online, a hospedagem deve fornecer HTTPS.
 
 ## Documentação de domínio e contribuindo
 
@@ -28,26 +28,23 @@ desatualizado.
 
 ## Por que um binário único
 
-Rodar o Contadinho não exige instalar ou configurar nada além do próprio
-binário:
+O Contadinho concentra aplicação e frontend em um binário, com configuração
+de autenticação independente da hospedagem:
 
 - **Um único arquivo para rodar.** `go build` gera um único executável com
   o frontend já embutido. Sem Docker, sem proxy reverso, sem precisar do
   runtime do Node em produção (o Node só é necessário uma vez, para
   compilar o frontend).
 - **Um único arquivo como banco de dados (por padrão).** Com SQLite —
-  o padrão —, todo o estado da aplicação é o arquivo `contadinho.db` —
-  copie, faça backup, mova para outro computador, apague, como qualquer
-  outro arquivo. Sem servidor de banco de dados para instalar ou manter
+  o padrão —, os dados e sessões ficam no arquivo `contadinho.db`.
+  Preserve também a chave externa de criptografia ao mover ou restaurar
+  a instalação. Sem servidor de banco de dados para instalar ou manter
   rodando. Para rodar várias instâncias do Contadinho compartilhando um
   banco na nuvem, Postgres é uma opção — veja
   [Rodando com Postgres](#rodando-com-postgres).
-- **Zero configuração para começar.** As flags `-addr` e `-db` existem para
-  permitir sobrescrever os padrões, mas nada exige isso — `./contadinho`
-  sozinho já sobe um servidor funcional em `localhost:4200`, gravando em
-  `./contadinho.db` ao lado do binário. A configuração inicial (senha,
-  credenciais da Pluggy) acontece pelo navegador, na primeira vez que você
-  abre o app — não existe arquivo `.env` para editar manualmente.
+- **Configuração independente de hospedagem.** A conta é criada pelo terminal;
+  a origem pública e a chave de criptografia são fornecidas por configuração.
+  O app não depende de SDKs de nuvem ou serviços externos de autenticação.
 
 ## Funcionalidades
 
@@ -81,12 +78,11 @@ binário:
   menor saldo até lá, e como cenários hipotéticos mudam essa resposta.
 - **Patrimônio líquido** — snapshots e histórico de patrimônio (ativos −
   passivos) ao longo do tempo.
-- **Segredos criptografados em repouso** — as credenciais da Pluggy e
-  outras configurações sensíveis ficam armazenadas no SQLite criptografadas
-  com AES-256-GCM, usando uma chave derivada (Argon2id) de uma senha
-  definida na primeira execução. A chave existe apenas na memória do
-  processo do servidor; o app volta a ficar bloqueado sempre que o processo
-  reinicia.
+- **Autenticação por navegador** — login com e-mail e senha para a conta
+  proprietária, sessões persistidas, saída e troca de senha. Sem cadastro público.
+- **Segredos criptografados em repouso** — credenciais Pluggy protegidas com
+  AES-256-GCM por uma chave independente da senha, fornecida pelo ambiente ou
+  por arquivo. O worker funciona após reinícios sem exigir login.
 
 ## Stack técnica
 
@@ -118,14 +114,79 @@ binário:
 
 ```sh
 ./build.sh
-./contadinho
 ```
 
-Por padrão, o servidor escuta em `http://localhost:4200` (`-addr` para
-sobrescrever) e guarda o banco de dados em `./contadinho.db` (`-db` para
-sobrescrever). Na primeira requisição, abra o app no navegador e complete a
-tela de configuração — ela pede uma senha de desbloqueio e suas credenciais
-da Pluggy, que em seguida são criptografadas e armazenadas.
+Antes de iniciar, configure a chave de criptografia e crie ou migre a conta.
+O servidor recusa iniciar sem autenticação preparada ou com chave inválida.
+
+### Autenticação e chave de criptografia
+
+Gere **uma única vez** uma chave de 32 bytes em Base64, em arquivo fora do
+repositório. O exemplo recusa sobrescrever um arquivo existente:
+
+```sh
+mkdir -p "$HOME/.config/contadinho"
+(umask 077; set -C; openssl rand -base64 32 > "$HOME/.config/contadinho/master.key")
+export CONTADINHO_MASTER_KEY_FILE="$HOME/.config/contadinho/master.key"
+export CONTADINHO_PUBLIC_URL="http://localhost:4200"
+```
+
+Alternativamente, forneça o Base64 em `CONTADINHO_MASTER_KEY` pelo mecanismo
+de segredos da hospedagem. Defina exatamente uma das duas fontes. Não inclua
+valores no repositório, argumentos, logs ou variáveis `VITE_*`.
+
+`CONTADINHO_PUBLIC_URL` é a origem vista pelo navegador, sem caminho ou barra
+final. Para uso online, use `https://seu-hostname`; HTTP é permitido somente
+em `localhost`, `127.0.0.1` ou `::1`, para desenvolvimento. O HTTPS pode ser
+terminado externamente; a aplicação não confia em headers de proxy para
+escolher a política do cookie ou a origem permitida.
+
+Para banco novo:
+
+```sh
+./contadinho auth init -db ./contadinho.db
+./contadinho -db ./contadinho.db
+```
+
+O comando solicita e-mail e senha de 15–128 caracteres em terminal interativo,
+sem eco da senha. Entre no navegador e configure as credenciais da Pluggy em
+**Configurações**; o Item ID opcional cadastra uma nova conexão. Conexões
+adicionais continuam disponíveis em **Open Banking**.
+
+Para migrar seu banco existente:
+
+1. Pare a versão antiga e faça backup consistente do banco.
+2. Configure e preserve a nova chave.
+3. Execute `./contadinho auth migrate -db ./contadinho.db`.
+4. Informe a senha antiga de desbloqueio, seu e-mail e a nova senha de login.
+5. Inicie o aplicativo com a mesma chave configurada.
+
+A migração recriptografa todos os segredos e cria a conta numa transação;
+falhas não deixam conversão parcial. O verificador antigo é removido e uma
+segunda migração é recusada. Guarde o backup anterior para retorno à versão
+antiga: após a migração, o binário antigo não consegue ler os segredos novos.
+Não execute a migração com o aplicativo em funcionamento.
+
+Preserve uma cópia segura da chave separada do backup do banco. A recuperação
+da senha **não** recupera uma chave perdida. Trocar o arquivo por outra chave
+não é rotação: o servidor recusará iniciar. Rotação de chave não faz parte
+desta versão.
+
+Para recuperar acesso pelo terminal, mantendo a criptografia:
+
+```sh
+./contadinho auth reset-password -db ./contadinho.db
+```
+
+Esse comando dispensa a chave, exige uma nova senha e revoga todas as sessões.
+A troca em **Configurações** exige a senha atual e também encerra todas as
+sessões. **Sair** encerra apenas a sessão do navegador atual.
+
+Sessões duram no máximo sete dias, com expiração após 24 horas sem uso, e
+sobrevivem a reinícios. Todos os acessos privados são verificados no backend.
+Login aceita até cinco tentativas por minuto por e-mail e trinta por minuto
+no processo; o limite reinicia junto com o processo. Escritas HTTP exigem
+`Origin` igual à origem configurada e `X-Contadinho-Request: 1`.
 
 ### Rodando com Postgres
 
@@ -140,21 +201,34 @@ para o mesmo banco na nuvem —, passe uma DSN `postgres://` (ou
 
 O driver é detectado automaticamente pelo prefixo da DSN. As migrações do
 schema Postgres são aplicadas automaticamente, do mesmo jeito que as do
-SQLite — nenhuma etapa manual de setup do banco é necessária além de ele
-existir e estar acessível. Cada instância ainda precisa do próprio
-`POST /api/unlock` (ou tela de configuração) na primeira vez que atende uma
-requisição — a chave de criptografia é derivada da senha de forma
-determinística, então qualquer instância com a senha correta decifra o que
-outra instância gravou, mas o estado "desbloqueado" em si vive na memória de
-cada processo, não é compartilhado entre eles.
+SQLite. Os comandos `auth init`, `auth migrate` e `auth reset-password`
+aceitam a mesma DSN na flag `-db` ou em `CONTADINHO_DB`. Sessões e conta ficam
+no banco; a chave de criptografia permanece externa a ele.
 
 O worker de sincronização em segundo plano assume que só uma instância o
 executa por vez — hoje ele não coordena a reivindicação de execuções de
 sincronização entre múltiplos processos/instâncias.
 
+### Sincronização agendada
+
+Como as rotas da API exigem sessão do navegador, um cron externo não consegue
+mais disparar `POST /api/sync-runs`. Em vez disso, defina
+`CONTADINHO_SYNC_SCHEDULE` para que o próprio processo enfileire, uma vez por
+dia, uma sincronização de cada conexão ativa:
+
+```sh
+export CONTADINHO_SYNC_SCHEDULE="06:00"                  # horário local do processo
+export CONTADINHO_SYNC_SCHEDULE="06:00 America/Sao_Paulo" # ou com fuso IANA explícito
+```
+
+Se o processo estiver parado no horário, a sincronização pendente é
+enfileirada assim que ele subir; uma conexão que já sincronizou (inclusive
+manualmente) depois do horário do dia não é repetida. Vazio desabilita.
+
 ### Rodar para desenvolvimento local
 
-O script abaixo inicia o backend e o Vite juntos. O frontend fica com hot
+Depois de configurar a chave e preparar a conta com `go run ./cmd/contadinho auth init`
+(ou `auth migrate` para banco antigo), o script abaixo inicia backend e Vite juntos. O frontend fica com hot
 reload e as requisições de `/api` são encaminhadas automaticamente para o
 backend:
 
@@ -162,7 +236,9 @@ backend:
 ./dev.sh
 ```
 
-Abra `http://localhost:5173`. `Ctrl-C` encerra os dois processos. Para
+Abra `http://localhost:5173`. O script usa essa origem como padrão de
+`CONTADINHO_PUBLIC_URL`; se você já exportou outra origem, ajuste-a para a
+URL do Vite. `Ctrl-C` encerra os dois processos. Para
 sobrescrever as portas:
 
 ```sh
@@ -229,7 +305,8 @@ internal/
   scenarios/                         projeções hipotéticas e planos de pagamento
   timeline/                            funde lançamentos + recorrências + cenários numa série única
   networth/                              snapshots de patrimônio líquido
-  settings/                                armazenamento de configurações criptografadas, autenticação, sessões
+  auth/                                    conta proprietária, senhas e sessões por navegador
+  settings/                                configurações criptografadas e migração dos segredos legados
   httpapi/                                   handlers HTTP e roteamento
   webui/                                       embute o frontend compilado
 frontend/            SPA React/TypeScript (Vite)

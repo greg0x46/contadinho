@@ -2426,30 +2426,6 @@ export function parseAccountBillList(value: unknown): AccountBill[] {
   return value.map(parseAccountBill);
 }
 
-export interface SetupStatus {
-  configured: boolean;
-  unlocked: boolean;
-}
-
-export interface SetupRequest {
-  password: string;
-  pluggy_client_id: string;
-  pluggy_client_secret: string;
-  pluggy_item_id: string;
-}
-
-export interface UnlockRequest {
-  password: string;
-}
-
-export function parseSetupStatus(value: unknown): SetupStatus {
-  const status = requiredRecord(value, ["configured", "unlocked"], "Estado de configuração inválido.");
-  if (typeof status.configured !== "boolean" || typeof status.unlocked !== "boolean") {
-    throw new TypeError("Estado de configuração inválido.");
-  }
-  return { configured: status.configured, unlocked: status.unlocked };
-}
-
 export function parseProblem(value: unknown): Problem {
   if (
     !isRecord(value) ||

@@ -1,3 +1,4 @@
+import { apiFetch } from "./transport";
 import type { HomePeriod } from "../hooks/useHomePeriod";
 import { requestJson } from "./client";
 import { parseCategoryBreakdown, type CategoryDirection } from "./contracts";
@@ -28,7 +29,7 @@ export async function queryTransactions(
 ): Promise<TransactionQueryResult> {
   let response: Response;
   try {
-    response = await fetch("/api/transactions/query", {
+    response = await apiFetch("/api/transactions/query", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(query),
@@ -81,7 +82,7 @@ export async function getSpendingByCategory(
   if (scenarioId !== undefined) params.set("scenario_id", scenarioId);
   let response: Response;
   try {
-    response = await fetch(`/api/transactions/spending-by-category?${params.toString()}`, {
+    response = await apiFetch(`/api/transactions/spending-by-category?${params.toString()}`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal,
@@ -130,7 +131,7 @@ export async function setTransactionInclusion(
 ): Promise<TransactionInclusionResult> {
   let response: Response;
   try {
-    response = await fetch(`/api/transactions/${transactionId}/inclusion`, {
+    response = await apiFetch(`/api/transactions/${transactionId}/inclusion`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ state }),
@@ -178,7 +179,7 @@ export async function setTransactionCategory(
 ): Promise<TransactionCategoryResult> {
   let response: Response;
   try {
-    response = await fetch(`/api/transactions/${transactionId}/category`, {
+    response = await apiFetch(`/api/transactions/${transactionId}/category`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ category_id: categoryId }),
@@ -228,7 +229,7 @@ async function sendManualTransaction(
 ): Promise<TransactionItem> {
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await apiFetch(url, {
       method,
       headers: { "content-type": "application/json" },
       body: JSON.stringify(write),
@@ -290,7 +291,7 @@ export async function deleteManualTransaction(transactionId: string): Promise<vo
   const failure = "Não foi possível excluir o lançamento manual.";
   let response: Response;
   try {
-    response = await fetch(`/api/transactions/${encodeURIComponent(transactionId)}`, { method: "DELETE" });
+    response = await apiFetch(`/api/transactions/${encodeURIComponent(transactionId)}`, { method: "DELETE" });
   } catch (error) {
     if (isAbortError(error)) throw error;
     throw new ApiError("transport", failure);
@@ -326,7 +327,7 @@ export async function getTransactionReconciliation(
   const failure = "Não foi possível consultar a conciliação desta transação.";
   let response: Response;
   try {
-    response = await fetch(`/api/transactions/${encodeURIComponent(transactionId)}/reconciliation`, {
+    response = await apiFetch(`/api/transactions/${encodeURIComponent(transactionId)}/reconciliation`, {
       method: "GET",
       headers: { Accept: "application/json" },
       signal,

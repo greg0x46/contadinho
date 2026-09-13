@@ -1,3 +1,5 @@
+import { AuthenticationSettings } from "../components/AuthenticationSettings";
+import { PluggySettings } from "../components/PluggySettings";
 import { PageContainer } from "@ant-design/pro-layout";
 import { Alert, Button, Card, Flex, Radio, Skeleton, Typography } from "antd";
 import { useEffect, useState } from "react";
@@ -51,6 +53,8 @@ export function SettingsPage() {
       title="Configurações"
       subTitle="Preferências gerais do Contadinho"
     >
+      <AuthenticationSettings />
+      <PluggySettings />
       <Card title="Mês das transações de cartão de crédito">
         {loading ? (
           <Skeleton active paragraph={{ rows: 2 }} />

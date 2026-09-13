@@ -4,7 +4,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { HomePage } from "../pages/HomePage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { App } from "./App";
-import { SetupGate } from "./SetupGate";
+import { AuthGate } from "./AuthGate";
 
 const SyncRunListPage = lazy(() =>
   import("../pages/SyncRunListPage").then((module) => ({
@@ -94,9 +94,9 @@ export function AppRouter() {
         <Routes>
           <Route
             element={
-              <SetupGate>
+              <AuthGate>
                 <App />
-              </SetupGate>
+              </AuthGate>
             }
           >
             <Route index element={<HomePage />} />

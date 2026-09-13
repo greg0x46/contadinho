@@ -1,3 +1,4 @@
+import { apiFetch } from "./transport";
 import {
   parseInvestment,
   parseInvestmentList,
@@ -19,7 +20,7 @@ async function send<T>(
 ): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(input, init);
+    response = await apiFetch(input, init);
   } catch (error) {
     if (isAbortError(error)) throw error;
     throw new ApiError("transport", defaultMessage);

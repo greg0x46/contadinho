@@ -1,9 +1,5 @@
-// Package settings stores application configuration — including Pluggy
-// credentials — in the SQLite `settings` table instead of a .env file, per
-// the project goal's "config e segredos" requirement. Values marked
-// sensitive are encrypted at rest with a key derived (Argon2id) from a
-// passphrase the user sets up once from the frontend; the derived key lives
-// only in server process memory (see Session) and is never itself persisted.
+// Package settings encrypts sensitive configuration with AES-256-GCM.
+// Password derivation below is retained only to migrate legacy databases.
 package settings
 
 import (

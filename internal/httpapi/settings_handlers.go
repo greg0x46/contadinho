@@ -1,112 +1,48 @@
 package httpapi
 
 import (
-	"database/sql"
-	"errors"
-	"net/http"
-
 	"contadinho-go/internal/datasources"
 	"contadinho-go/internal/settings"
+	"database/sql"
+	"net/http"
 )
 
-type setupStatusDTO struct {
-	Configured bool `json:"configured"`
-	Unlocked   bool `json:"unlocked"`
-}
-
-func handleSetupStatus(db *sql.DB, session *settings.Session) http.HandlerFunc {
+// Credentials are write-only and may be configured only by an authenticated owner.
+func handlePluggySettings(db *sql.DB, keys *settings.Secrets) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		configured, err := settings.IsConfigured(r.Context(), db)
-		if err != nil {
-			writeProblem(w, 503, "setup-unavailable", "Configuração temporariamente indisponível", "Tente novamente em instantes.")
+		r.Body = http.MaxBytesReader(w, r.Body, 16384)
+		var req struct {
+			ClientID     string `json:"pluggy_client_id"`
+			ClientSecret string `json:"pluggy_client_secret"`
+			ItemID       string `json:"pluggy_item_id"`
+		}
+		if decodeStrict(r, &req) != nil || req.ClientID == "" || req.ClientSecret == "" {
+			writeProblem(w, 422, "invalid-settings", "Credenciais inválidas", "Informe client ID e client secret da Pluggy.")
 			return
 		}
-		_, unlocked := session.Key()
-		writeJSON(w, http.StatusOK, setupStatusDTO{Configured: configured, Unlocked: unlocked})
-	}
-}
-
-type setupRequest struct {
-	Password           string `json:"password"`
-	PluggyClientID     string `json:"pluggy_client_id"`
-	PluggyClientSecret string `json:"pluggy_client_secret"`
-	PluggyItemID       string `json:"pluggy_item_id"`
-}
-
-// handleSetup runs the one-time setup screen: sets the passphrase that
-// derives the at-rest encryption key, stores the Pluggy API credentials
-// encrypted, and registers the first connection. The credentials are
-// app-wide — every item lives under the same Pluggy application — while the
-// item id becomes a data_sources row, which is what later connections are
-// added as too (POST /api/data-sources). It unlocks the session immediately
-// so sync can start without asking the user to re-enter the password they
-// just chose.
-func handleSetup(db *sql.DB, session *settings.Session) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var req setupRequest
-		if err := decodeStrict(r, &req); err != nil {
-			writeProblem(w, 422, "invalid-setup", "Configuração inválida", "Revise os campos enviados.")
+		key, ok := keys.Key()
+		if !ok {
+			writeProblem(w, 503, "settings-unavailable", "Configuração indisponível", "")
 			return
 		}
-		if len(req.Password) < 8 || req.PluggyClientID == "" || req.PluggyClientSecret == "" || req.PluggyItemID == "" {
-			writeProblem(w, 422, "invalid-setup", "Configuração inválida",
-				"A senha deve ter ao menos 8 caracteres e as credenciais do Pluggy são obrigatórias.")
-			return
-		}
-
-		key, err := settings.Setup(r.Context(), db, req.Password)
-		if errors.Is(err, settings.ErrAlreadyConfigured) {
-			writeProblem(w, 409, "already-configured", "Aplicação já configurada", "")
-			return
+		tx, err := db.BeginTx(r.Context(), nil)
+		if err == nil {
+			defer tx.Rollback()
+			err = settings.Set(r.Context(), tx, "pluggy.client_id", req.ClientID, true, key)
+			if err == nil {
+				err = settings.Set(r.Context(), tx, "pluggy.client_secret", req.ClientSecret, true, key)
+			}
+			if err == nil && req.ItemID != "" {
+				_, err = datasources.Create(r.Context(), tx, datasources.ProviderPluggy, req.ItemID, nil)
+			}
+			if err == nil {
+				err = tx.Commit()
+			}
 		}
 		if err != nil {
-			writeProblem(w, 503, "setup-unavailable", "Configuração temporariamente indisponível", "Tente novamente em instantes.")
+			writeProblem(w, 503, "settings-unavailable", "Não foi possível salvar as credenciais", "")
 			return
 		}
-
-		if err := settings.Set(r.Context(), db, "pluggy.client_id", req.PluggyClientID, true, key); err != nil {
-			writeProblem(w, 503, "setup-unavailable", "Configuração temporariamente indisponível", "Tente novamente em instantes.")
-			return
-		}
-		if err := settings.Set(r.Context(), db, "pluggy.client_secret", req.PluggyClientSecret, true, key); err != nil {
-			writeProblem(w, 503, "setup-unavailable", "Configuração temporariamente indisponível", "Tente novamente em instantes.")
-			return
-		}
-		if _, err := datasources.Create(r.Context(), db, datasources.ProviderPluggy, req.PluggyItemID, nil); err != nil {
-			writeProblem(w, 503, "setup-unavailable", "Configuração temporariamente indisponível", "Tente novamente em instantes.")
-			return
-		}
-
-		session.Unlock(key)
-		writeJSON(w, http.StatusCreated, setupStatusDTO{Configured: true, Unlocked: true})
-	}
-}
-
-type unlockRequest struct {
-	Password string `json:"password"`
-}
-
-func handleUnlock(db *sql.DB, session *settings.Session) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var req unlockRequest
-		if err := decodeStrict(r, &req); err != nil {
-			writeProblem(w, 422, "invalid-unlock", "Solicitação de desbloqueio inválida", "Informe a senha.")
-			return
-		}
-		key, err := settings.VerifyPassword(r.Context(), db, req.Password)
-		if errors.Is(err, settings.ErrNotConfigured) {
-			writeProblem(w, 409, "not-configured", "Aplicação ainda não configurada", "")
-			return
-		}
-		if errors.Is(err, settings.ErrIncorrectPassword) {
-			writeProblem(w, 401, "incorrect-password", "Senha incorreta", "")
-			return
-		}
-		if err != nil {
-			writeProblem(w, 503, "unlock-unavailable", "Desbloqueio temporariamente indisponível", "Tente novamente em instantes.")
-			return
-		}
-		session.Unlock(key)
-		writeJSON(w, http.StatusOK, setupStatusDTO{Configured: true, Unlocked: true})
+		writeJSON(w, 200, map[string]bool{"saved": true})
 	}
 }

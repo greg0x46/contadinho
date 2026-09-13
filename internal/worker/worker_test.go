@@ -1,6 +1,7 @@
 package worker_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -13,12 +14,15 @@ import (
 
 	"github.com/google/uuid"
 
+	"contadinho-go/internal/auth"
 	"contadinho-go/internal/datasources"
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/pluggy"
 	"contadinho-go/internal/settings"
 	"contadinho-go/internal/worker"
 )
+
+const connEmail = "owner@example.com"
 
 func newTestConn(t *testing.T) *sql.DB {
 	t.Helper()
@@ -117,7 +121,8 @@ func TestProcessClaimUsesTheRunsOwnConnection(t *testing.T) {
 	defer provider.Close()
 
 	ctx := context.Background()
-	key, err := settings.Setup(ctx, conn, "correct horse battery staple")
+	key := bytes.Repeat([]byte{7}, 32)
+	err := auth.NewStore(conn).Initialize(ctx, connEmail, "correct horse battery staple", key, nil)
 	if err != nil {
 		t.Fatalf("Setup: %v", err)
 	}
@@ -126,8 +131,7 @@ func TestProcessClaimUsesTheRunsOwnConnection(t *testing.T) {
 			t.Fatalf("Set %s: %v", name, err)
 		}
 	}
-	session := settings.NewSession()
-	session.Unlock(key)
+	session := settings.NewSecrets(key)
 
 	cfg := worker.Config{Pluggy: pluggy.DefaultConfig()}
 	cfg.Pluggy.BaseURL = provider.URL
@@ -156,7 +160,8 @@ func TestProcessClaimRejectsAnUnknownConnection(t *testing.T) {
 	_, runID := insertSourceAndRun(t, conn, "item-1", "in_progress", time.Now())
 
 	ctx := context.Background()
-	key, err := settings.Setup(ctx, conn, "correct horse battery staple")
+	key := bytes.Repeat([]byte{7}, 32)
+	err := auth.NewStore(conn).Initialize(ctx, connEmail, "correct horse battery staple", key, nil)
 	if err != nil {
 		t.Fatalf("Setup: %v", err)
 	}
@@ -165,8 +170,7 @@ func TestProcessClaimRejectsAnUnknownConnection(t *testing.T) {
 			t.Fatalf("Set %s: %v", name, err)
 		}
 	}
-	session := settings.NewSession()
-	session.Unlock(key)
+	session := settings.NewSecrets(key)
 
 	err = worker.ProcessClaim(ctx, conn, session, worker.Config{Pluggy: pluggy.DefaultConfig()},
 		runID, "does-not-exist")

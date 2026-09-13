@@ -9,6 +9,7 @@ backend_addr="${CONTADINHO_DEV_ADDR:-localhost:8000}"
 frontend_host="${VITE_DEV_HOST:-127.0.0.1}"
 frontend_port="${VITE_DEV_PORT:-5173}"
 backend_url="http://${backend_addr}"
+export CONTADINHO_PUBLIC_URL="${CONTADINHO_PUBLIC_URL:-http://localhost:${frontend_port}}"
 
 if ! command -v go >/dev/null 2>&1; then
   echo "Erro: Go não está instalado ou não está no PATH." >&2

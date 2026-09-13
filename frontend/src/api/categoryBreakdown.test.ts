@@ -12,12 +12,14 @@ describe("category breakdown API", () => {
   it("parses the response and sends the selected period, direction and cancellation signal", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const signal = new AbortController().signal;
+    const controller = new AbortController();
+    const signal = controller.signal;
     expect(await getCategoryBreakdown("America/Sao_Paulo", "2024-02", "inflow", signal)).toEqual(body);
     const [url, init] = fetchMock.mock.calls[0];
     const params = new URL(url, "http://localhost").searchParams;
     expect(Object.fromEntries(params)).toEqual({ timezone: "America/Sao_Paulo", month: "2024-02", classification: "inflow" });
-    expect(init.signal).toBe(signal);
+    controller.abort();
+    expect(init.signal.aborted).toBe(true);
   });
 
   it.each([
@@ -28,10 +30,12 @@ describe("category breakdown API", () => {
     const response = { ...totals, date_from: period.from, date_to: period.to };
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(response), { headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const signal = new AbortController().signal;
+    const controller = new AbortController();
+    const signal = controller.signal;
     expect(await getCategoryBreakdown("UTC", period, "inflow", signal)).toEqual(response);
     expect(Object.fromEntries(new URL(fetchMock.mock.calls[0][0], "http://localhost").searchParams)).toEqual({ timezone: "UTC", classification: "inflow", ...query });
-    expect(fetchMock.mock.calls[0][1].signal).toBe(signal);
+    controller.abort();
+    expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
   });
 
   it.each([

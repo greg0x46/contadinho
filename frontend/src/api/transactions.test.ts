@@ -12,9 +12,11 @@ describe("transaction API boundary", () => {
     const controller = new AbortController();
     const result = await queryTransactions(transactionQuery, controller.signal);
     expect(result.items[0]?.amount).toBe("123.4500");
+    controller.abort();
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/transactions/query",
-      expect.objectContaining({ method: "POST", signal: controller.signal }),
+      expect.objectContaining({ method: "POST", signal: expect.any(AbortSignal) }),
     );
   });
 
@@ -52,11 +54,10 @@ describe("transaction inclusion API boundary", () => {
     await expect(setTransactionInclusion(transactionId, "ignored")).resolves.toEqual(response);
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/transactions/${transactionId}/inclusion`,
-      {
+      expect.objectContaining({
         method: "PUT",
-        headers: { "content-type": "application/json" },
         body: JSON.stringify({ state: "ignored" }),
-      },
+      }),
     );
   });
 

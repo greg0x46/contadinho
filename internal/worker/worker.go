@@ -79,15 +79,15 @@ func ClaimNextRun(ctx context.Context, conn *sql.DB, workerID string) (syncRunID
 }
 
 // pluggyCredentials reads the decrypted Pluggy API credentials from settings;
-// returns ok=false if the session is locked or setup hasn't run yet, in which
+// returns ok=false if the server key or Pluggy credentials are unavailable, in which
 // case the caller should wait rather than fail the run.
 //
 // These are application-wide: every connection is an item under the same
 // Pluggy application. Which item a run covers is not read here — it comes
 // from the run's own source_id, see ProcessClaim.
-func pluggyCredentials(ctx context.Context, conn *sql.DB, session *settings.Session) (clientID, clientSecret string, ok bool) {
-	key, unlocked := session.Key()
-	if !unlocked {
+func pluggyCredentials(ctx context.Context, conn *sql.DB, secrets *settings.Secrets) (clientID, clientSecret string, ok bool) {
+	key, available := secrets.Key()
+	if !available {
 		return "", "", false
 	}
 	clientID, found, err := settings.Get(ctx, conn, "pluggy.client_id", key)
@@ -105,10 +105,10 @@ func pluggyCredentials(ctx context.Context, conn *sql.DB, session *settings.Sess
 // goroutine, which only matters for detecting a worker that's still alive
 // but stuck — not needed here since a hung sync in this process would hang
 // the whole binary, which is its own, more visible, failure mode).
-func ProcessClaim(ctx context.Context, conn *sql.DB, session *settings.Session, cfg Config, syncRunID, sourceID string) error {
-	clientID, clientSecret, ok := pluggyCredentials(ctx, conn, session)
+func ProcessClaim(ctx context.Context, conn *sql.DB, secrets *settings.Secrets, cfg Config, syncRunID, sourceID string) error {
+	clientID, clientSecret, ok := pluggyCredentials(ctx, conn, secrets)
 	if !ok {
-		return fmt.Errorf("pluggy credentials unavailable (locked or not configured)")
+		return fmt.Errorf("pluggy credentials unavailable")
 	}
 	// The item comes from the connection this run was created for, not from
 	// global config: with several connections registered, reading a single
@@ -140,7 +140,7 @@ func ProcessClaim(ctx context.Context, conn *sql.DB, session *settings.Session, 
 
 // Run mirrors run_worker: recovers stale runs once at startup, then loops
 // claiming and executing runs until ctx is cancelled.
-func Run(ctx context.Context, conn *sql.DB, session *settings.Session, cfg Config) {
+func Run(ctx context.Context, conn *sql.DB, secrets *settings.Secrets, cfg Config) {
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = time.Second
 	}
@@ -161,11 +161,11 @@ func Run(ctx context.Context, conn *sql.DB, session *settings.Session, cfg Confi
 		}
 
 		// Check credentials before claiming: a run claimed here but blocked
-		// on a locked session would sit forever with worker_id set, since
+		// before credentials exist would sit forever with worker_id set, since
 		// ClaimNextRun only looks at unclaimed rows. Waiting to claim until
 		// we can actually proceed keeps every claimed run either running or
 		// finished.
-		if _, _, ok := pluggyCredentials(ctx, conn, session); !ok {
+		if _, _, ok := pluggyCredentials(ctx, conn, secrets); !ok {
 			sleep(ctx, cfg.PollInterval)
 			continue
 		}
@@ -180,7 +180,7 @@ func Run(ctx context.Context, conn *sql.DB, session *settings.Session, cfg Confi
 			sleep(ctx, cfg.PollInterval)
 			continue
 		}
-		if err := ProcessClaim(ctx, conn, session, cfg, syncRunID, sourceID); err != nil {
+		if err := ProcessClaim(ctx, conn, secrets, cfg, syncRunID, sourceID); err != nil {
 			log.Printf("sync_run_processing_failed run_id=%s: %v", syncRunID, err)
 		}
 	}

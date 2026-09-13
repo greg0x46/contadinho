@@ -1,3 +1,4 @@
+import { apiFetch } from "./transport";
 import { parsePreferences, parseProblem, type Preferences, type Problem } from "./contracts";
 import { ApiError, isAbortError } from "./problems";
 
@@ -6,7 +7,7 @@ const defaultMessage = "Não foi possível salvar as preferências.";
 async function send(input: RequestInfo | URL, init: RequestInit, expectedStatus: number): Promise<Preferences> {
   let response: Response;
   try {
-    response = await fetch(input, init);
+    response = await apiFetch(input, init);
   } catch (error) {
     if (isAbortError(error)) throw error;
     throw new ApiError("transport", defaultMessage);
