@@ -98,8 +98,9 @@ export type CategoryKind = (typeof categoryKinds)[number];
 // "rule" mirrors categories.OriginRule (internal/categories/decisions.go):
 // set when a matching automation rule's set_category action assigns the
 // category, distinct from "automatic" (the source_category mapping) and
-// "manual" (the user).
-export const categoryOrigins = ["manual", "automatic", "rule"] as const;
+// "manual" (the user). "learned" mirrors categories.OriginLearned: the
+// category was copied from a past manual decision on a similar transaction.
+export const categoryOrigins = ["manual", "automatic", "rule", "learned"] as const;
 export type CategoryOrigin = (typeof categoryOrigins)[number];
 
 export interface TransactionFilters {

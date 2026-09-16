@@ -128,7 +128,14 @@ export const categoryKindColor: Record<CategoryKind, string> = {
 };
 
 export function internalCategoryOriginLabel(category: InternalCategory): string {
-  return category.origin === "manual" ? "Categorização manual" : "Categorização automática";
+  switch (category.origin) {
+    case "manual":
+      return "Categorização manual";
+    case "learned":
+      return "Categorização aprendida de uma decisão manual anterior";
+    default:
+      return "Categorização automática";
+  }
 }
 
 export function internalCategoryName(item: Pick<TransactionItem, "internal_category">): string {
