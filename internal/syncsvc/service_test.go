@@ -12,6 +12,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"contadinho-go/internal/automation"
+	"contadinho-go/internal/categories"
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/money"
 	"contadinho-go/internal/pluggy"
@@ -702,5 +703,89 @@ func TestExecuteFailsGeneralOnProviderError(t *testing.T) {
 	conn.QueryRow(`SELECT status, general_error_code FROM sync_runs WHERE id = ?`, syncRunID).Scan(&status, &generalCode)
 	if status != "failed" || generalCode != "invalid_provider_credentials" {
 		t.Errorf("status=%s generalCode=%s", status, generalCode)
+	}
+}
+
+// A transaction the user categorized by hand in an earlier sync becomes the
+// reference for a same-looking one inserted later: the learned decision
+// beats the Groceries → Supermercado mapping.
+func TestExecuteLearnsCategoryFromEarlierManualDecision(t *testing.T) {
+	conn := newTestConn(t)
+	sourceID, syncRunID := newSyncRun(t, conn)
+	insertRawImport(t, conn, "raw-item", syncRunID, sourceID)
+	insertRawImport(t, conn, "raw-accounts", syncRunID, sourceID)
+	insertRawImport(t, conn, "raw-tx-1", syncRunID, sourceID)
+
+	snapshot := func(externalID string) pluggy.TransactionSnapshot {
+		return pluggy.TransactionSnapshot{
+			ExternalID: externalID, ExternalAccountID: "acc-1", Amount: amountP("-35.00"),
+			AmountInAccountCurrency: amountP("-35.00"), CurrencyCode: strp("BRL"),
+			ProviderStatus: strp("POSTED"), MovementType: strp("DEBIT"), SourceCategory: strp("Groceries"),
+			Description: strp("Conveniencia Nova York"),
+		}
+	}
+	provider := &fakeProvider{
+		source:            defaultSource(),
+		sourceRawImportID: "raw-item",
+		accountsPage: pluggy.AccountsPage{
+			RawImportID: "raw-accounts",
+			Accounts:    []pluggy.AccountSnapshot{{ExternalID: "acc-1", CurrencyCode: strp("BRL")}},
+		},
+		transactionPages: map[string][]pluggy.TransactionsPage{
+			"acc-1": {{RawImportID: "raw-tx-1", Transactions: []pluggy.TransactionSnapshot{snapshot("tx-1")}}},
+		},
+	}
+	service := &syncsvc.Service{DB: conn, Provider: provider, SyncRunID: syncRunID, SourceID: sourceID}
+	if err := service.Execute(context.Background()); err != nil {
+		t.Fatalf("first Execute: %v", err)
+	}
+
+	// The user recategorizes it as Lazer.
+	lazer, err := categories.Create(context.Background(), conn, "Lazer", money.Expense, "tag", "#000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var firstID string
+	if err := conn.QueryRow(`SELECT id FROM financial_transactions WHERE external_id = 'tx-1'`).Scan(&firstID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := categories.AssignManual(context.Background(), conn, firstID, lazer.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// A second sync brings a new transaction at the same merchant.
+	syncRunID2 := uuid.NewString()
+	if _, err := conn.Exec(`INSERT INTO sync_runs (id, source_id, status, started_at) VALUES (?, ?, 'in_progress', ?)`,
+		syncRunID2, sourceID, db.FormatTime(time.Now())); err != nil {
+		t.Fatalf("insert second sync_run: %v", err)
+	}
+	insertRawImport(t, conn, "raw-item-2", syncRunID2, sourceID)
+	insertRawImport(t, conn, "raw-accounts-2", syncRunID2, sourceID)
+	insertRawImport(t, conn, "raw-tx-2", syncRunID2, sourceID)
+	provider.sourceRawImportID = "raw-item-2"
+	provider.accountsPage.RawImportID = "raw-accounts-2"
+	provider.transactionPages = map[string][]pluggy.TransactionsPage{
+		"acc-1": {{RawImportID: "raw-tx-2", Transactions: []pluggy.TransactionSnapshot{snapshot("tx-1"), snapshot("tx-2")}}},
+	}
+	service = &syncsvc.Service{DB: conn, Provider: provider, SyncRunID: syncRunID2, SourceID: sourceID}
+	if err := service.Execute(context.Background()); err != nil {
+		t.Fatalf("second Execute: %v", err)
+	}
+
+	var categoryID, origin string
+	err = conn.QueryRow(`
+		SELECT tcd.category_id, tcd.origin FROM transaction_category_decisions tcd
+		JOIN financial_transactions ft ON ft.id = tcd.transaction_id
+		WHERE ft.external_id = 'tx-2'`).Scan(&categoryID, &origin)
+	if err != nil {
+		t.Fatalf("query category decision: %v", err)
+	}
+	if categoryID != lazer.ID || origin != "learned" {
+		t.Errorf("category=%s origin=%s, want %s/learned", categoryID, origin, lazer.ID)
+	}
+	// The reference itself stays manual.
+	err = conn.QueryRow(`SELECT tcd.origin FROM transaction_category_decisions tcd WHERE tcd.transaction_id = ?`, firstID).Scan(&origin)
+	if err != nil || origin != "manual" {
+		t.Errorf("reference origin=%s err=%v", origin, err)
 	}
 }

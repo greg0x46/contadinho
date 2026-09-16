@@ -656,6 +656,13 @@ func (s *Service) upsertTransaction(ctx context.Context, accountID string, snaps
 		if err := categories.ApplyAutomatic(ctx, s.DB, transactionID, snapshot.SourceCategory); err != nil {
 			return err
 		}
+		// Learned goes last among the insert-only passes: a past manual
+		// decision on a same-looking transaction beats either automatic
+		// source above. The rules hook below may still override it —
+		// precedence is manual > rule > learned > automatic.
+		if _, err := categories.ApplyLearned(ctx, s.DB, transactionID); err != nil {
+			return err
+		}
 	}
 	if outcome == "inserted" || outcome == "updated" {
 		if s.OnTransactionUpserted != nil {

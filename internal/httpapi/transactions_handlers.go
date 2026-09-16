@@ -713,6 +713,16 @@ func handleCreateManualTransaction(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
+		// Same precedence as the sync path (syncsvc.upsertTransaction):
+		// a learned category from a past manual decision goes first so a
+		// matching rule can still override it; an explicit category_id in
+		// the request is a manual decision and overrides both.
+		if req.CategoryID == nil {
+			if _, err := categories.ApplyLearned(r.Context(), tx, id); err != nil {
+				manualTransactionUnavailableProblem(w)
+				return
+			}
+		}
 		if err := automation.ApplyToNewTransactionWithQuerier(r.Context(), tx, id, onIgnoredHook); err != nil {
 			manualTransactionUnavailableProblem(w)
 			return

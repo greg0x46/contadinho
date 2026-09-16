@@ -21,6 +21,13 @@ const (
 	// OriginRule is set by a matching automation rule's set_category
 	// action — see ApplyRule.
 	OriginRule Origin = "rule"
+	// OriginLearned is set by ApplyLearned (learned.go) when a newly
+	// ingested transaction looks like one the user categorized by hand
+	// before: same normalized description and movement type. It sits
+	// between rule and automatic in precedence — a rule may overwrite it,
+	// it may overwrite an automatic decision, and it never touches a manual
+	// or rule one.
+	OriginLearned Origin = "learned"
 )
 
 // Decision is a transaction's current category assignment.
@@ -64,8 +71,8 @@ func getDecision(ctx context.Context, q Querier, transactionID string) (*Decisio
 
 // writeDecision upserts the decision row and appends the corresponding
 // append-only event, mirroring categorization.py's _write_category_decision.
-// It is a no-op (changed=false) when the transaction is already assigned to
-// categoryID.
+// It is a no-op (changed=false) when both category and origin are unchanged.
+// An origin promotion is a decision change even when the category stays the same.
 func writeDecision(
 	ctx context.Context, q Querier, transactionID, categoryID string, origin Origin,
 ) (decision Decision, changed bool, err error) {
@@ -73,7 +80,7 @@ func writeDecision(
 	if err != nil {
 		return Decision{}, false, err
 	}
-	if existing != nil && existing.CategoryID == categoryID {
+	if existing != nil && existing.CategoryID == categoryID && existing.Origin == origin {
 		return *existing, false, nil
 	}
 
