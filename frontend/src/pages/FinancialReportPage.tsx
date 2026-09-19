@@ -4,14 +4,14 @@ import dayjs from "dayjs";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
-import type { CategoryImpact } from "../api/contracts";
+import type { CategoryImpact, MonthSummary } from "../api/contracts";
 import { LoadingState, UnavailableState } from "../components/AsyncState";
 import { AccumulatedResultCard } from "../components/timeline/AccumulatedResultCard";
 import { CategoryEvolutionChart } from "../components/timeline/CategoryEvolutionChart";
 import { CategoryImpactList } from "../components/timeline/CategoryImpactList";
 import { SummaryCards } from "../components/timeline/SummaryCards";
 import { TimeNavigator } from "../components/timeline/TimeNavigator";
-import { formatBRL } from "../presentation/money";
+import { formatBRL, sumBRL } from "../presentation/money";
 import { useTimeline } from "../hooks/useTimeline";
 import { colors } from "../theme/tokens";
 
@@ -38,6 +38,49 @@ function ComparisonStatistic({
           </span>
         }
       />
+    </Card>
+  );
+}
+
+// Aportes and resgates are reported apart from receitas/despesas: the money
+// leaves (or returns to) the caixa but stays in the patrimônio, so counting
+// them as expense or income would double-read the same movement. The backend
+// already keeps income/expense free of the transferred parcel.
+function InvestmentMovementCards({
+  selectedMonth,
+  yearSummaries,
+}: {
+  selectedMonth: MonthSummary | null;
+  yearSummaries: MonthSummary[];
+}) {
+  const contributions = yearSummaries.map((m) => m.investment_contributions);
+  const withdrawals = yearSummaries.map((m) => m.investment_withdrawals);
+  // Both are absolute amounts, so a zero sum means no movement at all in the
+  // period — nothing worth an extra card on the page.
+  if (sumBRL([...contributions, ...withdrawals]) === "0.00") return null;
+  return (
+    <Card
+      size="small"
+      title="Movimentações de investimento"
+      style={{ marginBottom: 16 }}
+      className="timeline-investment-movements"
+    >
+      <Flex gap="large" wrap>
+        <Statistic
+          title="Aportes no mês"
+          value={formatBRL(selectedMonth?.investment_contributions ?? "0.00")}
+        />
+        <Statistic
+          title="Resgates no mês"
+          value={formatBRL(selectedMonth?.investment_withdrawals ?? "0.00")}
+        />
+        <Statistic title="Aportes no ano" value={formatBRL(sumBRL(contributions))} />
+        <Statistic title="Resgates no ano" value={formatBRL(sumBRL(withdrawals))} />
+      </Flex>
+      <p style={{ marginBottom: 0, marginTop: 12, fontSize: 12, color: colors.textSecondary }}>
+        Aportes e resgates não entram em receitas nem em despesas — apenas movem dinheiro entre o
+        caixa e os investimentos.
+      </p>
     </Card>
   );
 }
@@ -114,6 +157,7 @@ export function FinancialReportPage() {
       {!timeline.isLoading && !timeline.error && hasAnyMovement && (
         <>
           <SummaryCards selectedMonth={selectedMonthSummary} yearSummaries={monthsSoFar} />
+          <InvestmentMovementCards selectedMonth={selectedMonthSummary} yearSummaries={monthsSoFar} />
           {(timeline.monthOverMonth || timeline.yearOverYear) && (
             <Flex gap="middle" wrap style={{ marginBottom: 16 }}>
               <ComparisonStatistic title="Resultado vs. mês anterior" comparison={timeline.monthOverMonth} />

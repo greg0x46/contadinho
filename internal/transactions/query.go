@@ -13,6 +13,7 @@ import (
 
 	"contadinho-go/internal/categories"
 	"contadinho-go/internal/db"
+	"contadinho-go/internal/investments"
 	"contadinho-go/internal/money"
 	"contadinho-go/internal/settings"
 )
@@ -77,7 +78,8 @@ type view struct {
 	// card transaction — the date it's actually paid (see effectiveDate).
 	// Deciding period membership is all it does: period below buckets, and
 	// Query sorts, by the purchase date regardless of basis.
-	effectiveAt *time.Time
+	effectiveAt        *time.Time
+	investmentTransfer decimal.Decimal
 }
 
 // viewSelect is the one column list and join shape every view in this
@@ -102,6 +104,10 @@ const viewSelect = `
 	WHERE ft.deleted_at IS NULL`
 
 func fetchAllViews(ctx context.Context, q Querier, query QueryRequest) ([]view, error) {
+	transfers, err := investments.ReconciledTransactionAmounts(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("read investment reconciliations: %w", err)
+	}
 	periodBasis, err := settings.GetTransactionsPeriodBasis(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("read transactions period basis preference: %w", err)
@@ -127,12 +133,33 @@ func fetchAllViews(ctx context.Context, q Querier, query QueryRequest) ([]view, 
 		if err != nil {
 			return nil, err
 		}
+		v.applyInvestmentTransfer(transfers[r.id])
 		views = append(views, v)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return views, nil
+}
+
+// Reconciliation changes reporting, never the original cash movement. Clamp
+// stale allocations after provider corrections until the user reviews them.
+func (v *view) applyInvestmentTransfer(amount decimal.Decimal) {
+	if v.effective == nil || !amount.IsPositive() {
+		return
+	}
+	v.investmentTransfer = decimal.Min(amount, v.effective.Value.Abs())
+	if v.included && v.reportableAmount().IsZero() {
+		reason := money.ReasonInvestmentTransfer
+		v.included, v.reason = false, &reason
+	}
+}
+
+func (v view) reportableAmount() decimal.Decimal {
+	if v.effective == nil {
+		return decimal.Zero
+	}
+	return v.effective.Value.Abs().Sub(v.investmentTransfer)
 }
 
 // fetchBillDueDates loads every synced bill's due date, keyed by
@@ -348,6 +375,9 @@ func effectiveDate(r row, periodBasis string, billDueDates map[string]time.Time)
 // matches mirrors query_sql.filter_clauses, evaluated in Go against an
 // already-built view instead of as SQL predicates.
 func matches(v view, f Filters, bounds *dateBounds) bool {
+	if f.Origin != nil && v.row.origin != *f.Origin {
+		return false
+	}
 	if f.CreditCard && (v.row.accountType == nil || *v.row.accountType != "CREDIT") {
 		return false
 	}
@@ -600,9 +630,10 @@ func toItem(v view) Item {
 			Origin:    stringOr(r.inclusionOrigin, "manual"),
 			RuleName:  r.inclusionRuleName,
 		},
-		Card:              parseCardInfo(r.creditCardMetadata),
-		TotalsEligibility: TotalsEligibility{Included: v.included, Reason: v.reason},
-		GroupKey:          v.period.Key,
+		Card:                     parseCardInfo(r.creditCardMetadata),
+		TotalsEligibility:        TotalsEligibility{Included: v.included, Reason: v.reason},
+		GroupKey:                 v.period.Key,
+		InvestmentTransferAmount: money.CanonicalDecimal(v.investmentTransfer),
 	}
 	if r.amount != nil {
 		s := money.CanonicalDecimal(*r.amount)
@@ -613,6 +644,11 @@ func toItem(v view) Item {
 		item.AmountInAccountCurrency = &s
 	}
 	if v.effective != nil {
+		reportable := money.CanonicalDecimal(v.reportableAmount())
+		if !v.included {
+			reportable = "0"
+		}
+		item.ReportableAmount = &reportable
 		item.EffectiveMoney = &EffectiveMoneyView{
 			Value:        money.CanonicalDecimal(v.effective.Value),
 			CurrencyCode: v.effective.CurrencyCode,
@@ -731,9 +767,9 @@ func currencyTotalsFor(views []view) []CurrencyTotals {
 		}
 		switch v.classification {
 		case money.Inflow:
-			a.inflow = a.inflow.Add(v.effective.Value.Abs())
+			a.inflow = a.inflow.Add(v.reportableAmount())
 		case money.Outflow:
-			a.outflow = a.outflow.Add(v.effective.Value.Abs())
+			a.outflow = a.outflow.Add(v.reportableAmount())
 		}
 	}
 	currencies := make([]string, 0, len(byCurrency))
@@ -824,7 +860,7 @@ func CategoryBreakdown(ctx context.Context, q Querier, filters Filters, timezone
 			byCategory[key] = a
 			order = append(order, key)
 		}
-		a.amount = a.amount.Add(v.effective.Value.Abs())
+		a.amount = a.amount.Add(v.reportableAmount())
 	}
 
 	sort.SliceStable(order, func(i, j int) bool {

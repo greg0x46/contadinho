@@ -933,6 +933,39 @@ func TestTransactionInclusionAndCategoryOverHTTP(t *testing.T) {
 	}
 }
 
+func TestIgnoringLinkedBankLineUnlinksInvestmentReconciliation(t *testing.T) {
+	srv, conn := newTestServer(t)
+	account := investmentID(t, createCustodyAccount(t, srv, "Corretora"))
+	bankLine := insertTransaction(t, conn)
+	deposit := investmentID(t, investmentCall(t, srv, http.MethodPost, "/api/investment-operations", map[string]any{
+		"account_id": account, "position_id": nil, "kind": "deposit",
+		"occurred_on": "2026-01-10", "amount": "42.00",
+	}, http.StatusCreated))
+	investmentCall(t, srv, http.MethodPost, "/api/investment-reconciliations", map[string]any{
+		"operation_id": deposit, "financial_transaction_id": bankLine, "amount": "42.00",
+	}, http.StatusCreated)
+
+	// Ignoring the line must unlink it (via investments.UnlinkTransactionIfPresent),
+	// the same way payables and recurrences let go of it: the aporte is then
+	// reported by the operation alone instead of vanishing with the line.
+	resp := doJSON(t, http.MethodPut, srv.URL+"/api/transactions/"+bankLine+"/inclusion", map[string]string{"state": "ignored"})
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("ignore status = %d, want 200", resp.StatusCode)
+	}
+	if links := investmentItems(t, srv, "/api/investment-reconciliations?operation_id="+deposit); len(links) != 0 {
+		t.Fatalf("links survived ignoring the bank line: %+v", links)
+	}
+	// The operation is ordinary again, and the ignored line cannot be linked
+	// back while it stays out of the totals.
+	if slug := investmentProblem(t, srv, http.MethodPost, "/api/investment-reconciliations", map[string]any{
+		"operation_id": deposit, "financial_transaction_id": bankLine, "amount": "42.00",
+	}, http.StatusConflict); slug != "investment-invalid-reconciliation-link" {
+		t.Errorf("relink ignored line slug = %q", slug)
+	}
+	investmentCall(t, srv, http.MethodDelete, "/api/investment-operations/"+deposit, nil, http.StatusNoContent)
+}
+
 func TestQueryTransactionsOverHTTP(t *testing.T) {
 	srv, conn := newTestServer(t)
 	txID := insertTransaction(t, conn)
@@ -995,6 +1028,16 @@ func TestQueryTransactionsOverHTTP(t *testing.T) {
 		if len(items) != want {
 			t.Fatalf("account type %s: got %d items, want %d", accountType, len(items), want)
 		}
+	}
+
+	// An unknown classification is rejected up front instead of matching
+	// nothing.
+	delete(body["filters"].(map[string]any), "credit_card")
+	body["filters"].(map[string]any)["classification"] = "xpto"
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/transactions/query", body)
+	resp.Body.Close()
+	if resp.StatusCode != 400 {
+		t.Errorf("unknown classification status = %d, want 400", resp.StatusCode)
 	}
 
 	badBody := map[string]any{"timezone": "Not/AZone", "group_by": "none", "page": 1, "page_size": 50,

@@ -46,7 +46,26 @@ const validResponse = {
 
 describe("timeline contracts", () => {
   it("accepts a well-formed response", () => {
-    expect(parseTimelineResponse(validResponse)).toEqual(validResponse);
+    // This fixture predates the investment reading, like a response from an
+    // older server: the absent fields are filled with "nothing was moved"
+    // instead of rejecting the payload.
+    expect(parseTimelineResponse(validResponse)).toEqual({
+      ...validResponse,
+      base: {
+        ...validResponse.base,
+        entries: validResponse.base.entries.map((entry) => ({
+          ...entry,
+          reportable_amount: entry.amount,
+          investment_transfer_amount: "0",
+          investment_transfer_kind: null,
+        })),
+      },
+      monthly_breakdown: validResponse.monthly_breakdown.map((month) => ({
+        ...month,
+        investment_contributions: "0",
+        investment_withdrawals: "0",
+      })),
+    });
   });
 
   it("accepts a null first_negative and scenario_id", () => {

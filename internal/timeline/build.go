@@ -9,6 +9,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"contadinho-go/internal/dates"
+	"contadinho-go/internal/investments"
 	"contadinho-go/internal/money"
 	"contadinho-go/internal/projections"
 	"contadinho-go/internal/transactions"
@@ -158,6 +159,36 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item, refe
 		if item.Classification == money.Outflow {
 			amount = amount.Neg()
 		}
+		var reportable *decimal.Decimal
+		if item.ReportableAmount != nil {
+			value, err := decimal.NewFromString(*item.ReportableAmount)
+			if err != nil {
+				return nil, nil, err
+			}
+			if item.Classification == money.Outflow {
+				value = value.Neg()
+			}
+			reportable = &value
+		}
+		transfer := decimal.Zero
+		transferKind := ""
+		if item.InvestmentTransferAmount != "" {
+			transfer, err = decimal.NewFromString(item.InvestmentTransferAmount)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+		if transfer.IsPositive() {
+			// The reconciled portion's direction follows the bank line's
+			// classification, the same thing that signs amount above: an
+			// Outflow left the bank for the investment (deposit), an Inflow
+			// came back (withdrawal). Consumers read this field and never
+			// re-derive the direction from Amount's sign.
+			transferKind = string(investments.OperationWithdrawal)
+			if item.Classification == money.Outflow {
+				transferKind = string(investments.OperationDeposit)
+			}
+		}
 		var categoryID *string
 		categoryName := noCategoryName
 		if item.InternalCategory != nil {
@@ -180,15 +211,18 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item, refe
 			}
 		}
 		entries = append(entries, Entry{
-			Date:         date,
-			Description:  description,
-			Amount:       amount,
-			CategoryID:   categoryID,
-			CategoryName: categoryName,
-			Tier:         tier,
-			Source:       SourceReal,
-			SourceRefID:  item.ID,
-			EventKey:     eventKey,
+			Date:                     date,
+			Description:              description,
+			Amount:                   amount,
+			ReportableAmount:         reportable,
+			InvestmentTransferAmount: transfer,
+			InvestmentTransferKind:   transferKind,
+			CategoryID:               categoryID,
+			CategoryName:             categoryName,
+			Tier:                     tier,
+			Source:                   SourceReal,
+			SourceRefID:              item.ID,
+			EventKey:                 eventKey,
 		})
 	}
 	return entries, settled, nil
@@ -226,6 +260,39 @@ func BuildSeries(ctx context.Context, q Querier, params BuildParams) (Series, er
 	entries, settled, err := realEntries(ctx, q, items, reference)
 	if err != nil {
 		return Series{}, err
+	}
+	// Investment-account income/costs belong in financial reports but do not
+	// change the bank-cash anchor. Linked portions are already represented by
+	// their bank entries, and are removed by the investment reporting helper.
+	if len(params.AccountIDs) == 0 && len(params.CategoryIDs) == 0 && len(params.CardNumbers) == 0 {
+		manual, err := investments.ManualReportingEntries(ctx, q)
+		if err != nil {
+			return Series{}, err
+		}
+		for _, movement := range manual {
+			reportable := movement.Amount
+			entry := Entry{Date: movement.OccurredOn, Amount: decimal.Zero,
+				ReportableAmount: &reportable, Tier: TierRealizado, Source: SourceInvestment,
+				SourceRefID: movement.ID, EventKey: "investment:" + movement.ID,
+				CategoryName: noCategoryName}
+			switch movement.Kind {
+			case investments.OperationDeposit, investments.OperationWithdrawal:
+				reportable = decimal.Zero
+				entry.InvestmentTransferAmount = movement.Amount.Abs()
+				entry.InvestmentTransferKind = string(movement.Kind)
+				entry.Description = "Resgate de investimento"
+				if movement.Kind == investments.OperationDeposit {
+					entry.Description = "Aporte em investimento"
+				}
+			case investments.OperationIncome:
+				entry.Description = "Rendimento de investimento"
+			case investments.OperationTax:
+				entry.Description = "Imposto sobre investimento"
+			default:
+				entry.Description = "Custo de investimento"
+			}
+			entries = append(entries, entry)
+		}
 	}
 	selection := projections.SelectionActive
 	if len(params.ScenarioIDs) > 0 {

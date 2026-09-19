@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"contadinho-go/internal/investments"
 	"contadinho-go/internal/money"
 	"contadinho-go/internal/settings"
 )
@@ -23,6 +24,10 @@ import (
 // found is false — rather than an error — when id matches no row, mirroring
 // how the store packages report a missing link.
 func GetItem(ctx context.Context, q Querier, id string) (item Item, found bool, err error) {
+	transfer, err := investments.ReconciledTransactionAmount(ctx, q, id)
+	if err != nil {
+		return Item{}, false, err
+	}
 	periodBasis, err := settings.GetTransactionsPeriodBasis(ctx, q)
 	if err != nil {
 		return Item{}, false, fmt.Errorf("read transactions period basis preference: %w", err)
@@ -58,5 +63,6 @@ func GetItem(ctx context.Context, q Querier, id string) (item Item, found bool, 
 	if err != nil {
 		return Item{}, false, err
 	}
+	v.applyInvestmentTransfer(transfer)
 	return toItem(v), true, nil
 }

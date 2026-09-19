@@ -14,6 +14,7 @@ import (
 	"contadinho-go/internal/automation"
 	"contadinho-go/internal/categories"
 	"contadinho-go/internal/db"
+	"contadinho-go/internal/investments"
 	"contadinho-go/internal/money"
 	"contadinho-go/internal/pluggy"
 	"contadinho-go/internal/syncsvc"
@@ -602,17 +603,47 @@ func TestExecuteSecondRunDetectsUnchangedInvestment(t *testing.T) {
 	sourceID, syncRunID1 := newSyncRun(t, conn)
 	insertRawImport(t, conn, "raw-accounts", syncRunID1, sourceID)
 	insertRawImport(t, conn, "raw-investments", syncRunID1, sourceID)
+	insertRawImport(t, conn, "raw-invtx-local", syncRunID1, sourceID)
 
 	provider := &fakeProvider{
 		source:       investmentSafeSource(),
 		accountsPage: pluggy.AccountsPage{RawImportID: "raw-accounts"},
 		investmentsPage: pluggy.InvestmentsPage{
 			RawImportID: "raw-investments",
-			Investments: []pluggy.InvestmentSnapshot{{ExternalID: "inv-1", Balance: amountP("1000.50")}},
+			Investments: []pluggy.InvestmentSnapshot{{ExternalID: "inv-1", Balance: amountP("1000.50"), CurrencyCode: strp("BRL")}},
+		},
+		investmentTransactions: map[string]pluggy.InvestmentTransactionsPage{
+			"inv-1": {RawImportID: "raw-invtx-local", Transactions: []pluggy.InvestmentTransactionSnapshot{{ExternalID: "mov-1", ExternalInvestmentID: "inv-1", Direction: strp("inflow"), Amount: amountP("1000")}}},
 		},
 	}
 	if err := (&syncsvc.Service{DB: conn, Provider: provider, SyncRunID: syncRunID1, SourceID: sourceID}).Execute(context.Background()); err != nil {
 		t.Fatalf("first Execute: %v", err)
+	}
+
+	ctx := context.Background()
+	positions, err := investments.ListPositions(ctx, conn, investments.PositionFilter{})
+	if err != nil || len(positions) != 1 {
+		t.Fatalf("positions: %v %v", positions, err)
+	}
+	original := positions[0]
+	goal, err := investments.CreatePortfolio(ctx, conn, investments.PortfolioInput{Name: "Reserva"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = investments.UpdatePosition(ctx, conn, original.ID, investments.PositionUpdate{Name: original.Name, Ticker: original.Ticker, AssetType: original.AssetType, PortfolioID: &goal.ID}); err != nil {
+		t.Fatal(err)
+	}
+	op, err := investments.CreateOperation(ctx, conn, investments.OperationInput{AccountID: original.AccountID, Kind: investments.OperationDeposit, OccurredOn: time.Now(), Amount: decimal.NewFromInt(1000)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var movementID string
+	if err = conn.QueryRow(`SELECT id FROM financial_investment_transactions WHERE investment_id=?`, original.ID).Scan(&movementID); err != nil {
+		t.Fatal(err)
+	}
+	link, err := investments.CreateReconciliation(ctx, conn, investments.ReconciliationInput{OperationID: op.ID, FinancialInvestmentTransactionID: &movementID, Amount: decimal.NewFromInt(1000)})
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	now := db.FormatTime(time.Now())
@@ -635,6 +666,15 @@ func TestExecuteSecondRunDetectsUnchangedInvestment(t *testing.T) {
 	if investmentCount != 1 {
 		t.Errorf("investmentCount = %d, want 1 (no duplicate insert)", investmentCount)
 	}
+	updated, err := investments.GetPosition(ctx, conn, original.ID)
+	if err != nil || updated.PortfolioID == nil || *updated.PortfolioID != goal.ID {
+		t.Fatalf("sync lost goal: %+v %v", updated, err)
+	}
+	links, err := investments.ListReconciliations(ctx, conn, investments.ReconciliationFilter{OperationID: &op.ID})
+	if err != nil || len(links) != 1 || links[0].ID != link.ID {
+		t.Fatalf("sync lost reconciliation: %+v %v", links, err)
+	}
+
 }
 
 func TestExecuteRecordsRejectedInvestmentAsSyncFailure(t *testing.T) {

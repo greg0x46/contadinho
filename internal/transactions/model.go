@@ -25,6 +25,7 @@ type Querier interface {
 // Filters mirrors TransactionFilters. DateFrom/DateTo only take effect as a
 // pair — matching the reference, setting just one has no effect.
 type Filters struct {
+	Origin         *string
 	CardBalance    bool
 	CreditCard     bool
 	DateFrom       *money.Date
@@ -116,25 +117,27 @@ type CardInfo struct {
 // derived field (classification, effective money, eligibility, group key)
 // already resolved so the HTTP layer never has to re-run domain logic.
 type Item struct {
-	ID                      string
-	ExternalID              string
-	Origin                  string
-	OccurredAt              *time.Time
-	Description             *string
-	Account                 AccountSummary
-	SourceCategory          *string
-	InternalCategory        *InternalCategory
-	MovementType            *string
-	ProviderStatus          *string
-	Classification          money.Classification
-	Amount                  *string
-	CurrencyCode            *string
-	AmountInAccountCurrency *string
-	EffectiveMoney          *EffectiveMoneyView
-	Card                    *CardInfo
-	Inclusion               Inclusion
-	TotalsEligibility       TotalsEligibility
-	GroupKey                string
+	ID                       string
+	ExternalID               string
+	Origin                   string
+	OccurredAt               *time.Time
+	Description              *string
+	Account                  AccountSummary
+	SourceCategory           *string
+	InternalCategory         *InternalCategory
+	MovementType             *string
+	ProviderStatus           *string
+	Classification           money.Classification
+	Amount                   *string
+	CurrencyCode             *string
+	AmountInAccountCurrency  *string
+	EffectiveMoney           *EffectiveMoneyView
+	InvestmentTransferAmount string
+	ReportableAmount         *string
+	Card                     *CardInfo
+	Inclusion                Inclusion
+	TotalsEligibility        TotalsEligibility
+	GroupKey                 string
 }
 
 type CurrencyTotals struct {

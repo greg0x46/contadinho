@@ -459,3 +459,51 @@ func TestTimelineDataRangeSpansOldestTransactionToLastPlannedInstallment(t *test
 		t.Errorf("from = %v, want 2024-03-07", body["from"])
 	}
 }
+
+// investment_transfer_kind on a reconciled bank line is whatever the timeline
+// decided from the line's classification — the handler never re-derives it
+// from the amount's sign.
+func TestTimelineReconciledBankLinesExposeInvestmentTransferKind(t *testing.T) {
+	srv, conn := newTestServer(t)
+
+	depositID := insertTransaction(t, conn)
+	setCardDebtTransaction(t, conn, depositID, time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC), "1000.00", "DEBIT", nil)
+	withdrawalID := insertTransaction(t, conn)
+	setCardDebtTransaction(t, conn, withdrawalID, time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC), "300.00", "CREDIT", nil)
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	mustExec := func(query string, args ...any) {
+		t.Helper()
+		if _, err := conn.Exec(query, args...); err != nil {
+			t.Fatalf("exec %q: %v", query, err)
+		}
+	}
+	mustExec(`INSERT INTO investment_accounts (id,name,kind,currency_code,created_at,updated_at) VALUES ('manual','Manual','manual','BRL',?,?)`, now, now)
+	mustExec(`INSERT INTO investment_operations (id,account_id,kind,occurred_on,amount,created_at,updated_at) VALUES ('deposit','manual','deposit','2026-08-05','1000',?,?)`, now, now)
+	mustExec(`INSERT INTO investment_operations (id,account_id,kind,occurred_on,amount,created_at,updated_at) VALUES ('withdrawal','manual','withdrawal','2026-08-12','300',?,?)`, now, now)
+	mustExec(`INSERT INTO investment_reconciliations (id,operation_id,financial_transaction_id,amount,created_at) VALUES ('link-deposit','deposit',?,'1000',?)`, depositID, now)
+	mustExec(`INSERT INTO investment_reconciliations (id,operation_id,financial_transaction_id,amount,created_at) VALUES ('link-withdrawal','withdrawal',?,'300',?)`, withdrawalID, now)
+
+	resp := doJSON(t, http.MethodGet,
+		srv.URL+"/api/timeline?reference_date=2026-08-15&from=2026-08-01&to=2026-08-31", nil)
+	if resp.StatusCode != 200 {
+		t.Fatalf("get timeline status = %d, want 200", resp.StatusCode)
+	}
+	var body map[string]any
+	decodeJSON(t, resp, &body)
+
+	kinds := map[string]any{}
+	for _, raw := range body["base"].(map[string]any)["entries"].([]any) {
+		entry := raw.(map[string]any)
+		if entry["source"] == "real" {
+			kinds[entry["source_ref_id"].(string)] = entry["investment_transfer_kind"]
+		}
+	}
+	if kinds[depositID] != "deposit" || kinds[withdrawalID] != "withdrawal" {
+		t.Fatalf("investment_transfer_kind by entry = %+v", kinds)
+	}
+	august := body["monthly_breakdown"].([]any)[0].(map[string]any)
+	if august["investment_contributions"] != "1000" || august["investment_withdrawals"] != "300" {
+		t.Errorf("august investment buckets = %+v", august)
+	}
+}

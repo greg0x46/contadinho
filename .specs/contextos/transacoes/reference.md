@@ -63,6 +63,10 @@ duas vias em `.specs/motores-de-dominio.md` seção 1.
 
 - `POST /api/transactions/query`, `GET /api/transactions/spending-by-category`,
   `PUT /api/transactions/{id}/inclusion`, `PUT /api/transactions/{id}/category`.
+- Em `POST /api/transactions/query`, `filters.classification` aceita
+  `inflow` (entrada, valor positivo), `outflow` (saída, valor negativo) e
+  `unclassified`; a interface oferece só entradas e saídas. Qualquer outro
+  valor é 400 (`invalid-classification`).
 - Lançamento manual: `POST /api/transactions` (cria), `PUT
   /api/transactions/{id}` (edita), `DELETE /api/transactions/{id}` (exclui)
   — as três só aceitam uma transação com `origin='manual'` (409 caso
@@ -83,6 +87,12 @@ duas vias em `.specs/motores-de-dominio.md` seção 1.
 - `/investimentos` + `/investimentos/:id`.
 
 ## Notas
+
+Investimentos conciliados acrescentam `investment_transfer_amount` e
+`reportable_amount` ao lançamento. A parcela de aporte/resgate não entra nos
+totais de receita/despesa, mas o valor integral continua sendo movimento de
+caixa. O motivo de exclusão integral é `investment_transfer`. Ver
+[`investimentos/reference.md`](../investimentos/reference.md).
 
 Ingestão: Pluggy e lançamento manual (`.specs/lancamentos-manuais.md`) são
 as duas vias de entrada hoje, ambas provedor de dado, não parte deste motor

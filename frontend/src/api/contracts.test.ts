@@ -1,3 +1,4 @@
+import { syncedPosition } from "../test/investmentWorkspaceFixtures";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -26,7 +27,12 @@ import {
   parseTransactionCategoryResult,
   parseTransactionInclusionResult,
   parseTransactionQueryResult,
+  parseInvestmentAccount,
+  parseInvestmentOperation,
+  parseInvestmentPosition,
+  parseTimelineResponse,
 } from "./contracts";
+import type { TransactionQueryResult } from "./contracts";
 import { syncRun } from "../test/fixtures";
 import {
   accountBill,
@@ -67,10 +73,24 @@ describe("runtime contracts", () => {
 });
 
 describe("transaction inclusion contracts", () => {
+  // The fixtures predate the investment allocation, exactly like a cached
+  // response from an older server: parsing fills the absent fields instead of
+  // rejecting the payload, so the snapshot is compared with those defaults.
+  const withAllocationDefaults = (result: TransactionQueryResult): TransactionQueryResult => ({
+    ...result,
+    items: result.items.map((item) => ({
+      ...item,
+      investment_transfer_amount: "0",
+      reportable_amount: item.effective_money?.value ?? null,
+    })),
+  });
+
   it("accepts considered and ignored confirmed snapshots", () => {
-    expect(parseTransactionQueryResult(transactionResult)).toEqual(transactionResult);
+    expect(parseTransactionQueryResult(transactionResult)).toEqual(
+      withAllocationDefaults(transactionResult),
+    );
     expect(parseTransactionQueryResult(ignoredTransactionResult)).toEqual(
-      ignoredTransactionResult,
+      withAllocationDefaults(ignoredTransactionResult),
     );
     expect(
       parseTransactionInclusionResult({
@@ -87,11 +107,30 @@ describe("transaction inclusion contracts", () => {
       items: [
         {
           ...transactionResult.items[0]!,
-          totals_eligibility: { included: false, reason: "transfer_category" },
+          totals_eligibility: { included: false, reason: "transfer_category" as const },
         },
       ],
     };
-    expect(parseTransactionQueryResult(payload)).toEqual(payload);
+    expect(parseTransactionQueryResult(payload)).toEqual(withAllocationDefaults(payload));
+  });
+
+  it("keeps an explicit investment allocation instead of the absent-field default", () => {
+    const payload = {
+      ...transactionResult,
+      items: [
+        {
+          ...transactionResult.items[0]!,
+          investment_transfer_amount: "100.0000",
+          reportable_amount: "23.4500",
+        },
+      ],
+    };
+    const parsed = parseTransactionQueryResult(payload);
+    expect(parsed.items[0]).toMatchObject({
+      investment_transfer_amount: "100.0000",
+      reportable_amount: "23.4500",
+    });
+    expect(parsed).toEqual(payload);
   });
 
   it("rejects a transfer-category exclusion that claims to be included", () => {
@@ -563,5 +602,244 @@ describe("category contracts", () => {
     { ...accountBill, total_amount: "muito" },
   ])("rejects malformed bill fields", (payload) => {
     expect(() => parseAccountBill(payload)).toThrow();
+  });
+});
+
+const timelineEntry = {
+  date: "2026-08-01",
+  description: "Mercado",
+  amount: "-100.00",
+  category_id: "000433b6-3094-5a9c-87df-465b70574a4b",
+  category_name: "Supermercado",
+  tier: "realizado",
+  source: "real",
+  source_ref_id: "11111111-1111-4111-8111-111111111111",
+  scenario_id: null,
+};
+
+const timelineResponse = (
+  entries: unknown[],
+  monthlyBreakdown: unknown[],
+) => ({
+  base: {
+    points: [
+      { date: "2026-08-01", balance: "900.00", inflow: "0.00", outflow: "100.00", lowest_tier: "realizado" },
+    ],
+    entries,
+    starting_balance: "1000.00",
+    lowest_balance: {
+      date: "2026-08-01",
+      balance: "900.00",
+      inflow: "0.00",
+      outflow: "100.00",
+      lowest_tier: "realizado",
+    },
+    first_negative: null,
+  },
+  monthly_breakdown: monthlyBreakdown,
+  category_breakdown: [],
+  simulation: null,
+  scenario_impacts: [],
+  month_over_month: null,
+  year_over_year: null,
+  category_evolution: null,
+});
+
+describe("timeline investment contracts", () => {
+  it("reads the investment fields and the investment source kind", () => {
+    const parsed = parseTimelineResponse(
+      timelineResponse(
+        [
+          {
+            ...timelineEntry,
+            description: "Aporte na corretora",
+            amount: "-500.00",
+            reportable_amount: "0.00",
+            investment_transfer_amount: "500.00",
+            investment_transfer_kind: "deposit",
+            source: "investment",
+            category_id: null,
+          },
+        ],
+        [
+          {
+            month: "2026-08-01",
+            income: "2000.00",
+            expense: "100.00",
+            result: "1900.00",
+            investment_contributions: "500.00",
+            investment_withdrawals: "80.00",
+          },
+        ],
+      ),
+    );
+    expect(parsed.base.entries[0]).toMatchObject({
+      source: "investment",
+      reportable_amount: "0.00",
+      investment_transfer_amount: "500.00",
+      investment_transfer_kind: "deposit",
+    });
+    expect(parsed.monthly_breakdown[0]).toMatchObject({
+      investment_contributions: "500.00",
+      investment_withdrawals: "80.00",
+    });
+  });
+
+  it("defaults the investment fields when an older server omits them", () => {
+    const parsed = parseTimelineResponse(
+      timelineResponse([timelineEntry], [
+        { month: "2026-08-01", income: "2000.00", expense: "100.00", result: "1900.00" },
+      ]),
+    );
+    expect(parsed.base.entries[0]).toMatchObject({
+      // Nothing was allocated, so the whole entry is reportable.
+      reportable_amount: "-100.00",
+      investment_transfer_amount: "0",
+      investment_transfer_kind: null,
+    });
+    expect(parsed.monthly_breakdown[0]).toMatchObject({
+      investment_contributions: "0",
+      investment_withdrawals: "0",
+    });
+  });
+
+  it.each([
+    [{ ...timelineEntry, source: "investimento" }],
+    [{ ...timelineEntry, investment_transfer_kind: "aporte" }],
+    [{ ...timelineEntry, investment_transfer_amount: "quinhentos" }],
+    [{ ...timelineEntry, investiment_transfer_amount: "500.00" }],
+  ])("rejects misspelled or unknown timeline investment fields", (entry) => {
+    // Either the entry shape or the decimal itself is refused — never parsed
+    // into a silently wrong reading.
+    expect(() => parseTimelineResponse(timelineResponse([entry], []))).toThrow(/inválid/);
+  });
+
+  it("rejects a misspelled monthly investment field", () => {
+    expect(() =>
+      parseTimelineResponse(
+        timelineResponse([], [
+          {
+            month: "2026-08-01",
+            income: "2000.00",
+            expense: "100.00",
+            result: "1900.00",
+            investment_contribution: "500.00",
+          },
+        ]),
+      ),
+    ).toThrow("Resumo mensal inválido.");
+  });
+});
+
+const investmentAccountPayload = {
+  id: "44444444-4444-4444-8444-444444444444",
+  name: "Corretora",
+  kind: "manual",
+  currency_code: "BRL",
+  source_id: null,
+  source_display_name: null,
+  financial_account_id: null,
+  active: true,
+  cash_balance: "0.00",
+  created_at: "2026-08-01T12:00:00Z",
+  updated_at: "2026-08-01T12:00:00Z",
+};
+
+describe("investment account id contracts", () => {
+  it("accepts the integrated grouping id alongside a plain uuid", () => {
+    expect(parseInvestmentAccount(investmentAccountPayload).id).toBe(investmentAccountPayload.id);
+    expect(
+      parseInvestmentAccount({
+        ...investmentAccountPayload,
+        id: "integrated:55555555-5555-4555-8555-555555555555",
+        kind: "integrated",
+      }).id,
+    ).toBe("integrated:55555555-5555-4555-8555-555555555555");
+  });
+
+  it.each(["integrated:", "integrated:not-a-uuid", "integrated:55555555-5555-4555-8555-555555555555:x", "not-a-uuid"])(
+    "rejects a malformed investment account id",
+    (id) => {
+      expect(() => parseInvestmentAccount({ ...investmentAccountPayload, id })).toThrow(
+        "Conta de investimento inválida.",
+      );
+    },
+  );
+
+  it("accepts the integrated account id on positions and operations", () => {
+    const accountId = "integrated:55555555-5555-4555-8555-555555555555";
+    expect(
+      parseInvestmentPosition({
+        id: "66666666-6666-4666-8666-666666666666",
+        source: "synced",
+        account_id: accountId,
+        asset_id: null,
+        portfolio_id: null,
+        name: "CDB",
+        ticker: null,
+        asset_type: "fixed_income",
+        quantity: "1",
+        average_cost: null,
+        current_value: "1000.00",
+        current_unit_price: null,
+        valued_on: "2026-08-01",
+        currency_code: "BRL",
+        closed: false,
+        linked_investment_id: null,
+        notes: null,
+        valuation_basis: "provider_balance",
+      }).account_id,
+    ).toBe(accountId);
+    expect(
+      parseInvestmentOperation({
+        id: "77777777-7777-4777-8777-777777777777",
+        account_id: accountId,
+        position_id: null,
+        transfer_id: null,
+        kind: "deposit",
+        occurred_on: "2026-08-01",
+        amount: "500.00",
+        quantity: null,
+        unit_price: null,
+        fees: null,
+        taxes: null,
+        notes: null,
+        source: "synced",
+        is_editable: false,
+        created_at: "2026-08-01T12:00:00Z",
+        updated_at: "2026-08-01T12:00:00Z",
+      }).account_id,
+    ).toBe(accountId);
+  });
+
+  it("still requires a plain uuid for the position id", () => {
+    expect(() =>
+      parseInvestmentPosition({
+        id: "integrated:55555555-5555-4555-8555-555555555555",
+        source: "synced",
+        account_id: "44444444-4444-4444-8444-444444444444",
+        portfolio_id: null,
+        name: "CDB",
+        ticker: null,
+        asset_type: "fixed_income",
+        quantity: "1",
+        average_cost: null,
+        current_value: "1000.00",
+        current_unit_price: null,
+        valued_on: "2026-08-01",
+        currency_code: "BRL",
+        closed: false,
+        linked_investment_id: null,
+        notes: null,
+        valuation_basis: "provider_balance",
+      }),
+    ).toThrow("Posição de investimento inválida.");
+  });
+});
+
+
+describe("Imported investment currencies", () => {
+  it("preserves the provider currency without treating it as BRL", () => {
+    expect(parseInvestmentPosition({ ...syncedPosition, currency_code: "USD" }).currency_code).toBe("USD");
   });
 });

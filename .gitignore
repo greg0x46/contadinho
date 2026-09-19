@@ -12,3 +12,5 @@ internal/webui/dist/
 /contadinho-linux-*
 # npm run at the repo root instead of in frontend/.
 /node_modules/
+
+deploy.sh

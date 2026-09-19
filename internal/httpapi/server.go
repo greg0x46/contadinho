@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"contadinho-go/internal/auth"
+	"contadinho-go/internal/investments"
 	"contadinho-go/internal/payables"
 	"contadinho-go/internal/recurrences"
 	"contadinho-go/internal/settings"
@@ -21,16 +22,20 @@ import (
 // automation's apply-to-new and apply-retroactively), matching the reference
 // calling unlink_if_present from those same places.
 //
-// Both links it drops rest on the same fact: a transaction the user excluded
-// from the totals is no longer money the app counts, so it can neither pay
-// down a payable nor carry a recurring commitment's occurrence. A detached
-// occurrence is untouched — that decision is about the occurrence, not about
-// any transaction.
+// All three links it drops rest on the same fact: a transaction the user
+// excluded from the totals is no longer money the app counts, so it can
+// neither pay down a payable, carry a recurring commitment's occurrence nor
+// be the parcel that funded an investment operation. A detached occurrence
+// is untouched — that decision is about the occurrence, not about any
+// transaction.
 func onIgnoredHook(ctx context.Context, q transactions.Querier, transactionID string) error {
 	if err := payables.UnlinkIfPresent(ctx, q, transactionID); err != nil {
 		return err
 	}
-	return recurrences.UnlinkIfPresent(ctx, q, transactionID)
+	if err := recurrences.UnlinkIfPresent(ctx, q, transactionID); err != nil {
+		return err
+	}
+	return investments.UnlinkTransactionIfPresent(ctx, q, transactionID)
 }
 
 // NewServer protects API routes with per-browser authentication. The separate
@@ -85,6 +90,46 @@ func NewServer(db *sql.DB, frontend fs.FS, secrets *settings.Secrets, config aut
 	mux.HandleFunc("GET /api/investments", handleListInvestments(db))
 	mux.HandleFunc("GET /api/investments/{id}", handleGetInvestment(db))
 	mux.HandleFunc("GET /api/investments/{id}/transactions", handleListInvestmentTransactions(db))
+
+	// The investment workspace: custody accounts, goals, manual positions,
+	// their operations and the links that explain a bank line. It is a
+	// sibling of /api/investments above, never a sub-collection of it: that
+	// one answers what the provider reported about a holding, this one owns
+	// the local ledger, and only the local one accepts writes.
+	mux.HandleFunc("GET /api/investment-accounts", handleListInvestmentAccounts(db))
+	mux.HandleFunc("POST /api/investment-accounts", handleCreateInvestmentAccount(db))
+	mux.HandleFunc("PUT /api/investment-accounts/{id}", handleUpdateInvestmentAccount(db))
+	mux.HandleFunc("DELETE /api/investment-accounts/{id}", handleDeleteInvestmentAccount(db))
+
+	mux.HandleFunc("GET /api/investment-portfolios", handleListInvestmentPortfolios(db))
+	mux.HandleFunc("POST /api/investment-portfolios", handleCreateInvestmentPortfolio(db))
+	mux.HandleFunc("PUT /api/investment-portfolios/{id}", handleUpdateInvestmentPortfolio(db))
+	mux.HandleFunc("DELETE /api/investment-portfolios/{id}", handleDeleteInvestmentPortfolio(db))
+
+	mux.HandleFunc("GET /api/investment-assets", handleListInvestmentAssets(db))
+	mux.HandleFunc("POST /api/investment-assets", handleCreateInvestmentAsset(db))
+	mux.HandleFunc("PUT /api/investment-assets/{id}", handleUpdateInvestmentAsset(db))
+	mux.HandleFunc("DELETE /api/investment-assets/{id}", handleDeleteInvestmentAsset(db))
+
+	mux.HandleFunc("GET /api/investment-positions", handleListInvestmentPositions(db))
+	mux.HandleFunc("GET /api/investment-positions/{id}", handleGetInvestmentPosition(db))
+	mux.HandleFunc("POST /api/investment-positions", handleCreateInvestmentPosition(db))
+	mux.HandleFunc("PUT /api/investment-positions/{id}", handleUpdateInvestmentPosition(db))
+	mux.HandleFunc("DELETE /api/investment-positions/{id}", handleDeleteInvestmentPosition(db))
+
+	mux.HandleFunc("GET /api/investment-operations", handleListInvestmentOperations(db))
+	mux.HandleFunc("POST /api/investment-operations/batch", handleCreateInvestmentOperations(db))
+	mux.HandleFunc("POST /api/investment-operations", handleCreateInvestmentOperation(db))
+	mux.HandleFunc("POST /api/investment-transfers", handleCreateInvestmentTransfer(db))
+	mux.HandleFunc("DELETE /api/investment-transfers/{id}", handleDeleteInvestmentTransfer(db))
+	mux.HandleFunc("PUT /api/investment-operations/{id}", handleUpdateInvestmentOperation(db))
+	mux.HandleFunc("DELETE /api/investment-operations/{id}", handleDeleteInvestmentOperation(db))
+
+	mux.HandleFunc("GET /api/investment-reconciliations", handleListInvestmentReconciliations(db))
+	mux.HandleFunc("POST /api/investment-reconciliations", handleCreateInvestmentReconciliation(db))
+	mux.HandleFunc("DELETE /api/investment-reconciliations/{id}", handleDeleteInvestmentReconciliation(db))
+
+	mux.HandleFunc("GET /api/investment-summary", handleGetInvestmentSummary(db))
 
 	mux.HandleFunc("GET /api/automation-rules/condition-options", handleListConditionOptions(db))
 	mux.HandleFunc("GET /api/automation-rules", handleListAutomationRules(db))

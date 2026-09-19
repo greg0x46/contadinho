@@ -19,28 +19,43 @@ func invalidTimelineProblem(w http.ResponseWriter, detail string) {
 }
 
 type timelineEntryDTO struct {
-	Date         string  `json:"date"`
-	Description  string  `json:"description"`
-	Amount       string  `json:"amount"`
-	CategoryID   *string `json:"category_id"`
-	CategoryName string  `json:"category_name"`
-	Tier         string  `json:"tier"`
-	Source       string  `json:"source"`
-	SourceRefID  string  `json:"source_ref_id"`
-	ScenarioID   *string `json:"scenario_id"`
+	Date                     string  `json:"date"`
+	Description              string  `json:"description"`
+	Amount                   string  `json:"amount"`
+	ReportableAmount         string  `json:"reportable_amount"`
+	InvestmentTransferAmount string  `json:"investment_transfer_amount"`
+	InvestmentTransferKind   *string `json:"investment_transfer_kind"`
+	CategoryID               *string `json:"category_id"`
+	CategoryName             string  `json:"category_name"`
+	Tier                     string  `json:"tier"`
+	Source                   string  `json:"source"`
+	SourceRefID              string  `json:"source_ref_id"`
+	ScenarioID               *string `json:"scenario_id"`
 }
 
 func timelineEntryToDTO(e timeline.Entry) timelineEntryDTO {
+	reportable := e.Amount
+	if e.ReportableAmount != nil {
+		reportable = *e.ReportableAmount
+	}
+	var transferKind *string
+	if e.InvestmentTransferKind != "" {
+		kind := e.InvestmentTransferKind
+		transferKind = &kind
+	}
 	return timelineEntryDTO{
-		Date:         e.Date.Format(dateOnlyLayout),
-		Description:  e.Description,
-		Amount:       money.CanonicalDecimal(e.Amount),
-		CategoryID:   e.CategoryID,
-		CategoryName: e.CategoryName,
-		Tier:         string(e.Tier),
-		Source:       string(e.Source),
-		SourceRefID:  e.SourceRefID,
-		ScenarioID:   e.ScenarioID,
+		Date:                     e.Date.Format(dateOnlyLayout),
+		Description:              e.Description,
+		Amount:                   money.CanonicalDecimal(e.Amount),
+		ReportableAmount:         money.CanonicalDecimal(reportable),
+		InvestmentTransferAmount: money.CanonicalDecimal(e.InvestmentTransferAmount),
+		InvestmentTransferKind:   transferKind,
+		CategoryID:               e.CategoryID,
+		CategoryName:             e.CategoryName,
+		Tier:                     string(e.Tier),
+		Source:                   string(e.Source),
+		SourceRefID:              e.SourceRefID,
+		ScenarioID:               e.ScenarioID,
 	}
 }
 
@@ -94,18 +109,22 @@ func timelineSeriesToDTO(s timeline.Series) timelineSeriesDTO {
 }
 
 type monthSummaryDTO struct {
-	Month   string `json:"month"`
-	Income  string `json:"income"`
-	Expense string `json:"expense"`
-	Result  string `json:"result"`
+	Month                   string `json:"month"`
+	Income                  string `json:"income"`
+	Expense                 string `json:"expense"`
+	Result                  string `json:"result"`
+	InvestmentContributions string `json:"investment_contributions"`
+	InvestmentWithdrawals   string `json:"investment_withdrawals"`
 }
 
 func monthSummaryToDTO(m timeline.MonthSummary) monthSummaryDTO {
 	return monthSummaryDTO{
-		Month:   m.Month.Format(dateOnlyLayout),
-		Income:  money.CanonicalDecimal(m.Income),
-		Expense: money.CanonicalDecimal(m.Expense),
-		Result:  money.CanonicalDecimal(m.Result),
+		Month:                   m.Month.Format(dateOnlyLayout),
+		Income:                  money.CanonicalDecimal(m.Income),
+		Expense:                 money.CanonicalDecimal(m.Expense),
+		Result:                  money.CanonicalDecimal(m.Result),
+		InvestmentContributions: money.CanonicalDecimal(m.InvestmentContributions),
+		InvestmentWithdrawals:   money.CanonicalDecimal(m.InvestmentWithdrawals),
 	}
 }
 

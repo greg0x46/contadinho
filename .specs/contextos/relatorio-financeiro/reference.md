@@ -46,6 +46,16 @@ fica encapsulado em `internal/scenarios` (`Scenario.PayableID`/`Kind`, via
 `ListPlanInstallments`/`SignedAmount`). O saldo âncora vem de
 `transactions.CashOnHand`.
 
+Cada `Entry` carrega duas leituras do mesmo dinheiro. A curva de saldo
+(`Points`) usa `Amount` e inclui todo movimento que moveu caixa — o filtro
+de `BuildSeries` é `MovesCash`, não `Included`. Receitas, despesas e a
+quebra por categoria (`MonthlyBreakdown`, `CategoryBreakdown`,
+`CategoryEvolution`) usam `ReportableAmount`, o valor reportável que
+`transactions.toItem` zera para o que a elegibilidade de totais exclui.
+Assim uma transferência entre contas próprias (categoria de transferência,
+ou a parcela conciliada como aporte/resgate de investimento) desconta o
+saldo mas fica fora de receitas, despesas e do drill-down por categoria.
+
 ## Rotas HTTP
 
 `GET /api/timeline`.

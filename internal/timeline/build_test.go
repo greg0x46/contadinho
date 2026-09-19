@@ -312,6 +312,78 @@ func TestBuildSeriesKeepsTransferCategorizedCashMovement(t *testing.T) {
 	}
 }
 
+// TestBuildSeriesTransferMovesCashButIsNeitherIncomeNorExpense pins down
+// the two faces of a transfer between the user's own accounts. The money did
+// leave this account, so the balance curve must fall by it — that's the
+// previous test. But nothing was earned or spent: the same reais are sitting
+// in another account, and counting them as an expense would make every
+// month with a transfer look poorer than it was. The series carries both
+// readings side by side: buildPoints walks Entry.Amount (cash), while
+// MonthlyBreakdown, CategoryBreakdown and CategoryEvolution walk
+// Entry.ReportableAmount (income/expense), which transactions.toItem zeroes
+// for anything TotalsEligibility excludes. Before ReportableAmount existed
+// the aggregates read Amount and the transfer counted at full value.
+func TestBuildSeriesTransferMovesCashButIsNeitherIncomeNorExpense(t *testing.T) {
+	f := newFixture(t)
+	account := f.addAccount("600.00")
+	supermercado := categorySupermercado
+	f.addTransaction(txn{
+		AccountID: account, Amount: "-100.00", OccurredAt: date(t, "2026-08-05"),
+		CategoryID: &supermercado,
+	})
+	transfer := categoryTransferencia
+	f.addTransaction(txn{
+		AccountID: account, Amount: "-300.00", OccurredAt: date(t, "2026-08-10"),
+		CategoryID: &transfer,
+	})
+
+	series, err := timeline.BuildSeries(context.Background(), f.conn, timeline.BuildParams{
+		From: date(t, "2026-08-01"), To: date(t, "2026-08-20"), ReferenceDate: date(t, "2026-08-15"),
+		AccountIDs: []string{account},
+	})
+	if err != nil {
+		t.Fatalf("BuildSeries: %v", err)
+	}
+
+	// Cash: 600 today, so 1000 before both outflows — the transfer is
+	// reversed out of the anchor exactly like the expense is.
+	if got := series.Points[0].Balance.String(); got != "1000" {
+		t.Errorf("balance before both movements = %s, want 1000 (100 expense + 300 transfer both left the account)", got)
+	}
+	last := series.Points[len(series.Points)-1]
+	if got := last.Balance.String(); got != "600" {
+		t.Errorf("balance after both movements = %s, want 600", got)
+	}
+
+	// Income/expense: only the supermarket run counts.
+	months := timeline.MonthlyBreakdown(series)
+	if len(months) != 1 {
+		t.Fatalf("MonthlyBreakdown() = %+v, want exactly August", months)
+	}
+	if got := months[0].Expense.String(); got != "100" {
+		t.Errorf("August Expense = %s, want 100 (the transfer is not an expense)", got)
+	}
+	if got := months[0].Income.String(); got != "0" {
+		t.Errorf("August Income = %s, want 0", got)
+	}
+
+	// Category drill-down: a zero reportable amount is not an outflow, so
+	// the transfer category never even gets a row — only Supermercado and
+	// the ever-present "Sem categoria" placeholder.
+	impacts := timeline.CategoryBreakdown(series, date(t, "2026-08-01"))
+	if len(impacts) != 2 {
+		t.Fatalf("CategoryBreakdown() = %+v, want 2 rows (Supermercado + Sem categoria)", impacts)
+	}
+	for _, impact := range impacts {
+		if impact.CategoryID != nil && *impact.CategoryID == categoryTransferencia {
+			t.Errorf("CategoryBreakdown() lists the transfer category: %+v", impact)
+		}
+	}
+	if impacts[0].CategoryName != "Supermercado" || impacts[0].Amount.String() != "100" || impacts[0].Percentage.String() != "100" {
+		t.Errorf("Supermercado row = %+v, want 100 at 100%% (the transfer takes no share of the month)", impacts[0])
+	}
+}
+
 // ...while an ignored transaction stays out: "ignored" says the row should
 // not be here at all (a reversal, a duplicate), so it never moved cash and
 // the anchor must not reverse it.

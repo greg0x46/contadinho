@@ -25,6 +25,19 @@ var ErrAccountNotFound = errors.New("account not found")
 // by hand; the provider is the source of truth for that row.
 var ErrNotManual = errors.New("transaction is not manual")
 
+var ErrInvestmentLinked = errors.New("transaction has investment reconciliations")
+
+func requireNoInvestmentLinks(ctx context.Context, q Querier, id string) error {
+	var linked bool
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM investment_reconciliations WHERE financial_transaction_id = ?)`, id).Scan(&linked); err != nil {
+		return err
+	}
+	if linked {
+		return ErrInvestmentLinked
+	}
+	return nil
+}
+
 // ManualInput is what the user supplies to author a lançamento by hand.
 // Amount is already signed — positive for money coming in (CREDIT),
 // negative for money going out (DEBIT) — mirroring how amount/movement_type
@@ -110,6 +123,9 @@ func UpdateManual(ctx context.Context, conn Querier, transactionID string, in Ma
 	if err := requireManual(ctx, conn, transactionID); err != nil {
 		return err
 	}
+	if err := requireNoInvestmentLinks(ctx, conn, transactionID); err != nil {
+		return err
+	}
 
 	var currencyCode sql.NullString
 	err := conn.QueryRowContext(ctx,
@@ -167,6 +183,9 @@ func DeleteManual(ctx context.Context, conn *sql.DB, transactionID string, onIgn
 		return err
 	}
 	defer tx.Rollback()
+	if err := requireNoInvestmentLinks(ctx, tx, transactionID); err != nil {
+		return err
+	}
 
 	if onIgnored != nil {
 		if err := onIgnored(ctx, tx, transactionID); err != nil {

@@ -9,7 +9,7 @@ backend_addr="${CONTADINHO_DEV_ADDR:-localhost:8000}"
 frontend_host="${VITE_DEV_HOST:-127.0.0.1}"
 frontend_port="${VITE_DEV_PORT:-5173}"
 backend_url="http://${backend_addr}"
-export CONTADINHO_PUBLIC_URL="${CONTADINHO_PUBLIC_URL:-http://localhost:${frontend_port}}"
+export CONTADINHO_PUBLIC_URL="${CONTADINHO_PUBLIC_URL:-http://${frontend_host}:${frontend_port}}"
 
 if ! command -v go >/dev/null 2>&1; then
   echo "Erro: Go não está instalado ou não está no PATH." >&2
@@ -72,7 +72,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 echo "Backend:  http://${backend_addr}"
-echo "Frontend: http://localhost:${frontend_port}"
+echo "Frontend: ${CONTADINHO_PUBLIC_URL}"
 echo "Pressione Ctrl-C para encerrar os dois processos."
 
 start_process go run ./cmd/contadinho -addr "$backend_addr"

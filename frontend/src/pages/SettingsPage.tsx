@@ -1,5 +1,6 @@
 import { AuthenticationSettings } from "../components/AuthenticationSettings";
 import { PluggySettings } from "../components/PluggySettings";
+import { InvestmentAssetSettings } from "../components/InvestmentAssetSettings";
 import { PageContainer } from "@ant-design/pro-layout";
 import { Alert, Button, Card, Flex, Radio, Skeleton, Typography } from "antd";
 import { useEffect, useState } from "react";
@@ -55,6 +56,7 @@ export function SettingsPage() {
     >
       <AuthenticationSettings />
       <PluggySettings />
+      <InvestmentAssetSettings />
       <Card title="Mês das transações de cartão de crédito">
         {loading ? (
           <Skeleton active paragraph={{ rows: 2 }} />

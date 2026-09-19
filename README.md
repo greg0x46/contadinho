@@ -78,11 +78,37 @@ de autenticação independente da hospedagem:
   menor saldo até lá, e como cenários hipotéticos mudam essa resposta.
 - **Patrimônio líquido** — snapshots e histórico de patrimônio (ativos −
   passivos) ao longo do tempo.
+- **Investimentos** — contas de investimento integradas e manuais, carteiras
+  por objetivo, operações por ativo e avaliações manuais. Aportes e resgates
+  conciliados com o extrato aparecem separados dos gastos, preservando seu
+  efeito no caixa e evitando duplicação no patrimônio.
 - **Autenticação por navegador** — login com e-mail e senha para a conta
   proprietária, sessões persistidas, saída e troca de senha. Sem cadastro público.
 - **Segredos criptografados em repouso** — credenciais Pluggy protegidas com
   AES-256-GCM por uma chave independente da senha, fornecida pelo ambiente ou
   por arquivo. O worker funciona após reinícios sem exigir login.
+
+## Investimentos por conta e objetivo
+
+Em **Investimentos**, cadastre uma conta de custódia manual ou use o agrupamento
+criado para uma conexão. Crie posições vazias para novas compras; informe saldo
+inicial apenas para patrimônio que já existia. Compras aceitam quantidade,
+preço, taxas e impostos. A opção de entrada junto com a compra permite registrar
+um aporte ou reinvestir um rendimento em uma única ação.
+
+No extrato, abra o lançamento e escolha **Vincular a investimento**. Confirme o
+destino e a parcela; o restante continua disponível para outra movimentação.
+É possível associar também o movimento importado do ativo. O botão
+**Revisar lançamentos antigos** abre o histórico sem limite de período, sem
+reclassificá-lo automaticamente.
+
+Contas integradas mantêm seus saldos informados pela instituição. Use
+**Vincular caixa da corretora** quando a conta financeira importada já representa
+o mesmo caixa. Objetivos agrupam posições de qualquer instituição sem alterar
+seu valor. Cotações manuais têm data; correções de operações recalculam os
+custos subsequentes e são recusadas se produzirem caixa ou posição negativos.
+
+Os contratos e limites estão na [referência de investimentos](.specs/contextos/investimentos/reference.md).
 
 ## Stack técnica
 
@@ -118,6 +144,26 @@ de autenticação independente da hospedagem:
 
 Antes de iniciar, configure a chave de criptografia e crie ou migre a conta.
 O servidor recusa iniciar sem autenticação preparada ou com chave inválida.
+
+### Deploy no homelab
+
+Com a configuração persistente já instalada em
+`/home/greg0x46/contadinho`, publique a versão atual com:
+
+```sh
+./deploy.sh
+```
+
+O script instala as dependências exatas do frontend, compila o binário para
+Linux/amd64, envia-o por SSH para `greg0x46@192.168.0.196`, reinicia a unidade
+`contadinho.service` e valida o endpoint `/health`. Se a validação falhar, ele
+restaura o binário anterior e reinicia o serviço novamente. O banco, o arquivo
+`contadinho.env` e a chave mestra não são alterados.
+
+Host, diretório, unidade e URL de saúde podem ser sobrescritos por
+`CONTADINHO_DEPLOY_HOST`, `CONTADINHO_DEPLOY_DIR`,
+`CONTADINHO_DEPLOY_SERVICE` e `CONTADINHO_DEPLOY_HEALTH_URL`, respectivamente.
+O reinício usa `sudo` no homelab e pode solicitar a senha do usuário remoto.
 
 ### Autenticação e chave de criptografia
 
@@ -209,6 +255,21 @@ O worker de sincronização em segundo plano assume que só uma instância o
 executa por vez — hoje ele não coordena a reivindicação de execuções de
 sincronização entre múltiplos processos/instâncias.
 
+#### Documentar o schema com SchemaSpy
+
+`docker-compose.schemaspy.yml` roda o [SchemaSpy](https://schemaspy.org/)
+contra um Postgres de desenvolvimento acessível na máquina (`host.docker.internal`)
+e grava o HTML em `schemaspy/output/` (diretório ignorado pelo git). Não é o
+compose da aplicação. A senha é obrigatória; usuário, banco e porta têm
+padrão `admin`, `contadinho` e `5432`:
+
+```sh
+SCHEMASPY_DB_PASSWORD=... docker compose -f docker-compose.schemaspy.yml up
+# opcionais: SCHEMASPY_DB_USER, SCHEMASPY_DB_NAME, SCHEMASPY_DB_PORT
+```
+
+Depois abra `schemaspy/output/index.html`.
+
 ### Sincronização agendada
 
 Como as rotas da API exigem sessão do navegador, um cron externo não consegue
@@ -236,13 +297,17 @@ backend:
 ./dev.sh
 ```
 
-Abra `http://localhost:5173`. O script usa essa origem como padrão de
-`CONTADINHO_PUBLIC_URL`; se você já exportou outra origem, ajuste-a para a
-URL do Vite. `Ctrl-C` encerra os dois processos. Para
-sobrescrever as portas:
+Abra a URL impressa pelo script na linha `Frontend:` (`http://127.0.0.1:5173`
+por padrão). O script usa exatamente essa origem como padrão de
+`CONTADINHO_PUBLIC_URL`, e o backend compara o header `Origin` do navegador
+com ela de forma estrita: abrir por `http://localhost:5173`, ou já ter
+exportado outro valor em `CONTADINHO_PUBLIC_URL`, resulta em 403
+`invalid-origin` no login e em todo POST/PUT/DELETE. Se preferir outro host,
+altere `VITE_DEV_HOST` (o script deriva a origem dele) em vez de exportar a
+URL à mão. `Ctrl-C` encerra os dois processos. Para sobrescrever host e portas:
 
 ```sh
-CONTADINHO_DEV_ADDR=localhost:8100 VITE_DEV_PORT=5174 ./dev.sh
+CONTADINHO_DEV_ADDR=localhost:8100 VITE_DEV_HOST=localhost VITE_DEV_PORT=5174 ./dev.sh
 ```
 
 Se as dependências ainda não estiverem instaladas, execute `cd frontend &&

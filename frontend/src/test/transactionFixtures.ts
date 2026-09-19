@@ -63,6 +63,8 @@ export const transactionResult: TransactionQueryResult = {
         currency_code: "BRL",
         source: "transaction_currency",
       },
+      investment_transfer_amount: "0",
+      reportable_amount: "123.4500",
       card: null,
       inclusion: { state: "considered", changed_at: null, origin: "manual", rule_name: null },
       totals_eligibility: { included: true, reason: null },
