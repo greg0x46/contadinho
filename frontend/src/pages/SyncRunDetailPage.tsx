@@ -1,4 +1,4 @@
-import { PageContainer } from "@ant-design/pro-layout";
+import { SettingsPageContainer as PageContainer } from "../components/SettingsPageContainer";
 import { Alert, Button, Flex } from "antd";
 import { Link, useParams } from "react-router-dom";
 
@@ -10,13 +10,15 @@ import { useSyncRun } from "../hooks/useSyncRun";
 
 function InvalidRun() {
   return (
+    <PageContainer title="Detalhes da sincronização">
     <Alert
       type="error"
       showIcon
       message={<h1>Endereço de sincronização inválido</h1>}
       description="O identificador informado não possui o formato esperado."
-      action={<Link to="/open-banking">Voltar para sincronizações</Link>}
+      action={<Link to="/configuracoes/open-banking">Voltar para sincronizações</Link>}
     />
+    </PageContainer>
   );
 }
 
@@ -25,7 +27,7 @@ function ValidRunDetail({ id }: { id: string }) {
   return (
     <PageContainer
       title="Detalhes da sincronização"
-      extra={<Link to="/open-banking">Voltar para sincronizações</Link>}
+      extra={<Link to="/configuracoes/open-banking">Voltar para sincronizações</Link>}
     >
       <Flex vertical gap="large">
       {state.freshness === "loading" && <LoadingState>Carregando sincronização…</LoadingState>}
@@ -35,7 +37,7 @@ function ValidRunDetail({ id }: { id: string }) {
             showIcon
             message="Sincronização não encontrada"
             description="Não existe uma execução com este identificador."
-            action={<Link to="/open-banking">Voltar para sincronizações</Link>}
+            action={<Link to="/configuracoes/open-banking">Voltar para sincronizações</Link>}
           />
       )}
       {state.freshness === "unavailable" && (

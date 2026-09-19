@@ -1,5 +1,6 @@
-import { PageContainer } from "@ant-design/pro-layout";
-import { Empty, Flex, Typography } from "antd";
+import { PluggySettings } from "../components/PluggySettings";
+import { SettingsPageContainer as PageContainer } from "../components/SettingsPageContainer";
+import { Collapse, Empty, Flex, Typography } from "antd";
 import { useNavigate } from "react-router-dom";
 
 import { CreateSyncRunAction } from "../components/CreateSyncRunAction";
@@ -12,7 +13,7 @@ import { useSyncRunList } from "../hooks/useSyncRunList";
 export function SyncRunListPage() {
   const { state, retry } = useSyncRunList();
   const navigate = useNavigate();
-  const sync = useCreateSyncRun((id) => navigate(`/open-banking/sync-runs/${id}`));
+  const sync = useCreateSyncRun((id) => navigate(`/configuracoes/open-banking/sync-runs/${id}`));
 
   return (
     <PageContainer
@@ -46,6 +47,7 @@ export function SyncRunListPage() {
         )}
         {state.kind === "ready" && <SyncRunHistory runs={state.runs} />}
         </section>
+        <Collapse items={[{ key: "credentials", label: "Credenciais da Pluggy", children: <PluggySettings /> }]} />
       </Flex>
     </PageContainer>
   );

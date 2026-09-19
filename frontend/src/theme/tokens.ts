@@ -4,7 +4,7 @@ import type { ThemeConfig } from "antd";
  * Design tokens for Contadinho.
  *
  * These formalize the palette that had already emerged organically across
- * the app's CSS files (navy text, slate-gray secondary text, blue primary,
+ * the app's CSS files (navy text, slate-gray secondary text, green primary,
  * green/red for positive/negative money, orange for warnings) into a single
  * source of truth consumed by antd's ConfigProvider. New CSS and components
  * should reference these instead of hardcoding hex values.
@@ -13,7 +13,8 @@ export const colors = {
   textPrimary: "#172b4d",
   textSecondary: "#6b778c",
   textTertiary: "#8c98a8",
-  primary: "#2a78d6",
+  // Same tone as `success` — the theme's accent color is green.
+  primary: "#1baf7a",
   success: "#1baf7a",
   error: "#e34948",
   warning: "#f2a900",
@@ -39,6 +40,8 @@ export const spacing = {
 export const theme: ThemeConfig = {
   token: {
     colorPrimary: colors.primary,
+    colorLink: colors.primary,
+    colorInfo: colors.primary,
     colorSuccess: colors.success,
     colorError: colors.error,
     colorWarning: colors.warning,

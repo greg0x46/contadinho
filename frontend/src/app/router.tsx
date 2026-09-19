@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { HomePage } from "../pages/HomePage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { App } from "./App";
+import { LegacySettingsRedirect } from "./LegacySettingsRedirect";
 import { AuthGate } from "./AuthGate";
 
 const SyncRunListPage = lazy(() =>
@@ -87,6 +88,12 @@ const NetWorthPage = lazy(() =>
   })),
 );
 
+const GeneralSettingsPage = lazy(() => import("../pages/GeneralSettingsPage").then((module) => ({ default: module.GeneralSettingsPage })));
+
+const SecuritySettingsPage = lazy(() => import("../pages/SecuritySettingsPage").then((module) => ({ default: module.SecuritySettingsPage })));
+
+const InvestmentAssetsSettingsPage = lazy(() => import("../pages/InvestmentAssetsSettingsPage").then((module) => ({ default: module.InvestmentAssetsSettingsPage })));
+
 export function AppRouter() {
   return (
     <BrowserRouter>
@@ -100,21 +107,27 @@ export function AppRouter() {
             }
           >
             <Route index element={<HomePage />} />
-            <Route path="open-banking" element={<SyncRunListPage />} />
-            <Route path="open-banking/sync-runs/:id" element={<SyncRunDetailPage />} />
+            <Route path="configuracoes/open-banking" element={<SyncRunListPage />} />
+            <Route path="configuracoes/open-banking/sync-runs/:id" element={<SyncRunDetailPage />} />
             <Route path="contas-e-cartoes" element={<AccountsPage />} />
             <Route path="contas-e-cartoes/:id" element={<AccountDetailPage />} />
             <Route path="transacoes" element={<TransactionsPage />} />
-            <Route path="automacoes" element={<AutomationRulesPage />} />
+            <Route path="configuracoes/automacoes" element={<AutomationRulesPage />} />
             <Route path="pendencias" element={<PayablesPage />} />
             <Route path="pendencias/:id" element={<PayableDetailPage />} />
             <Route path="recorrencias" element={<RecurringCommitmentsPage />} />
-            <Route path="cenarios" element={<ScenariosPage />} />
+            <Route path="configuracoes/cenarios" element={<ScenariosPage />} />
             <Route path="relatorio-financeiro" element={<FinancialReportPage />} />
             <Route path="patrimonio-liquido" element={<NetWorthPage />} />
             <Route path="investimentos" element={<InvestmentsPage />} />
             <Route path="investimentos/:id" element={<InvestmentDetailPage />} />
-            <Route path="categorias" element={<CategoriesPage />} />
+            <Route path="configuracoes/categorias" element={<CategoriesPage />} />
+            {['open-banking', 'open-banking/sync-runs/:id', 'automacoes', 'cenarios', 'categorias'].map((path) => (
+              <Route key={path} path={path} element={<LegacySettingsRedirect />} />
+            ))}
+            <Route path="configuracoes/geral" element={<GeneralSettingsPage />} />
+            <Route path="configuracoes/seguranca" element={<SecuritySettingsPage />} />
+            <Route path="configuracoes/ativos-de-investimento" element={<InvestmentAssetsSettingsPage />} />
             <Route path="configuracoes" element={<SettingsPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>

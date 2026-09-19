@@ -12,10 +12,10 @@ vi.mock("../api/syncRuns");
 
 function renderDetail() {
   return render(
-    <MemoryRouter initialEntries={[`/open-banking/sync-runs/${runId}`]}>
+    <MemoryRouter initialEntries={[`/configuracoes/open-banking/sync-runs/${runId}`]}>
       <QueryTestProvider>
         <Routes>
-          <Route path="/open-banking/sync-runs/:id" element={<SyncRunDetailPage />} />
+          <Route path="/configuracoes/open-banking/sync-runs/:id" element={<SyncRunDetailPage />} />
         </Routes>
       </QueryTestProvider>
     </MemoryRouter>,

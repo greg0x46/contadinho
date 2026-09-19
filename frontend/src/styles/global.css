@@ -3,13 +3,14 @@
      is the CSS-side copy of the same palette. Keep the two in sync. */
   --color-text-primary: #172b4d;
   --color-text-secondary: #6b778c;
-  --color-primary: #2a78d6;
+  --color-primary: #1baf7a;
   --color-success: #1baf7a;
   --color-error: #e34948;
   --color-warning: #f2a900;
   --color-border: #d9d9d9;
   --color-border-secondary: #e5e9f0;
   --color-bg-layout: #f5f7fa;
+  --color-bg-container: #ffffff;
 
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
@@ -63,7 +64,172 @@ body {
 
 #conteudo-principal,
 .ant-pro-layout-content {
-  min-height: calc(100vh - 56px);
+  min-height: calc(100vh - 64px);
+}
+
+/* App shell hierarchy: product (global header) -> navigation (sidebar) ->
+   page context (PageHeader) -> content (workspace + cards). Each level
+   gets its own surface so the boundary between "chrome" and "content" is
+   visible instead of one undifferentiated white page. */
+
+/* Global header's background is set via ProLayout's token prop in App.tsx
+   (token.header.colorBgHeader) — that's the value pro-layout's own
+   CSS-in-JS actually reads, so a plain CSS override here would lose the
+   cascade fight against it. */
+
+/* Sidebar: its own surface, separated from the main column by a hairline. */
+.ant-pro-sider.ant-pro-sider-mix {
+  background: var(--color-bg-container);
+  border-right: 1px solid var(--color-border-secondary);
+}
+
+/* PageHeader: title + page-level actions, still a light/white surface,
+   separated from the workspace below it by a hairline. */
+.ant-pro-page-container-warp-page-header {
+  background: var(--color-bg-container);
+  padding-block: 1rem;
+  border-bottom: 1px solid var(--color-border-secondary);
+}
+
+/* Workspace: the off-white backdrop cards sit on. */
+.ant-pro-grid-content {
+  background: var(--color-bg-layout);
+}
+
+.ant-pro-page-container-children-container {
+  padding-top: 1.5rem;
+}
+
+@media (max-width: 48rem) {
+  .ant-pro-page-container-warp-page-header {
+    padding-block: 0.75rem;
+  }
+
+  .ant-pro-page-container-children-container {
+    padding-top: 1rem;
+  }
+}
+
+/* Brand mark shown in the mobile top bar and atop the mobile nav drawer —
+   on desktop the brand lives only in the global header (see App.tsx's
+   menuHeaderRender), so this never appears there. Its two contexts have
+   different surfaces (the header is black, the drawer is white), so the
+   color is set per-context rather than on the shared class itself. */
+.app-mobile-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-inline: 0.25rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.ant-pro-global-header .app-mobile-brand {
+  color: #ffffff;
+}
+
+.ant-pro-sider-logo .app-mobile-brand {
+  color: var(--color-text-primary);
+}
+
+/* Title + subtitle stack, used both by the mobile brand above and by
+   App.tsx's headerTitleRender override for the desktop header. */
+.app-brand-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.2;
+}
+
+.app-brand-text h1 {
+  margin: 0;
+}
+
+/* Brand title font: a rounded, playful display face (loaded in index.html)
+   so "Julius" has some character of its own instead of sitting in the
+   same Inter stack as the rest of the app's UI text. Scoped to the brand
+   mark only — .app-brand-title (mobile) and .app-brand-text h1 (desktop,
+   pro-layout's own <h1> built from the `title` prop) — the app's body
+   font in global.css's :root is untouched. */
+.app-brand-title,
+.app-brand-text h1 {
+  font-family: "Baloo 2", "Segoe UI", sans-serif;
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  /* Flex items are blockified (CSS Display spec), and body's global
+     overflow-wrap: anywhere means a block-level element wraps — even mid
+     word — the instant its container is narrower than the text. The
+     drawer's brand column is that narrow (big logo + padding + the
+     collapse button eat most of its width), so without this "Julius"
+     silently broke into two lines there once the font-size went up. */
+  white-space: nowrap;
+}
+
+/* Subtitle: same flat display face as the title (not a script font), much
+   smaller, stretched via scaleX to span the exact same rendered width as
+   "Julius" above it — the two lines read as one lockup. transform-origin
+   keeps the stretch anchored to the left edge instead of growing from the
+   center. The scaleX factor is tuned to this exact text/font/size and
+   needs re-measuring (see PR description) if any of those change. */
+.app-brand-subtitle {
+  display: inline-block;
+  margin-top: 0.1rem;
+  font-family: "Baloo 2", "Segoe UI", sans-serif;
+  font-size: 0.65rem;
+  font-weight: 500;
+  opacity: 0.85;
+  transform-origin: left;
+  transform: scaleX(1.379);
+}
+
+/* App.tsx's headerTitleRender wraps logo+title in a plain <a> (needed to
+   pick up pro-layout's own flex/align-items styling for that selector) —
+   left unstyled, its color would default to the theme's link color
+   (green) instead of the white the header token sets on the title. */
+.ant-pro-global-header-logo a {
+  color: var(--color-bg-container);
+}
+
+.ant-pro-sider-logo img {
+  width: 48px;
+  height: 48px;
+}
+
+/* Sized to the 64px header bar itself (see the bottom-alignment rule
+   below) rather than a fixed square, so the head sits just under the top
+   edge with a small margin instead of a small badge floating in the bar.
+   width: auto preserves the source image's aspect ratio. */
+.ant-pro-global-header-logo img {
+  width: auto;
+  height: 58px;
+}
+
+/* Pinned to the bottom of the 64px header bar instead of vertically
+   centered, so the cutout reads as standing on the header's edge rather
+   than floating in the middle of it. The logo+title block is only as
+   tall as its content (48px), so align-self has to go on that block —
+   putting it on the img alone has no effect, since the img already fills
+   its immediate flex parent (the <a>) with no slack to move within. */
+.ant-pro-global-header-logo {
+  align-self: flex-end;
+}
+
+/* Both scoped to their container (two classes) so they beat the plainer
+   .ant-pro-global-header-logo/.ant-pro-sider-logo img rules regardless of
+   source order — no fragile cascade-order dependency like before. */
+
+/* Top bar: same treatment as the desktop header logo, bottom-anchored via
+   the .ant-pro-global-header-logo rule above, head near the top edge. */
+.ant-pro-global-header .app-mobile-brand img {
+  width: auto;
+  height: 58px;
+}
+
+/* Drawer: not boxed in by the 64px header, so this can go much bigger. */
+.ant-pro-sider-logo .app-mobile-brand img {
+  width: auto;
+  height: 110px;
 }
 
 /* PageContainer's PageHeader packs title + subtitle into one nowrap flex
@@ -133,4 +299,15 @@ body {
   border-radius: 50%;
   color: #fff;
   font-size: 1rem;
+}
+
+.settings-section-link {
+  display: block;
+  height: 100%;
+  border-radius: 8px;
+}
+
+.settings-section-link:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 4px;
 }
