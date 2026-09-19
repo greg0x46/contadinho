@@ -48,7 +48,7 @@ describe("recent history", () => {
     expect(screen.getByRole("columnheader", { name: "Contas processadas" })).toBeVisible();
     expect(screen.getByRole("link", { name: /Ver detalhes/ })).toHaveAttribute(
       "href",
-      `/open-banking/sync-runs/${syncRun.id}`,
+      `/configuracoes/open-banking/sync-runs/${syncRun.id}`,
     );
   });
 });

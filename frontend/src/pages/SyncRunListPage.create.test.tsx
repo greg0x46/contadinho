@@ -22,7 +22,7 @@ function renderPage() {
       <QueryTestProvider>
         <Routes>
           <Route path="/" element={<SyncRunListPage />} />
-          <Route path="/open-banking/sync-runs/:id" element={<p>Detalhe aberto</p>} />
+          <Route path="/configuracoes/open-banking/sync-runs/:id" element={<p>Detalhe aberto</p>} />
         </Routes>
       </QueryTestProvider>
     </MemoryRouter>,
@@ -60,11 +60,11 @@ describe("sync run creation", () => {
     expect(await screen.findByText("Sincronização iniciada em 2 conexões.")).toBeVisible();
     expect(screen.getByRole("link", { name: /Conta pessoal/ })).toHaveAttribute(
       "href",
-      `/open-banking/sync-runs/${runId}`,
+      `/configuracoes/open-banking/sync-runs/${runId}`,
     );
     expect(screen.getByRole("link", { name: /Empresa/ })).toHaveAttribute(
       "href",
-      `/open-banking/sync-runs/${secondRunId}`,
+      `/configuracoes/open-banking/sync-runs/${secondRunId}`,
     );
     expect(screen.queryByText("Detalhe aberto")).not.toBeInTheDocument();
   });
@@ -105,7 +105,7 @@ describe("sync run creation", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
     expect(await screen.findByRole("link", { name: "Acompanhar sincronização ativa" })).toHaveAttribute(
       "href",
-      `/open-banking/sync-runs/${runId}`,
+      `/configuracoes/open-banking/sync-runs/${runId}`,
     );
   });
 

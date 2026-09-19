@@ -49,7 +49,7 @@ export function CreateSyncRunAction({ sync }: { sync: ReturnType<typeof useCreat
                   </span>
                 )}
                 {state.runs.map((run) => (
-                  <Link key={run.id} to={`/open-banking/sync-runs/${run.id}`}>
+                  <Link key={run.id} to={`/configuracoes/open-banking/sync-runs/${run.id}`}>
                     Acompanhar {run.source_name}
                   </Link>
                 ))}
@@ -72,7 +72,7 @@ export function CreateSyncRunAction({ sync }: { sync: ReturnType<typeof useCreat
             description={
               <Flex vertical align="start" gap="small">
                 {state.activeRunId !== null && (
-                  <Link to={`/open-banking/sync-runs/${state.activeRunId}`}>
+                  <Link to={`/configuracoes/open-banking/sync-runs/${state.activeRunId}`}>
                     Acompanhar sincronização ativa
                   </Link>
                 )}

@@ -1,5 +1,5 @@
 import { PlusOutlined } from "@ant-design/icons";
-import { PageContainer } from "@ant-design/pro-layout";
+import { SettingsPageContainer as PageContainer } from "../components/SettingsPageContainer";
 import { Alert, Button, Empty, Select, Skeleton } from "antd";
 import { useState } from "react";
 

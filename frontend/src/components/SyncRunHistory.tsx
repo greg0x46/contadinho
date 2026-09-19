@@ -30,7 +30,7 @@ export function SyncRunHistory({ runs }: { runs: SyncRun[] }) {
         <Space>
           <Link
             aria-label={`Ver detalhes da sincronização iniciada em ${formatDate(run.started_at)}`}
-            to={`/open-banking/sync-runs/${run.id}`}
+            to={`/configuracoes/open-banking/sync-runs/${run.id}`}
           >
             Ver detalhes
           </Link>
