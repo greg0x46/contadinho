@@ -46,6 +46,10 @@ export interface FilterConfig<Values extends object> {
   presets?: DateRangePreset[];
   navigatePeriod?: boolean;
   hideChip?: boolean;
+  /** Kept in `config` so it still shapes hasContextBar/validation, but rendered
+   * elsewhere by the caller (e.g. the transactions period control, which now
+   * lives in the page's subheader instead of the filter bar). */
+  hidden?: boolean;
   formatActive?: (value: unknown, values: Values, option?: FilterOption) => string;
   /** Optional richer rendering (e.g. icon + color) for each dropdown option. */
   optionRender?: (option: FilterOption) => ReactNode;
@@ -57,7 +61,6 @@ type Props<Values extends object> = {
   config: FilterConfig<Values>[];
   onApply: (values: Values) => void;
   onClear: () => void;
-  overview?: ReactNode;
 };
 
 const read = <Values extends object>(
@@ -124,7 +127,6 @@ export function ConfigurableFilters<Values extends object>({
   config,
   onApply,
   onClear,
-  overview,
 }: Props<Values>) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [quickValues, setQuickValues] = useState(values);
@@ -354,17 +356,20 @@ export function ConfigurableFilters<Values extends object>({
 
   const contextFields = mainFields.filter((field) => field.navigatePeriod || field.type === "segmented");
   const hasContextBar = mainFields.some((field) => field.navigatePeriod);
+  const visibleContextFields = contextFields.filter((field) => !field.hidden);
+  const visibleMainFields = mainFields.filter(
+    (field) => !field.hidden && (!hasContextBar || !contextFields.includes(field)),
+  );
 
   return (
     <section className={`configurable-filters ${hasContextBar ? "has-context-bar" : ""}`} aria-label="Filtros de transações">
-      {hasContextBar && (
+      {hasContextBar && visibleContextFields.length > 0 && (
         <div className="filter-context-bar">
-          {contextFields.map((field) => renderField(field, quickValues, true))}
+          {visibleContextFields.map((field) => renderField(field, quickValues, true))}
         </div>
       )}
-      {overview}
-      <div className="filter-main-bar">
-        {mainFields.filter((field) => !hasContextBar || !contextFields.includes(field)).map((field) => renderField(field, quickValues, true))}
+      <div className={`filter-main-bar ${visibleMainFields.length === 0 ? "filter-main-bar-compact" : ""}`}>
+        {visibleMainFields.map((field) => renderField(field, quickValues, true))}
         <Button
           className="advanced-filter-button"
           aria-label={`Filtros${advancedCount ? ` ${advancedCount}` : ""}`}
@@ -443,11 +448,6 @@ export function ConfigurableFilters<Values extends object>({
       >
         <Form layout="vertical">
           <div className="advanced-filter-fields">
-            <div className="filter-mobile-main">
-              {mainFields
-                .filter((field) => field.type === "select" || field.type === "multiselect")
-                .map((field) => renderField(field, draft, false))}
-            </div>
             {advancedFields.map((field) => renderField(field, draft, false))}
           </div>
           {error && <p role="alert">{error}</p>}

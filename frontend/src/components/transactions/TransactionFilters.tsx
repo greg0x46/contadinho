@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo } from "react";
 
 import type {
   TransactionFilters as Filters,
@@ -18,14 +18,12 @@ export function TransactionFilters({
   facets,
   onApply,
   onClear,
-  overview,
 }: {
   applied: Filters;
   emptyValues?: Filters;
   facets: TransactionQueryResult["available_filters"] | undefined;
   onApply: (filters: Filters) => void;
   onClear: () => void;
-  overview?: ReactNode;
 }) {
   const config = useMemo<FilterConfig<Filters>[]>(
     () => [
@@ -38,12 +36,13 @@ export function TransactionFilters({
         presets: periodPresets(),
         navigatePeriod: true,
         hideChip: true,
+        hidden: true,
       },
       {
         key: "description",
         label: "Descrição",
         type: "text",
-        placement: "main",
+        placement: "advanced",
         placeholder: "Buscar descrição",
         debounceMs: 300,
         formatActive: (value) => String(value),
@@ -66,7 +65,7 @@ export function TransactionFilters({
         key: "account_id",
         label: "Conta",
         type: "select",
-        placement: "main",
+        placement: "advanced",
         placeholder: facets?.accounts.length ? "Conta" : "Nenhuma conta",
         options:
           facets?.accounts.map((account) => ({
@@ -81,7 +80,7 @@ export function TransactionFilters({
         key: "category_id",
         label: "Categoria",
         type: "select",
-        placement: "main",
+        placement: "advanced",
         placeholder: facets?.categories.length ? "Categoria" : "Nenhuma categoria",
         options: categoryFilterOptions(facets?.categories),
         optionRender: (option) => (
@@ -109,7 +108,7 @@ export function TransactionFilters({
         key: "classification",
         label: "Movimentação",
         type: "segmented",
-        placement: "main",
+        placement: "advanced",
         options: [
           { value: "all", label: "Todas" },
           { value: "inflow", label: "Entradas" },
@@ -152,7 +151,6 @@ export function TransactionFilters({
 
   return (
     <ConfigurableFilters
-      overview={overview}
       values={applied}
       emptyValues={emptyValues ?? applied}
       config={config}

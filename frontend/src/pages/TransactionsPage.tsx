@@ -1,6 +1,6 @@
-import { PlusOutlined, ReloadOutlined } from "@ant-design/icons";
+import { PlusOutlined } from "@ant-design/icons";
 import { PageContainer } from "@ant-design/pro-layout";
-import { Alert, Button, Card, Flex, Select, Skeleton } from "antd";
+import { Alert, Button, Card, Select, Skeleton } from "antd";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -13,11 +13,13 @@ import {
   type TransactionQueryResult,
 } from "../api/contracts";
 import { filtersToSearchParams } from "../components/filters/filterUrl";
+import { PeriodNavigator } from "../components/filters/PeriodNavigator";
+import { periodPresets } from "../components/filters/periodPresets";
 import { ManualTransactionForm } from "../components/transactions/ManualTransactionForm";
 import { TransactionDetailDrawer } from "../components/transactions/TransactionDetailDrawer";
 import { TransactionFilters as TransactionFilterBar } from "../components/transactions/TransactionFilters";
 import { TransactionGroup } from "../components/transactions/TransactionGroup";
-import { TransactionTotals } from "../components/transactions/TransactionTotals";
+import { TransactionSummaryBar } from "../components/transactions/TransactionSummaryBar";
 import { useAccounts } from "../hooks/useAccounts";
 import { useCategories } from "../hooks/useCategories";
 import { useManualTransaction } from "../hooks/useManualTransaction";
@@ -187,225 +189,232 @@ export function TransactionsPage() {
     : 0;
 
   return (
-    <PageContainer title={false} className="transactions-page">
-      <header className="transactions-header">
-        <div>
-          <h1>Transações</h1>
-          <p>Acompanhe suas entradas, saídas e o resultado do período.</p>
+    <PageContainer
+      title="Transações"
+      subTitle="Acompanhe suas entradas, saídas e o resultado do período"
+      className="transactions-page"
+      extra={
+        <div className="dashboard-period">
+          <PeriodNavigator
+            id="transactions-period"
+            value={[filters.date_from, filters.date_to]}
+            presets={periodPresets()}
+            onChange={(from, to) => apply({ ...filters, date_from: from, date_to: to })}
+            reset={{ preset: "this-month", label: "Este mês" }}
+            bare
+          />
         </div>
-        <Flex gap="small">
+      }
+    >
+      {data ? (
+        <>
+          <TransactionSummaryBar
+            totalItems={data.page.total_items}
+            totals={data.page.total_items === 0 ? [] : data.totals}
+            busy={query.isFetching}
+          />
+          <p className="transaction-inclusion-explanation">Totais dos filtros aplicados, sem transações ignoradas.</p>
+        </>
+      ) : query.isPending && query.timezoneValid ? (
+        <section className="transaction-summary" aria-label="Carregando resumo financeiro" aria-busy="true">
+          <Card size="small" className="transaction-summary-bar-skeleton">
+            <Skeleton active paragraph={{ rows: 1 }} title={false} />
+          </Card>
+        </section>
+      ) : null}
+
+      <Card
+        className="transactions-card"
+        title={
+          <TransactionFilterBar
+            applied={filters}
+            emptyValues={initialFilters}
+            facets={data?.available_filters ?? facets}
+            onApply={apply}
+            onClear={clear}
+          />
+        }
+        extra={
           <Button icon={<PlusOutlined aria-hidden="true" />} onClick={openManualCreate}>
             Novo lançamento
           </Button>
-          <Button
-            aria-label="Atualizar"
-            title="Atualizar transações"
-            icon={<ReloadOutlined aria-hidden="true" />}
-            loading={query.isFetching}
-            disabled={!query.timezoneValid}
-            onClick={() => query.refetch()}
-          >
-            Atualizar
-          </Button>
-        </Flex>
-      </header>
-
-      <TransactionFilterBar
-        overview={
-          data ? <div aria-busy={query.isFetching}>
-            <TransactionTotals totals={data.page.total_items === 0 ? [] : data.totals} />
-            <p className="transaction-inclusion-explanation">Totais dos filtros aplicados, sem transações ignoradas.</p>
-          </div> : query.isPending && query.timezoneValid ? (
-            <section className="transaction-summary" aria-label="Carregando resumo financeiro" aria-busy="true">
-              {[0, 1, 2].map((key) => <Card key={key} size="small"><Skeleton active paragraph={false} /></Card>)}
-            </section>
-          ) : undefined
         }
-        applied={filters}
-        emptyValues={initialFilters}
-        facets={data?.available_filters ?? facets}
-        onApply={apply}
-        onClear={clear}
-      />
-
-      {!query.timezoneValid && (
-        <Alert
-          type="error"
-          showIcon
-          message="Não foi possível identificar um fuso horário IANA válido."
-        />
-      )}
-      {query.isPending && query.timezoneValid && <ResultsSkeleton />}
-      {query.isError && !data && (
-        <Alert
-          type="error"
-          showIcon
-          message="Não foi possível carregar as transações"
-          description={<Button onClick={() => query.refetch()}>Tentar novamente</Button>}
-        />
-      )}
-      {query.isError && data && (
-        <Alert
-          type="warning"
-          showIcon
-          message="Dados possivelmente desatualizados"
-          description={<Button onClick={() => query.refetch()}>Tentar novamente</Button>}
-        />
-      )}
-      {inclusion.writeError && (
-        <Alert
-          type="error"
-          showIcon
-          message="Não foi possível salvar a decisão"
-          description={
-            <>
-              <p>O último estado confirmado foi mantido. {inclusion.writeError}</p>
-              <Button onClick={inclusion.retryWrite}>Tentar novamente</Button>
-            </>
-          }
-        />
-      )}
-      {inclusion.refreshError && (
-        <Alert
-          type="warning"
-          showIcon
-          message="Alteração salva, atualização pendente"
-          description={
-            <>
-              <p>Os resultados anteriores foram preservados. {inclusion.refreshError}</p>
-              <Button onClick={inclusion.retryRefresh}>Atualizar resultados</Button>
-            </>
-          }
-        />
-      )}
-      {category.writeError && (
-        <Alert
-          type="error"
-          showIcon
-          message="Não foi possível salvar a categoria"
-          description={
-            <>
-              <p>A última categoria confirmada foi mantida. {category.writeError}</p>
-              <Button onClick={category.retryWrite}>Tentar novamente</Button>
-            </>
-          }
-        />
-      )}
-      {category.refreshError && (
-        <Alert
-          type="warning"
-          showIcon
-          message="Categoria salva, atualização pendente"
-          description={
-            <>
-              <p>Os resultados anteriores foram preservados. {category.refreshError}</p>
-              <Button onClick={category.retryRefresh}>Atualizar resultados</Button>
-            </>
-          }
-        />
-      )}
-      <div className="visually-hidden" aria-live="polite" aria-atomic="true">
-        {inclusion.announcement}
-      </div>
-      <div className="visually-hidden" aria-live="polite" aria-atomic="true">
-        {category.announcement}
-      </div>
-
-      {data && (
-        <div
-          className={`transaction-results ${query.isFetching ? "is-updating" : ""}`}
-          aria-busy={query.isFetching}
-        >
-          {query.isFetching && !query.isPending && (
-            <span className="visually-hidden" role="status">
-              Atualizando resultados…
-            </span>
-          )}
-          {data.page.total_items === 0 ? (
-            <Alert
-              type="info"
-              message={
-                data.stored_total === 0
-                  ? "Ainda não há transações armazenadas."
-                  : isInitialMonth
-                    ? "Não há transações no mês atual."
-                    : "Nenhum resultado encontrado para os filtros selecionados."
-              }
-              description={
-                data.stored_total > 0 && hasExtraFilters ? (
-                  <Button type="link" onClick={clear}>
-                    Limpar filtros
-                  </Button>
-                ) : undefined
-              }
-            />
-          ) : (
-            <>
-              <div className="transaction-list-controls">
-                <strong>
-                  {data.page.total_items.toLocaleString("pt-BR")}{" "}
-                  {data.page.total_items === 1 ? "transação" : "transações"}
-                </strong>
-                <label htmlFor="transaction-grouping">Agrupar por:</label>
-                <Select
-                  id="transaction-grouping"
-                  aria-label="Agrupar por"
-                  size="small"
-                  value={groupBy}
-                  options={[
-                    { value: "none", label: "Sem agrupamento" },
-                    { value: "day", label: "Dia" },
-                    { value: "week", label: "Semana" },
-                    { value: "month", label: "Mês" },
-                  ]}
-                  onChange={(value: VisibleGrouping) => {
-                    setGroupBy(value);
-                    setPage(1);
-                  }}
-                />
-              </div>
-              <div className="transaction-groups">
-                {data.groups.map((group) => (
-                  <TransactionGroup
-                    key={group.key}
-                    group={group}
-                    items={data.items.filter((item) => item.group_key === group.key)}
-                    onSelect={selectTransaction}
-                    onInclusion={(transactionId, target) =>
-                      inclusion.setInclusion({ transactionId, state: target })
-                    }
-                    pendingTransactionId={inclusion.pendingTarget?.transactionId}
-                  />
-                ))}
-              </div>
-              <footer className="transaction-pagination">
-                <span>
-                  Exibindo {rangeStart.toLocaleString("pt-BR")}–
-                  {rangeEnd.toLocaleString("pt-BR")} de{" "}
-                  {data.page.total_items.toLocaleString("pt-BR")} transações
-                </span>
-                <nav aria-label="Paginação das transações">
-                  <Button
-                    disabled={data.page.number <= 1}
-                    onClick={() => setPage((current) => current - 1)}
-                  >
-                    Anterior
-                  </Button>
-                  <span>
-                    Página {data.page.number} de {data.page.total_pages}
-                  </span>
-                  <Button
-                    disabled={data.page.number >= data.page.total_pages}
-                    onClick={() => setPage((current) => current + 1)}
-                  >
-                    Próxima
-                  </Button>
-                </nav>
-              </footer>
-            </>
-          )}
+      >
+        {!query.timezoneValid && (
+          <Alert
+            type="error"
+            showIcon
+            message="Não foi possível identificar um fuso horário IANA válido."
+          />
+        )}
+        {query.isPending && query.timezoneValid && <ResultsSkeleton />}
+        {query.isError && !data && (
+          <Alert
+            type="error"
+            showIcon
+            message="Não foi possível carregar as transações"
+            description={<Button onClick={() => query.refetch()}>Tentar novamente</Button>}
+          />
+        )}
+        {query.isError && data && (
+          <Alert
+            type="warning"
+            showIcon
+            message="Dados possivelmente desatualizados"
+            description={<Button onClick={() => query.refetch()}>Tentar novamente</Button>}
+          />
+        )}
+        {inclusion.writeError && (
+          <Alert
+            type="error"
+            showIcon
+            message="Não foi possível salvar a decisão"
+            description={
+              <>
+                <p>O último estado confirmado foi mantido. {inclusion.writeError}</p>
+                <Button onClick={inclusion.retryWrite}>Tentar novamente</Button>
+              </>
+            }
+          />
+        )}
+        {inclusion.refreshError && (
+          <Alert
+            type="warning"
+            showIcon
+            message="Alteração salva, atualização pendente"
+            description={
+              <>
+                <p>Os resultados anteriores foram preservados. {inclusion.refreshError}</p>
+                <Button onClick={inclusion.retryRefresh}>Atualizar resultados</Button>
+              </>
+            }
+          />
+        )}
+        {category.writeError && (
+          <Alert
+            type="error"
+            showIcon
+            message="Não foi possível salvar a categoria"
+            description={
+              <>
+                <p>A última categoria confirmada foi mantida. {category.writeError}</p>
+                <Button onClick={category.retryWrite}>Tentar novamente</Button>
+              </>
+            }
+          />
+        )}
+        {category.refreshError && (
+          <Alert
+            type="warning"
+            showIcon
+            message="Categoria salva, atualização pendente"
+            description={
+              <>
+                <p>Os resultados anteriores foram preservados. {category.refreshError}</p>
+                <Button onClick={category.retryRefresh}>Atualizar resultados</Button>
+              </>
+            }
+          />
+        )}
+        <div className="visually-hidden" aria-live="polite" aria-atomic="true">
+          {inclusion.announcement}
         </div>
-      )}
+        <div className="visually-hidden" aria-live="polite" aria-atomic="true">
+          {category.announcement}
+        </div>
+
+        {data && (
+          <div
+            className={`transaction-results ${query.isFetching ? "is-updating" : ""}`}
+            aria-busy={query.isFetching}
+          >
+            {query.isFetching && !query.isPending && (
+              <span className="visually-hidden" role="status">
+                Atualizando resultados…
+              </span>
+            )}
+            {data.page.total_items === 0 ? (
+              <Alert
+                type="info"
+                message={
+                  data.stored_total === 0
+                    ? "Ainda não há transações armazenadas."
+                    : isInitialMonth
+                      ? "Não há transações no mês atual."
+                      : "Nenhum resultado encontrado para os filtros selecionados."
+                }
+                description={
+                  data.stored_total > 0 && hasExtraFilters ? (
+                    <Button type="link" onClick={clear}>
+                      Limpar filtros
+                    </Button>
+                  ) : undefined
+                }
+              />
+            ) : (
+              <>
+                <div className="transaction-list-controls">
+                  <label htmlFor="transaction-grouping">Agrupar por:</label>
+                  <Select
+                    id="transaction-grouping"
+                    aria-label="Agrupar por"
+                    size="small"
+                    value={groupBy}
+                    options={[
+                      { value: "none", label: "Sem agrupamento" },
+                      { value: "day", label: "Dia" },
+                      { value: "week", label: "Semana" },
+                      { value: "month", label: "Mês" },
+                    ]}
+                    onChange={(value: VisibleGrouping) => {
+                      setGroupBy(value);
+                      setPage(1);
+                    }}
+                  />
+                </div>
+                <div className="transaction-groups">
+                  {data.groups.map((group) => (
+                    <TransactionGroup
+                      key={group.key}
+                      group={group}
+                      items={data.items.filter((item) => item.group_key === group.key)}
+                      onSelect={selectTransaction}
+                      onInclusion={(transactionId, target) =>
+                        inclusion.setInclusion({ transactionId, state: target })
+                      }
+                      pendingTransactionId={inclusion.pendingTarget?.transactionId}
+                    />
+                  ))}
+                </div>
+                <footer className="transaction-pagination">
+                  <span>
+                    Exibindo {rangeStart.toLocaleString("pt-BR")}–
+                    {rangeEnd.toLocaleString("pt-BR")} de{" "}
+                    {data.page.total_items.toLocaleString("pt-BR")} transações
+                  </span>
+                  <nav aria-label="Paginação das transações">
+                    <Button
+                      disabled={data.page.number <= 1}
+                      onClick={() => setPage((current) => current - 1)}
+                    >
+                      Anterior
+                    </Button>
+                    <span>
+                      Página {data.page.number} de {data.page.total_pages}
+                    </span>
+                    <Button
+                      disabled={data.page.number >= data.page.total_pages}
+                      onClick={() => setPage((current) => current + 1)}
+                    >
+                      Próxima
+                    </Button>
+                  </nav>
+                </footer>
+              </>
+            )}
+          </div>
+        )}
+      </Card>
       <TransactionDetailDrawer
         item={selected}
         categories={categories.categories}
