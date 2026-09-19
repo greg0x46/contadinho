@@ -232,4 +232,59 @@ describe("TransactionDetailDrawer", () => {
     expect(screen.getByText("**** 1234")).toBeVisible();
     expect(screen.getByText("Parcela 3/12")).toBeVisible();
   });
+
+  it("describes the remainder of a linked aporte as spending", () => {
+    renderWithRouter(
+      <TransactionDetailDrawer
+        item={{
+          ...transactionResult.items[0]!,
+          investment_transfer_amount: "100.0000",
+          reportable_amount: "23.4500",
+        }}
+        categories={activeCategories}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByText(/aporte vinculado: R\$\s100,00 · restante nos gastos: R\$\s23,45/),
+    ).toBeVisible();
+  });
+
+  it("describes the remainder of a linked resgate as income", () => {
+    renderWithRouter(
+      <TransactionDetailDrawer
+        item={{
+          ...transactionResult.items[0]!,
+          classification: "inflow",
+          movement_type: "CREDIT",
+          investment_transfer_amount: "100.0000",
+          reportable_amount: "23.4500",
+        }}
+        categories={activeCategories}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByText(/resgate vinculado: R\$\s100,00 · restante nas receitas: R\$\s23,45/),
+    ).toBeVisible();
+    expect(screen.queryByText(/restante nos gastos/)).toBeNull();
+  });
+
+  it("says an ignored linked line is out of the totals instead of showing a zero remainder", () => {
+    renderWithRouter(
+      <TransactionDetailDrawer
+        item={{
+          ...transactionResult.items[0]!,
+          investment_transfer_amount: "100.0000",
+          reportable_amount: "0",
+          inclusion: { state: "ignored", changed_at: null, origin: "manual", rule_name: null },
+          totals_eligibility: { included: false, reason: "ignored" },
+        }}
+        categories={activeCategories}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/aporte vinculado: R\$\s100,00 · fora dos totais/)).toBeVisible();
+    expect(screen.queryByText(/restante/)).toBeNull();
+  });
 });

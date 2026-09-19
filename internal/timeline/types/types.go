@@ -23,6 +23,7 @@ type SourceKind string
 
 const (
 	SourceReal        SourceKind = "real"
+	SourceInvestment  SourceKind = "investment"
 	SourceRecurring   SourceKind = "recorrente"
 	SourcePayablePlan SourceKind = "plano_pagamento"
 	SourceScenario    SourceKind = "cenario"

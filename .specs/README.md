@@ -40,6 +40,9 @@ Contextos existentes hoje: `sincronizacao-open-banking`, `transacoes`,
 `categorias`, `automacao`, `pendencias`, `cenarios`, `recorrencias`,
 `relatorio-financeiro`, `patrimonio-liquido`, `configuracoes-autenticacao`.
 
+`investimentos` documenta contas de custódia, carteiras por objetivo, operações
+manuais e conciliação de aportes/resgates com o extrato.
+
 ### Specs de design soltos em `.specs/` (`<feature>.md` [+ `<feature>/mN-*.md`])
 
 Nenhum existe no momento — os specs de feature anteriores

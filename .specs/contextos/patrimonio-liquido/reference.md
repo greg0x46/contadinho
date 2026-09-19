@@ -19,6 +19,13 @@ ora) ao critério 3 (reuso em múltiplos contextos).
 `internal/networth` — cálculo/backfill de snapshots (`Breakdown`,
 `SnapshotRow`).
 
+O cálculo atual inclui posições e caixa de investimentos manuais via
+`investments.ManualNetWorth`, além das posições importadas. Caixa de uma conta
+de investimento vinculado a uma conta financeira existente não é somado de
+novo. Carteiras por objetivo são agrupamentos e não acrescentam patrimônio.
+Avaliações manuais são datadas; na ausência delas o valor é o custo informado.
+O backfill continua sem inventar valorizações históricas dos investimentos.
+
 ## Rotas HTTP
 
 `GET /api/net-worth`.

@@ -104,6 +104,7 @@ export const categoryOrigins = ["manual", "automatic", "rule", "learned"] as con
 export type CategoryOrigin = (typeof categoryOrigins)[number];
 
 export interface TransactionFilters {
+  origin?: "manual" | "synced" | null;
   card_balance?: boolean | null;
   credit_card?: boolean | null;
   date_from: string | null;
@@ -170,6 +171,14 @@ export interface TransactionItem {
     currency_code: string;
     source: "account_currency" | "transaction_currency";
   } | null;
+  /**
+   * Total already allocated from this bank transaction to investment
+   * deposits/withdrawals. It is zero when no allocation exists. The bank
+   * amount itself remains in effective_money.
+   */
+  investment_transfer_amount: string;
+  /** Amount that can be reported after currency normalization, if known. */
+  reportable_amount: string | null;
   card: {
     number: string;
     installment_number: number | null;
@@ -190,6 +199,7 @@ export interface TransactionItem {
       | "ineligible_status"
       | "missing_money_pair"
       | "zero_value"
+      | "investment_transfer"
       | null;
   };
   group_key: string;
@@ -305,6 +315,26 @@ function requiredRecord(
   message = "Resposta de transações inválida.",
 ): Record<string, unknown> {
   if (!isRecord(value) || !hasOnlyKeys(value, keys)) throw new TypeError(message);
+  return value;
+}
+
+/**
+ * A few response fields were added after the first released frontend. Keep
+ * their absence readable for cached responses and test fixtures, while still
+ * rejecting misspelled server fields instead of quietly rendering nonsense.
+ */
+function requiredRecordWithOptionalKeys(
+  value: unknown,
+  requiredKeys: readonly string[],
+  optionalKeys: readonly string[],
+  message = "Resposta de transações inválida.",
+): Record<string, unknown> {
+  if (!isRecord(value)) throw new TypeError(message);
+  const allowed = [...requiredKeys, ...optionalKeys];
+  const actual = Object.keys(value);
+  if (!requiredKeys.every((key) => key in value) || !actual.every((key) => allowed.includes(key))) {
+    throw new TypeError(message);
+  }
   return value;
 }
 
@@ -454,7 +484,7 @@ function parseCardInfo(value: unknown): NonNullable<TransactionItem["card"]> {
 }
 
 export function parseTransactionItem(value: unknown): TransactionItem {
-  const item = requiredRecord(value, [
+  const item = requiredRecordWithOptionalKeys(value, [
     "id",
     "external_id",
     "origin",
@@ -474,7 +504,7 @@ export function parseTransactionItem(value: unknown): TransactionItem {
     "inclusion",
     "totals_eligibility",
     "group_key",
-  ]);
+  ], ["investment_transfer_amount", "reportable_amount"]);
   const account = requiredRecord(item.account, ["id", "name", "institution", "currency_code"]);
   const eligibility = requiredRecord(item.totals_eligibility, ["included", "reason"]);
   const inclusion = requiredRecord(item.inclusion, [
@@ -490,6 +520,7 @@ export function parseTransactionItem(value: unknown): TransactionItem {
     "ineligible_status",
     "missing_money_pair",
     "zero_value",
+    "investment_transfer",
   ];
   if (
     typeof item.id !== "string" ||
@@ -556,6 +587,13 @@ export function parseTransactionItem(value: unknown): TransactionItem {
     currency_code: nullableText(item.currency_code),
     amount_in_account_currency: nullableDecimal(item.amount_in_account_currency),
     effective_money: effectiveMoney,
+    // Older persisted fixtures and servers predate investment allocation.
+    // Treat their absence as an empty allocation while real API responses
+    // always carry both fields.
+    investment_transfer_amount:
+      item.investment_transfer_amount === undefined ? "0" : decimal(item.investment_transfer_amount),
+    reportable_amount:
+      item.reportable_amount === undefined ? effectiveMoney?.value ?? null : nullableDecimal(item.reportable_amount),
     card: item.card === null ? null : parseCardInfo(item.card),
     inclusion: {
       state: inclusion.state as TransactionInclusionState,
@@ -2244,6 +2282,622 @@ export function parseInvestmentTransactionList(value: unknown): InvestmentTransa
   return value.map(parseInvestmentTransaction);
 }
 
+// Investment workspace ----------------------------------------------------
+//
+// These are deliberately separate from Investment above. Investment is the
+// preserved, provider-imported detail API; the workspace below is the ledger
+// used for custody accounts, goals, cash and manually recorded positions.
+
+export const investmentAccountKinds = ["manual", "integrated", "synced"] as const;
+export type InvestmentAccountKind = (typeof investmentAccountKinds)[number];
+
+export interface InvestmentAccount {
+  id: string;
+  name: string;
+  kind: InvestmentAccountKind;
+  currency_code: "BRL";
+  source_id: string | null;
+  source_display_name: string | null;
+  financial_account_id: string | null;
+  active: boolean;
+  cash_balance: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvestmentAccountWrite {
+  name: string;
+  currency_code: "BRL";
+  source_id?: string | null;
+  financial_account_id?: string | null;
+}
+
+export interface InvestmentAccountUpdate {
+  name?: string;
+  active?: boolean;
+  financial_account_id?: string | null;
+}
+
+const investmentAccountKeys = [
+  "id",
+  "name",
+  "kind",
+  "currency_code",
+  "source_id",
+  "source_display_name",
+  "financial_account_id",
+  "active",
+  "cash_balance",
+  "created_at",
+  "updated_at",
+] as const;
+
+/**
+ * An investment account id is not always a uuid: besides the accounts created
+ * locally, the backend materialises one grouping row per provider connection
+ * with the deterministic id `integrated:<data-source uuid>` (see
+ * EnsureIntegratedAccounts and migration 00036/00037). The prefix exists so a
+ * local grouping id can never be confused with an imported one — every other
+ * investment id (positions, operations, portfolios, reconciliations) stays a
+ * plain uuid.
+ */
+const integratedAccountIdPrefix = "integrated:";
+
+function isInvestmentAccountId(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  return value.startsWith(integratedAccountIdPrefix)
+    ? isUuid(value.slice(integratedAccountIdPrefix.length))
+    : isUuid(value);
+}
+
+export function parseInvestmentAccount(value: unknown): InvestmentAccount {
+  const item = requiredRecord(value, investmentAccountKeys, "Conta de investimento inválida.");
+  if (
+    !isInvestmentAccountId(item.id) ||
+    typeof item.name !== "string" ||
+    item.name.trim() === "" ||
+    !investmentAccountKinds.includes(item.kind as InvestmentAccountKind) ||
+    item.currency_code !== "BRL" ||
+    !isNullableUuid(item.source_id) ||
+    !isNullableString(item.source_display_name) ||
+    !isNullableUuid(item.financial_account_id) ||
+    typeof item.active !== "boolean" ||
+    !isValidDate(item.created_at) ||
+    !isValidDate(item.updated_at)
+  ) {
+    throw new TypeError("Conta de investimento inválida.");
+  }
+  return {
+    id: item.id,
+    name: item.name,
+    kind: item.kind as InvestmentAccountKind,
+    currency_code: "BRL",
+    source_id: item.source_id as string | null,
+    source_display_name: item.source_display_name as string | null,
+    financial_account_id: item.financial_account_id as string | null,
+    active: item.active,
+    cash_balance: decimal(item.cash_balance),
+    created_at: item.created_at as string,
+    updated_at: item.updated_at as string,
+  };
+}
+
+function parseInvestmentListEnvelope<T>(
+  value: unknown,
+  parser: (item: unknown) => T,
+  message: string,
+): T[] {
+  const payload = requiredRecord(value, ["items"], message);
+  if (!Array.isArray(payload.items)) throw new TypeError(message);
+  return payload.items.map(parser);
+}
+
+export function parseInvestmentAccountList(value: unknown): InvestmentAccount[] {
+  return parseInvestmentListEnvelope(value, parseInvestmentAccount, "Lista de contas de investimento inválida.");
+}
+
+export interface InvestmentAsset {
+  id: string;
+  name: string;
+  ticker: string | null;
+  asset_type: string;
+  currency_code: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvestmentAssetWrite {
+  name: string;
+  ticker: string | null;
+  asset_type: string;
+  currency_code: string;
+}
+
+const investmentAssetKeys = [
+  "id",
+  "name",
+  "ticker",
+  "asset_type",
+  "currency_code",
+  "created_at",
+  "updated_at",
+] as const;
+
+export function parseInvestmentAsset(value: unknown): InvestmentAsset {
+  const item = requiredRecord(value, investmentAssetKeys, "Ativo de investimento inválido.");
+  if (
+    typeof item.id !== "string" ||
+    !isUuid(item.id) ||
+    typeof item.name !== "string" ||
+    item.name.trim() === "" ||
+    !isNullableString(item.ticker) ||
+    typeof item.asset_type !== "string" ||
+    item.asset_type.trim() === "" ||
+    typeof item.currency_code !== "string" ||
+    !/^[A-Z]{3}$/.test(item.currency_code) ||
+    !isValidDate(item.created_at) ||
+    !isValidDate(item.updated_at)
+  ) {
+    throw new TypeError("Ativo de investimento inválido.");
+  }
+  return {
+    id: item.id,
+    name: item.name,
+    ticker: item.ticker as string | null,
+    asset_type: item.asset_type,
+    currency_code: item.currency_code,
+    created_at: item.created_at as string,
+    updated_at: item.updated_at as string,
+  };
+}
+
+export function parseInvestmentAssetList(value: unknown): InvestmentAsset[] {
+  return parseInvestmentListEnvelope(value, parseInvestmentAsset, "Lista de ativos de investimento inválida.");
+}
+
+export interface InvestmentPortfolio {
+  id: string;
+  name: string;
+  target_amount: string | null;
+  target_date: string | null;
+  notes: string | null;
+  current_value: string;
+  progress: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvestmentPortfolioWrite {
+  name: string;
+  target_amount: string | null;
+  target_date: string | null;
+  notes: string | null;
+}
+
+const investmentPortfolioKeys = [
+  "id",
+  "name",
+  "target_amount",
+  "target_date",
+  "notes",
+  "current_value",
+  "progress",
+  "created_at",
+  "updated_at",
+] as const;
+
+export function parseInvestmentPortfolio(value: unknown): InvestmentPortfolio {
+  const item = requiredRecord(value, investmentPortfolioKeys, "Objetivo de investimento inválido.");
+  if (
+    typeof item.id !== "string" ||
+    !isUuid(item.id) ||
+    typeof item.name !== "string" ||
+    item.name.trim() === "" ||
+    !(item.target_date === null || (typeof item.target_date === "string" && dateOnlyPattern.test(item.target_date))) ||
+    !isNullableString(item.notes) ||
+    !isValidDate(item.created_at) ||
+    !isValidDate(item.updated_at)
+  ) {
+    throw new TypeError("Objetivo de investimento inválido.");
+  }
+  return {
+    id: item.id,
+    name: item.name,
+    target_amount: nullableDecimal(item.target_amount),
+    target_date: item.target_date as string | null,
+    notes: item.notes as string | null,
+    current_value: decimal(item.current_value),
+    progress: nullableDecimal(item.progress),
+    created_at: item.created_at as string,
+    updated_at: item.updated_at as string,
+  };
+}
+
+export function parseInvestmentPortfolioList(value: unknown): InvestmentPortfolio[] {
+  return parseInvestmentListEnvelope(value, parseInvestmentPortfolio, "Lista de objetivos inválida.");
+}
+
+export const investmentPositionSources = ["manual", "synced"] as const;
+export type InvestmentPositionSource = (typeof investmentPositionSources)[number];
+export const investmentValuationBases = ["manual_valuation", "cost_basis", "provider_balance"] as const;
+export type InvestmentValuationBasis = (typeof investmentValuationBases)[number];
+
+export interface InvestmentPosition {
+  id: string;
+  source: InvestmentPositionSource;
+  account_id: string;
+  asset_id: string | null;
+  portfolio_id: string | null;
+  name: string;
+  ticker: string | null;
+  asset_type: string;
+  quantity: string;
+  average_cost: string | null;
+  current_value: string;
+  current_unit_price: string | null;
+  valued_on: string | null;
+  currency_code: string;
+  closed: boolean;
+  linked_investment_id: string | null;
+  notes: string | null;
+  valuation_basis: InvestmentValuationBasis;
+}
+
+export interface InvestmentPositionWrite {
+  account_id: string;
+  asset_id?: string | null;
+  name: string;
+  ticker?: string | null;
+  asset_type?: string;
+  portfolio_id?: string | null;
+  initial_quantity?: string;
+  initial_unit_cost?: string;
+  initial_value?: string;
+  occurred_on?: string;
+  notes?: string | null;
+}
+
+export interface InvestmentPositionUpdate {
+  name: string;
+  ticker: string | null;
+  asset_type: string;
+  portfolio_id: string | null;
+  notes: string | null;
+}
+
+const investmentPositionKeys = [
+  "id",
+  "source",
+  "account_id",
+  "asset_id",
+  "portfolio_id",
+  "name",
+  "ticker",
+  "asset_type",
+  "quantity",
+  "average_cost",
+  "current_value",
+  "current_unit_price",
+  "valued_on",
+  "currency_code",
+  "closed",
+  "linked_investment_id",
+  "notes",
+  "valuation_basis",
+] as const;
+
+export function parseInvestmentPosition(value: unknown): InvestmentPosition {
+  const item = requiredRecord(value, investmentPositionKeys, "Posição de investimento inválida.");
+  if (
+    typeof item.id !== "string" ||
+    !isUuid(item.id) ||
+    !investmentPositionSources.includes(item.source as InvestmentPositionSource) ||
+    !isInvestmentAccountId(item.account_id) ||
+    !isNullableUuid(item.asset_id) ||
+    !isNullableUuid(item.portfolio_id) ||
+    typeof item.name !== "string" ||
+    item.name.trim() === "" ||
+    !isNullableString(item.ticker) ||
+    typeof item.asset_type !== "string" ||
+    item.asset_type.trim() === "" ||
+    !(item.valued_on === null || (typeof item.valued_on === "string" && dateOnlyPattern.test(item.valued_on))) ||
+    typeof item.currency_code !== "string" || item.currency_code.length !== 3 ||
+    typeof item.closed !== "boolean" ||
+    !isNullableUuid(item.linked_investment_id) ||
+    !isNullableString(item.notes) ||
+    !investmentValuationBases.includes(item.valuation_basis as InvestmentValuationBasis)
+  ) {
+    throw new TypeError("Posição de investimento inválida.");
+  }
+  return {
+    id: item.id,
+    source: item.source as InvestmentPositionSource,
+    account_id: item.account_id,
+    asset_id: item.asset_id as string | null,
+    portfolio_id: item.portfolio_id as string | null,
+    name: item.name,
+    ticker: item.ticker as string | null,
+    asset_type: item.asset_type,
+    quantity: decimal(item.quantity),
+    average_cost: nullableDecimal(item.average_cost),
+    current_value: decimal(item.current_value),
+    current_unit_price: nullableDecimal(item.current_unit_price),
+    valued_on: item.valued_on as string | null,
+    currency_code: item.currency_code,
+    closed: item.closed,
+    linked_investment_id: item.linked_investment_id as string | null,
+    notes: item.notes as string | null,
+    valuation_basis: item.valuation_basis as InvestmentValuationBasis,
+  };
+}
+
+export function parseInvestmentPositionList(value: unknown): InvestmentPosition[] {
+  return parseInvestmentListEnvelope(value, parseInvestmentPosition, "Lista de posições inválida.");
+}
+
+export const investmentOperationKinds = [
+  "initial_balance",
+  "deposit",
+  "withdrawal",
+  "buy",
+  "sell",
+  "income",
+  "fee",
+  "tax",
+  "valuation",
+  "transfer_out",
+  "transfer_in",
+] as const;
+export type InvestmentOperationKind = (typeof investmentOperationKinds)[number];
+
+export const investmentOperationSources = ["manual", "synced"] as const;
+export type InvestmentOperationSource = (typeof investmentOperationSources)[number];
+
+export interface InvestmentOperation {
+  id: string;
+  account_id: string;
+  position_id: string | null;
+  transfer_id: string | null;
+  kind: InvestmentOperationKind;
+  occurred_on: string;
+  amount: string;
+  quantity: string | null;
+  unit_price: string | null;
+  fees: string | null;
+  taxes: string | null;
+  notes: string | null;
+  source: InvestmentOperationSource;
+  is_editable: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvestmentOperationWrite {
+  account_id: string;
+  position_id: string | null;
+  kind: InvestmentOperationKind;
+  occurred_on: string;
+  amount?: string;
+  quantity?: string | null;
+  unit_price?: string | null;
+  fees?: string | null;
+  taxes?: string | null;
+  notes?: string | null;
+}
+
+const investmentOperationKeys = [
+  "id",
+  "account_id",
+  "position_id",
+  "transfer_id",
+  "kind",
+  "occurred_on",
+  "amount",
+  "quantity",
+  "unit_price",
+  "fees",
+  "taxes",
+  "notes",
+  "source",
+  "is_editable",
+  "created_at",
+  "updated_at",
+] as const;
+
+export function parseInvestmentOperation(value: unknown): InvestmentOperation {
+  const item = requiredRecord(value, investmentOperationKeys, "Movimentação de carteira inválida.");
+  if (
+    typeof item.id !== "string" ||
+    !isUuid(item.id) ||
+    !isInvestmentAccountId(item.account_id) ||
+    !isNullableUuid(item.position_id) ||
+    !isNullableUuid(item.transfer_id) ||
+    !investmentOperationKinds.includes(item.kind as InvestmentOperationKind) ||
+    typeof item.occurred_on !== "string" ||
+    !dateOnlyPattern.test(item.occurred_on) ||
+    !isNullableString(item.notes) ||
+    !investmentOperationSources.includes(item.source as InvestmentOperationSource) ||
+    typeof item.is_editable !== "boolean" ||
+    !isValidDate(item.created_at) ||
+    !isValidDate(item.updated_at)
+  ) {
+    throw new TypeError("Movimentação de carteira inválida.");
+  }
+  return {
+    id: item.id,
+    account_id: item.account_id,
+    position_id: item.position_id as string | null,
+    transfer_id: item.transfer_id as string | null,
+    kind: item.kind as InvestmentOperationKind,
+    occurred_on: item.occurred_on,
+    amount: decimal(item.amount),
+    quantity: nullableDecimal(item.quantity),
+    unit_price: nullableDecimal(item.unit_price),
+    fees: nullableDecimal(item.fees),
+    taxes: nullableDecimal(item.taxes),
+    notes: item.notes as string | null,
+    source: item.source as InvestmentOperationSource,
+    is_editable: item.is_editable,
+    created_at: item.created_at as string,
+    updated_at: item.updated_at as string,
+  };
+}
+
+export function parseInvestmentOperationList(value: unknown): InvestmentOperation[] {
+  return parseInvestmentListEnvelope(value, parseInvestmentOperation, "Lista de movimentações de carteira inválida.");
+}
+
+export interface InvestmentReconciliation {
+  id: string;
+  operation_id: string;
+  financial_transaction_id: string | null;
+  financial_investment_transaction_id: string | null;
+  amount: string;
+  created_at: string;
+}
+
+export interface InvestmentReconciliationWrite {
+  operation_id?: string | null;
+  financial_transaction_id?: string | null;
+  financial_investment_transaction_id?: string | null;
+  amount: string;
+}
+
+const investmentReconciliationKeys = [
+  "id",
+  "operation_id",
+  "financial_transaction_id",
+  "financial_investment_transaction_id",
+  "amount",
+  "created_at",
+] as const;
+
+export function parseInvestmentReconciliation(value: unknown): InvestmentReconciliation {
+  const item = requiredRecord(value, investmentReconciliationKeys, "Vínculo de investimento inválido.");
+  if (
+    typeof item.id !== "string" ||
+    !isUuid(item.id) ||
+    typeof item.operation_id !== "string" ||
+    !isUuid(item.operation_id) ||
+    !isNullableUuid(item.financial_transaction_id) ||
+    !isNullableUuid(item.financial_investment_transaction_id) ||
+    (item.financial_transaction_id === null && item.financial_investment_transaction_id === null) ||
+    !isValidDate(item.created_at)
+  ) {
+    throw new TypeError("Vínculo de investimento inválido.");
+  }
+  return {
+    id: item.id,
+    operation_id: item.operation_id,
+    financial_transaction_id: item.financial_transaction_id as string | null,
+    financial_investment_transaction_id: item.financial_investment_transaction_id as string | null,
+    amount: decimal(item.amount),
+    created_at: item.created_at as string,
+  };
+}
+
+export function parseInvestmentReconciliationList(value: unknown): InvestmentReconciliation[] {
+  return parseInvestmentListEnvelope(value, parseInvestmentReconciliation, "Lista de vínculos inválida.");
+}
+
+export interface InvestmentSummaryPortfolio {
+  portfolio_id: string | null;
+  name: string;
+  current_value: string;
+  target_amount: string | null;
+  progress: string | null;
+}
+
+export interface InvestmentSummaryAccount {
+  account_id: string;
+  name: string;
+  kind: InvestmentAccountKind;
+  current_value: string;
+  cash_balance: string;
+}
+
+export interface InvestmentSummary {
+  currency_code: "BRL";
+  total_value: string;
+  manual_value: string;
+  synced_value: string;
+  cash_balance: string;
+  unrealized_gain: string;
+  portfolios: InvestmentSummaryPortfolio[];
+  accounts: InvestmentSummaryAccount[];
+}
+
+function parseInvestmentSummaryPortfolio(value: unknown): InvestmentSummaryPortfolio {
+  const item = requiredRecord(
+    value,
+    ["portfolio_id", "name", "current_value", "target_amount", "progress"],
+    "Resumo de objetivo inválido.",
+  );
+  if (!isNullableUuid(item.portfolio_id) || typeof item.name !== "string" || item.name.trim() === "") {
+    throw new TypeError("Resumo de objetivo inválido.");
+  }
+  return {
+    portfolio_id: item.portfolio_id as string | null,
+    name: item.name,
+    current_value: decimal(item.current_value),
+    target_amount: nullableDecimal(item.target_amount),
+    progress: nullableDecimal(item.progress),
+  };
+}
+
+function parseInvestmentSummaryAccount(value: unknown): InvestmentSummaryAccount {
+  const item = requiredRecord(
+    value,
+    ["account_id", "name", "kind", "current_value", "cash_balance"],
+    "Resumo de conta de investimento inválido.",
+  );
+  if (
+    !isInvestmentAccountId(item.account_id) ||
+    typeof item.name !== "string" ||
+    item.name.trim() === "" ||
+    !investmentAccountKinds.includes(item.kind as InvestmentAccountKind)
+  ) {
+    throw new TypeError("Resumo de conta de investimento inválido.");
+  }
+  return {
+    account_id: item.account_id,
+    name: item.name,
+    kind: item.kind as InvestmentAccountKind,
+    current_value: decimal(item.current_value),
+    cash_balance: decimal(item.cash_balance),
+  };
+}
+
+export function parseInvestmentSummary(value: unknown): InvestmentSummary {
+  const item = requiredRecord(
+    value,
+    [
+      "currency_code",
+      "total_value",
+      "manual_value",
+      "synced_value",
+      "cash_balance",
+      "unrealized_gain",
+      "portfolios",
+      "accounts",
+    ],
+    "Resumo de investimentos inválido.",
+  );
+  if (item.currency_code !== "BRL" || !Array.isArray(item.portfolios) || !Array.isArray(item.accounts)) {
+    throw new TypeError("Resumo de investimentos inválido.");
+  }
+  return {
+    currency_code: "BRL",
+    total_value: decimal(item.total_value),
+    manual_value: decimal(item.manual_value),
+    synced_value: decimal(item.synced_value),
+    cash_balance: decimal(item.cash_balance),
+    unrealized_gain: decimal(item.unrealized_gain),
+    portfolios: item.portfolios.map(parseInvestmentSummaryPortfolio),
+    accounts: item.accounts.map(parseInvestmentSummaryAccount),
+  };
+}
+
 const isClosingDay = (value: unknown): boolean =>
   value === null || (isCount(value) && value >= 1 && value <= 31);
 
@@ -2454,13 +3108,32 @@ export function parseProblem(value: unknown): Problem {
 export const certaintyTiers = ["realizado", "confirmado", "projetado", "hipotetico"] as const;
 export type CertaintyTier = (typeof certaintyTiers)[number];
 
-export const timelineSourceKinds = ["real", "recorrente", "plano_pagamento", "cenario"] as const;
+export const timelineSourceKinds = [
+  "real",
+  "investment",
+  "recorrente",
+  "plano_pagamento",
+  "cenario",
+] as const;
 export type TimelineSourceKind = (typeof timelineSourceKinds)[number];
+
+export const investmentTransferKinds = ["deposit", "withdrawal"] as const;
+export type InvestmentTransferKind = (typeof investmentTransferKinds)[number];
 
 export interface TimelineEntry {
   date: string;
   description: string;
   amount: string;
+  /**
+   * The parcel of `amount` that counts as income/expense in the reports. It
+   * equals `amount` for an ordinary entry; for a transfer to or from an
+   * investment it is what is left after the transferred parcel is taken out.
+   */
+  reportable_amount: string;
+  /** Absolute amount moved to/from investments — "0" when nothing was moved. */
+  investment_transfer_amount: string;
+  /** Direction of that movement, null when the entry is not a transfer. */
+  investment_transfer_kind: InvestmentTransferKind | null;
   category_id: string | null;
   category_name: string;
   tier: CertaintyTier;
@@ -2490,6 +3163,13 @@ export interface MonthSummary {
   income: string;
   expense: string;
   result: string;
+  /**
+   * Money moved into and out of investments in the month. Kept apart from
+   * income/expense on purpose: an aporte is not a despesa, a resgate is not
+   * uma receita — both only move money between the caixa and the patrimônio.
+   */
+  investment_contributions: string;
+  investment_withdrawals: string;
 }
 
 export interface CategoryImpact {
@@ -2557,7 +3237,7 @@ function isNullableCategoryId(value: unknown): value is string | null {
 }
 
 function parseTimelineEntry(value: unknown): TimelineEntry {
-  const entry = requiredRecord(
+  const entry = requiredRecordWithOptionalKeys(
     value,
     [
       "date",
@@ -2570,6 +3250,7 @@ function parseTimelineEntry(value: unknown): TimelineEntry {
       "source_ref_id",
       "scenario_id",
     ],
+    ["reportable_amount", "investment_transfer_amount", "investment_transfer_kind"],
     "Entrada do relatório inválida.",
   );
   if (
@@ -2581,14 +3262,30 @@ function parseTimelineEntry(value: unknown): TimelineEntry {
     !timelineSourceKinds.includes(entry.source as TimelineSourceKind) ||
     typeof entry.source_ref_id !== "string" ||
     entry.source_ref_id === "" ||
-    !isNullableCategoryId(entry.scenario_id)
+    !isNullableCategoryId(entry.scenario_id) ||
+    !(
+      entry.investment_transfer_kind === undefined ||
+      entry.investment_transfer_kind === null ||
+      investmentTransferKinds.includes(entry.investment_transfer_kind as InvestmentTransferKind)
+    )
   ) {
     throw new TypeError("Entrada do relatório inválida.");
   }
+  const amount = decimal(entry.amount);
   return {
     date: entry.date as string,
     description: entry.description,
-    amount: decimal(entry.amount),
+    amount,
+    // Servers and cached responses that predate the investment allocation
+    // report nothing transferred, so the whole entry is reportable.
+    reportable_amount:
+      entry.reportable_amount === undefined ? amount : decimal(entry.reportable_amount),
+    investment_transfer_amount:
+      entry.investment_transfer_amount === undefined ? "0" : decimal(entry.investment_transfer_amount),
+    investment_transfer_kind:
+      entry.investment_transfer_kind === undefined
+        ? null
+        : (entry.investment_transfer_kind as InvestmentTransferKind | null),
     category_id: entry.category_id as string | null,
     category_name: entry.category_name,
     tier: entry.tier as CertaintyTier,
@@ -2642,7 +3339,12 @@ function parseTimelineSeries(value: unknown): TimelineSeries {
 }
 
 function parseMonthSummary(value: unknown): MonthSummary {
-  const summary = requiredRecord(value, ["month", "income", "expense", "result"], "Resumo mensal inválido.");
+  const summary = requiredRecordWithOptionalKeys(
+    value,
+    ["month", "income", "expense", "result"],
+    ["investment_contributions", "investment_withdrawals"],
+    "Resumo mensal inválido.",
+  );
   if (!dateOnlyPattern.test(summary.month as string)) {
     throw new TypeError("Resumo mensal inválido.");
   }
@@ -2651,6 +3353,12 @@ function parseMonthSummary(value: unknown): MonthSummary {
     income: decimal(summary.income),
     expense: decimal(summary.expense),
     result: decimal(summary.result),
+    // Absent on servers and fixtures that predate the investment reading:
+    // nothing was moved, not "unknown".
+    investment_contributions:
+      summary.investment_contributions === undefined ? "0" : decimal(summary.investment_contributions),
+    investment_withdrawals:
+      summary.investment_withdrawals === undefined ? "0" : decimal(summary.investment_withdrawals),
   };
 }
 

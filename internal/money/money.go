@@ -112,7 +112,8 @@ const (
 	ReasonZeroValue        EligibilityReason = "zero_value"
 	// Listed last to match Eligibility's check order, which is load-bearing:
 	// see the ordering note there and MovedCash below.
-	ReasonTransferCategory EligibilityReason = "transfer_category"
+	ReasonTransferCategory   EligibilityReason = "transfer_category"
+	ReasonInvestmentTransfer EligibilityReason = "investment_transfer"
 )
 
 var eligibleProviderStatuses = map[string]bool{"POSTED": true, "PENDING": true}
@@ -209,7 +210,7 @@ func Eligibility(
 // callers in networth/backfill.go and transactions/cardtotal.go sidestep by
 // passing an empty categoryKind.
 func MovedCash(reason *EligibilityReason) bool {
-	return reason != nil && *reason == ReasonTransferCategory
+	return reason != nil && (*reason == ReasonTransferCategory || *reason == ReasonInvestmentTransfer)
 }
 
 // CanonicalDecimal renders value the way the reference API does: fixed-point

@@ -21,6 +21,7 @@ import (
 // --- request DTOs, matching frontend/src/api/contracts.ts's TransactionQuery ---
 
 type transactionFiltersRequest struct {
+	Origin         *string `json:"origin"`
 	CardBalance    *bool   `json:"card_balance"`
 	CreditCard     *bool   `json:"credit_card"`
 	DateFrom       *string `json:"date_from"`
@@ -62,6 +63,10 @@ func toFilters(req transactionFiltersRequest) (transactions.Filters, *Problem) {
 	}
 
 	var f transactions.Filters
+	if req.Origin != nil && *req.Origin != "manual" && *req.Origin != "synced" {
+		return f, invalid("invalid-origin", "Origem inválida", "Use manual ou synced.")
+	}
+	f.Origin = req.Origin
 	if req.CardBalance != nil {
 		f.CardBalance = *req.CardBalance
 	}
@@ -89,8 +94,12 @@ func toFilters(req transactionFiltersRequest) (transactions.Filters, *Problem) {
 	f.Institution = req.Institution
 	f.CategoryID = req.CategoryID
 	if req.Classification != nil {
-		c := money.Classification(*req.Classification)
-		f.Classification = &c
+		switch c := money.Classification(*req.Classification); c {
+		case money.Inflow, money.Outflow, money.Unclassified:
+			f.Classification = &c
+		default:
+			return f, invalid("invalid-classification", "Classificação inválida", "Use inflow, outflow ou unclassified.")
+		}
 	}
 	f.ProviderStatus = req.ProviderStatus
 	if req.AmountMin != nil {
@@ -162,25 +171,27 @@ type cardDTO struct {
 }
 
 type transactionItemDTO struct {
-	ID                      string               `json:"id"`
-	ExternalID              string               `json:"external_id"`
-	Origin                  string               `json:"origin"`
-	OccurredAt              *time.Time           `json:"occurred_at"`
-	Description             *string              `json:"description"`
-	Account                 accountSummaryDTO    `json:"account"`
-	SourceCategory          *string              `json:"source_category"`
-	InternalCategory        *internalCategoryDTO `json:"internal_category"`
-	MovementType            *string              `json:"movement_type"`
-	ProviderStatus          *string              `json:"provider_status"`
-	Classification          string               `json:"classification"`
-	Amount                  *string              `json:"amount"`
-	CurrencyCode            *string              `json:"currency_code"`
-	AmountInAccountCurrency *string              `json:"amount_in_account_currency"`
-	EffectiveMoney          *effectiveMoneyDTO   `json:"effective_money"`
-	Card                    *cardDTO             `json:"card"`
-	Inclusion               inclusionDTO         `json:"inclusion"`
-	TotalsEligibility       totalsEligibilityDTO `json:"totals_eligibility"`
-	GroupKey                string               `json:"group_key"`
+	ID                       string               `json:"id"`
+	ExternalID               string               `json:"external_id"`
+	Origin                   string               `json:"origin"`
+	OccurredAt               *time.Time           `json:"occurred_at"`
+	Description              *string              `json:"description"`
+	Account                  accountSummaryDTO    `json:"account"`
+	SourceCategory           *string              `json:"source_category"`
+	InternalCategory         *internalCategoryDTO `json:"internal_category"`
+	MovementType             *string              `json:"movement_type"`
+	ProviderStatus           *string              `json:"provider_status"`
+	Classification           string               `json:"classification"`
+	Amount                   *string              `json:"amount"`
+	CurrencyCode             *string              `json:"currency_code"`
+	AmountInAccountCurrency  *string              `json:"amount_in_account_currency"`
+	EffectiveMoney           *effectiveMoneyDTO   `json:"effective_money"`
+	InvestmentTransferAmount string               `json:"investment_transfer_amount"`
+	ReportableAmount         *string              `json:"reportable_amount"`
+	Card                     *cardDTO             `json:"card"`
+	Inclusion                inclusionDTO         `json:"inclusion"`
+	TotalsEligibility        totalsEligibilityDTO `json:"totals_eligibility"`
+	GroupKey                 string               `json:"group_key"`
 }
 
 func toItemDTO(item transactions.Item) transactionItemDTO {
@@ -202,7 +213,9 @@ func toItemDTO(item transactions.Item) transactionItemDTO {
 			Institution:  item.Account.Institution,
 			CurrencyCode: item.Account.CurrencyCode,
 		},
-		AmountInAccountCurrency: item.AmountInAccountCurrency,
+		AmountInAccountCurrency:  item.AmountInAccountCurrency,
+		InvestmentTransferAmount: item.InvestmentTransferAmount,
+		ReportableAmount:         item.ReportableAmount,
 		Inclusion: inclusionDTO{
 			State:     string(item.Inclusion.State),
 			ChangedAt: item.Inclusion.ChangedAt,
@@ -775,6 +788,10 @@ func handleUpdateManualTransaction(db *sql.DB) http.HandlerFunc {
 		defer tx.Rollback()
 
 		err = transactions.UpdateManual(r.Context(), tx, id, input)
+		if errors.Is(err, transactions.ErrInvestmentLinked) {
+			writeProblem(w, 409, "investment-linked-transaction", "Lançamento vinculado a investimento", "Desfaça os vínculos de investimento antes de editar o lançamento.")
+			return
+		}
 		if errors.Is(err, transactions.ErrTransactionNotFound) {
 			writeProblem(w, 404, "transaction-not-found", "Transação não encontrada", "")
 			return
@@ -822,6 +839,10 @@ func handleDeleteManualTransaction(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		err := transactions.DeleteManual(r.Context(), db, id, onIgnoredHook)
+		if errors.Is(err, transactions.ErrInvestmentLinked) {
+			writeProblem(w, 409, "investment-linked-transaction", "Lançamento vinculado a investimento", "Desfaça os vínculos de investimento antes de excluir o lançamento.")
+			return
+		}
 		if errors.Is(err, transactions.ErrTransactionNotFound) {
 			writeProblem(w, 404, "transaction-not-found", "Transação não encontrada", "")
 			return

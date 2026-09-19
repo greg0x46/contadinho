@@ -5,15 +5,26 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+
+	"contadinho-go/internal/investments"
 )
 
 // MonthSummary is one row of MonthlyBreakdown, the monthly evolution chart's
 // data source.
 type MonthSummary struct {
-	Month   time.Time // first day of the month, UTC
-	Income  decimal.Decimal
-	Expense decimal.Decimal // positive magnitude, not signed
-	Result  decimal.Decimal // Income - Expense
+	Month                   time.Time // first day of the month, UTC
+	Income                  decimal.Decimal
+	Expense                 decimal.Decimal // positive magnitude, not signed
+	Result                  decimal.Decimal // Income - Expense
+	InvestmentContributions decimal.Decimal
+	InvestmentWithdrawals   decimal.Decimal
+}
+
+func reportingAmount(e Entry) decimal.Decimal {
+	if e.ReportableAmount != nil {
+		return *e.ReportableAmount
+	}
+	return e.Amount
 }
 
 func monthKey(t time.Time) time.Time {
@@ -33,10 +44,20 @@ func MonthlyBreakdown(series Series) []MonthSummary {
 			byMonth[m] = summary
 			months = append(months, m)
 		}
-		if e.Amount.IsPositive() {
-			summary.Income = summary.Income.Add(e.Amount)
+		amount := reportingAmount(e)
+		if amount.IsPositive() {
+			summary.Income = summary.Income.Add(amount)
 		} else {
-			summary.Expense = summary.Expense.Add(e.Amount.Neg())
+			summary.Expense = summary.Expense.Add(amount.Neg())
+		}
+		// Direction is decided once, where the entry is built (see
+		// realEntries and BuildSeries); an entry without a kind moves no
+		// investment money.
+		switch e.InvestmentTransferKind {
+		case string(investments.OperationDeposit):
+			summary.InvestmentContributions = summary.InvestmentContributions.Add(e.InvestmentTransferAmount)
+		case string(investments.OperationWithdrawal):
+			summary.InvestmentWithdrawals = summary.InvestmentWithdrawals.Add(e.InvestmentTransferAmount)
 		}
 	}
 	sort.Slice(months, func(i, j int) bool { return months[i].Before(months[j]) })
@@ -72,10 +93,11 @@ func CategoryBreakdown(series Series, month time.Time) []CategoryImpact {
 
 	total := decimal.Zero
 	for _, e := range series.Entries {
-		if !monthKey(e.Date).Equal(m) || e.Amount.IsPositive() {
+		amount := reportingAmount(e)
+		if !monthKey(e.Date).Equal(m) || !amount.IsNegative() {
 			continue
 		}
-		magnitude := e.Amount.Neg()
+		magnitude := amount.Neg()
 		key := noCategoryName
 		name := noCategoryName
 		if e.CategoryID != nil {
@@ -129,7 +151,8 @@ func CategoryEvolution(series Series, categoryID *string) []MonthAmount {
 	byMonth := map[time.Time]decimal.Decimal{}
 	var months []time.Time
 	for _, e := range series.Entries {
-		if e.Amount.IsPositive() {
+		amount := reportingAmount(e)
+		if !amount.IsNegative() {
 			continue
 		}
 		matches := (categoryID == nil && e.CategoryID == nil) ||
@@ -141,7 +164,7 @@ func CategoryEvolution(series Series, categoryID *string) []MonthAmount {
 		if _, seen := byMonth[m]; !seen {
 			months = append(months, m)
 		}
-		byMonth[m] = byMonth[m].Add(e.Amount.Neg())
+		byMonth[m] = byMonth[m].Add(amount.Neg())
 	}
 	sort.Slice(months, func(i, j int) bool { return months[i].Before(months[j]) })
 	out := make([]MonthAmount, len(months))

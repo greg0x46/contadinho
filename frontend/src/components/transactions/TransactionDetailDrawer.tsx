@@ -9,7 +9,7 @@ import {
   internalCategoryOriginLabel,
   renderCategoryIcon,
 } from "../../presentation/categoryLabels";
-import { formatMoney, formatSignedBRL, moneySourceLabel } from "../../presentation/money";
+import { formatBRL, formatMoney, formatSignedBRL, moneySourceLabel } from "../../presentation/money";
 import { movementTypeLabel } from "../../presentation/transactionLabels";
 import {
   classificationColor,
@@ -17,6 +17,8 @@ import {
   exclusionReasonLabel,
   inclusionOriginLabel,
 } from "../../presentation/transactionStatus";
+import { InvestmentReconciliationSection } from "../investments/InvestmentReconciliationSection";
+import { isZeroBRL } from "../investments/investmentFigures";
 import { TransactionReconciliationSection } from "./TransactionReconciliationSection";
 
 function detailValue(item: TransactionItem): string {
@@ -24,6 +26,42 @@ function detailValue(item: TransactionItem): string {
     return "Valor indisponível em reais";
   }
   return formatSignedBRL(item.effective_money.value, item.classification);
+}
+
+/**
+ * Linking a bank line to an aporte changes reporting, not cash: the bank still
+ * moved the whole amount. So the headline value stays the full one and the
+ * transferred parcel is spelled out beside it.
+ */
+function investmentSplit(item: TransactionItem): { transferred: string; remaining: string } | null {
+  if (isZeroBRL(item.investment_transfer_amount)) return null;
+  return { transferred: item.investment_transfer_amount, remaining: item.reportable_amount ?? "0" };
+}
+
+/**
+ * The remainder lands on the side the line already belongs to (income for a
+ * resgate, spending for an aporte). An ignored line has no side at all: its
+ * reportable amount comes back as zero, and "R$ 0,00 remaining" would read as
+ * a fully-linked line rather than one kept out of the totals.
+ */
+function remainderLabel(item: TransactionItem, remaining: string): string {
+  if (item.inclusion.state === "ignored") return "fora dos totais";
+  const side = item.classification === "inflow" ? "restante nas receitas" : "restante nos gastos";
+  return `${side}: ${formatBRL(remaining)}`;
+}
+
+/**
+ * A credit-card line is not a cash movement between the bank and a custody
+ * account, and a value with no BRL equivalent cannot be split, so the panel
+ * stays out of the way unless a link already exists to be undone.
+ */
+function allowsInvestmentLink(item: TransactionItem): boolean {
+  if (investmentSplit(item) !== null) return true;
+  return (
+    item.card === null &&
+    item.effective_money?.currency_code === "BRL" &&
+    item.classification !== "unclassified"
+  );
 }
 
 function dateTime(value: string | null): string {
@@ -122,6 +160,7 @@ export function TransactionDetailDrawer({
   const options = useMemo(() => categoryOptions(categories, item), [categories, item]);
   const navigate = useNavigate();
   const prefill = item ? recurringCommitmentPrefill(item) : null;
+  const split = item ? investmentSplit(item) : null;
 
   return (
     <Drawer
@@ -149,6 +188,13 @@ export function TransactionDetailDrawer({
               </Tag>
               {item.origin === "manual" && <Tag color="purple">Manual</Tag>}
             </div>
+            {split && (
+              <div className="transaction-category-origin">
+                Valor em caixa: {detailValue(item)} ·{" "}
+                {item.classification === "inflow" ? "resgate" : "aporte"} vinculado:{" "}
+                {formatBRL(split.transferred)} · {remainderLabel(item, split.remaining)}
+              </div>
+            )}
           </div>
 
           <Descriptions title="Quando & onde" column={1} size="small" colon={false}>
@@ -278,6 +324,14 @@ export function TransactionDetailDrawer({
               </>
             )}
           </div>
+          {item.origin === "manual" && split && (
+            <Alert
+              type="warning"
+              showIcon
+              message="Lançamento vinculado a investimento"
+              description="Editar ou excluir este lançamento exige desfazer antes os vínculos listados em “Vínculo com investimento”."
+            />
+          )}
           {deleteManualError && (
             <Alert type="error" showIcon message={deleteManualError} />
           )}
@@ -286,6 +340,8 @@ export function TransactionDetailDrawer({
             transactionId={item.id}
             ignored={item.inclusion.state === "ignored"}
           />
+
+          {allowsInvestmentLink(item) && <InvestmentReconciliationSection transaction={item} />}
 
           <Collapse
             ghost

@@ -46,6 +46,7 @@ type SourceKind = timelinetypes.SourceKind
 
 const (
 	SourceReal        = timelinetypes.SourceReal
+	SourceInvestment  = timelinetypes.SourceInvestment
 	SourceRecurring   = timelinetypes.SourceRecurring
 	SourcePayablePlan = timelinetypes.SourcePayablePlan
 	SourceScenario    = timelinetypes.SourceScenario
@@ -54,16 +55,19 @@ const (
 // Entry is one atomic cash-flow item — the same shape consumed by cards,
 // chart, and drill-down alike, never a second parallel representation.
 type Entry struct {
-	Date         time.Time
-	Description  string
-	Amount       decimal.Decimal // signed: positive = inflow, negative = outflow
-	CategoryID   *string         // nil means "Sem categoria" — never dropped from totals
-	CategoryName string
-	Tier         CertaintyTier
-	Source       SourceKind
-	SourceRefID  string
-	EventKey     string  // stable identity for projected events; real events use transaction:<id>
-	ScenarioID   *string // set for every projected Scenario event
+	Date                     time.Time
+	Description              string
+	Amount                   decimal.Decimal  // signed: positive = inflow, negative = outflow
+	ReportableAmount         *decimal.Decimal // signed income/expense amount; nil uses Amount
+	InvestmentTransferAmount decimal.Decimal  // absolute allocation; direction is InvestmentTransferKind
+	InvestmentTransferKind   string           // deposit or withdrawal whenever InvestmentTransferAmount > 0; empty otherwise
+	CategoryID               *string          // nil means "Sem categoria" — never dropped from totals
+	CategoryName             string
+	Tier                     CertaintyTier
+	Source                   SourceKind
+	SourceRefID              string
+	EventKey                 string  // stable identity for projected events; real events use transaction:<id>
+	ScenarioID               *string // set for every projected Scenario event
 }
 
 // DayPoint is the running balance at the end of one calendar day.

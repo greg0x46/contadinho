@@ -27,4 +27,5 @@ export const exclusionReasonLabel = {
   ineligible_status: "Fora dos totais: situação não elegível",
   missing_money_pair: "Fora dos totais: valor e moeda incompletos",
   zero_value: "Fora dos totais: valor zero",
+  investment_transfer: "Fora dos totais: valor transferido para investimento",
 } as const;

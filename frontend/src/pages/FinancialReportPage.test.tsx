@@ -37,6 +37,9 @@ const populatedResponse: TimelineResponse = {
         date: "2026-08-01",
         description: "Mercado",
         amount: "-100.00",
+        reportable_amount: "-100.00",
+        investment_transfer_amount: "0",
+        investment_transfer_kind: null,
         category_id: "000433b6-3094-5a9c-87df-465b70574a4b",
         category_name: "Supermercado",
         tier: "realizado",
@@ -50,7 +53,14 @@ const populatedResponse: TimelineResponse = {
     first_negative: null,
   },
   monthly_breakdown: [
-    { month: "2026-08-01", income: "2000.00", expense: "100.00", result: "1900.00" },
+    {
+      month: "2026-08-01",
+      income: "2000.00",
+      expense: "100.00",
+      result: "1900.00",
+      investment_contributions: "0.00",
+      investment_withdrawals: "0.00",
+    },
   ],
   category_breakdown: [
     {
@@ -118,6 +128,35 @@ describe("FinancialReportPage", () => {
     renderPage();
     expect(await screen.findByText("Resultado vs. mês anterior")).toBeVisible();
     expect(screen.queryByText("Acumulado vs. mesmo período ano anterior")).not.toBeInTheDocument();
+  });
+
+  it("keeps aportes and resgates out of the page when nothing was invested", async () => {
+    vi.mocked(timelineApi.getTimeline).mockResolvedValue(populatedResponse);
+    renderPage();
+    expect((await screen.findAllByText("Receitas")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Movimentações de investimento")).not.toBeInTheDocument();
+  });
+
+  it("reads aportes and resgates apart from receitas and despesas", async () => {
+    vi.mocked(timelineApi.getTimeline).mockResolvedValue({
+      ...populatedResponse,
+      monthly_breakdown: [
+        {
+          ...populatedResponse.monthly_breakdown[0]!,
+          investment_contributions: "500.00",
+          investment_withdrawals: "80.00",
+        },
+      ],
+    });
+    renderPage();
+    expect(await screen.findByText("Movimentações de investimento")).toBeVisible();
+    expect(screen.getByText("Aportes no mês")).toBeVisible();
+    expect(screen.getByText("Resgates no mês")).toBeVisible();
+    expect(screen.getAllByText("R$ 500,00").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("R$ 80,00").length).toBeGreaterThan(0);
+    // The aporte must not be folded into despesas: the month keeps its own
+    // expense reading untouched.
+    expect(screen.getAllByText("R$ 100,00").length).toBeGreaterThan(0);
   });
 
   it("opens the category evolution chart from the 'ver evolução' action", async () => {

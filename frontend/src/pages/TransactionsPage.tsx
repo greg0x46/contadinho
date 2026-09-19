@@ -24,10 +24,7 @@ import { useManualTransaction } from "../hooks/useManualTransaction";
 import { currentMonthFilters, useTransactions } from "../hooks/useTransactions";
 import { useTransactionCategory } from "../hooks/useTransactionCategory";
 import { useTransactionInclusion } from "../hooks/useTransactionInclusion";
-
-function manualTransactionErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Não foi possível salvar o lançamento manual.";
-}
+import { manualTransactionErrorMessage } from "../presentation/manualTransactionErrors";
 
 type VisibleGrouping = Exclude<TransactionGrouping, "year">;
 const visibleGroupings: VisibleGrouping[] = ["none", "day", "week", "month"];
@@ -140,7 +137,7 @@ export function TransactionsPage() {
       }
       setManualFormOpen(false);
     } catch (error) {
-      setManualSaveError(manualTransactionErrorMessage(error));
+      setManualSaveError(manualTransactionErrorMessage(error, "save"));
     }
   };
   const deleteManualTransactionAndClose = async (transactionId: string) => {
@@ -149,7 +146,7 @@ export function TransactionsPage() {
       await manualTransaction.remove(transactionId);
       setSelectedId(null);
     } catch (error) {
-      setManualDeleteError(manualTransactionErrorMessage(error));
+      setManualDeleteError(manualTransactionErrorMessage(error, "delete"));
     }
   };
   const selectTransaction = (transactionId: string | null) => {

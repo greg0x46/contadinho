@@ -11,6 +11,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"contadinho-go/internal/db"
+	"contadinho-go/internal/investments"
 	"contadinho-go/internal/money"
 	"contadinho-go/internal/payables"
 	"contadinho-go/internal/transactions"
@@ -50,12 +51,16 @@ func creditCardBalance(ctx context.Context, q Querier) (decimal.Decimal, error) 
 // are stored as TEXT to stay exact, so the summing happens here in Go with
 // decimal.Decimal rather than through a float-lossy SQL SUM.
 func investmentBalance(ctx context.Context, q Querier) (decimal.Decimal, error) {
-	rows, err := q.QueryContext(ctx, `SELECT balance FROM financial_investments WHERE balance IS NOT NULL`)
+	manual, err := investments.ManualNetWorth(ctx, q)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	rows, err := q.QueryContext(ctx, `SELECT balance FROM financial_investments WHERE balance IS NOT NULL AND (currency_code IS NULL OR currency_code = 'BRL')`)
 	if err != nil {
 		return decimal.Decimal{}, err
 	}
 	defer rows.Close()
-	total := decimal.Zero
+	total := manual
 	for rows.Next() {
 		var raw string
 		if err := rows.Scan(&raw); err != nil {
