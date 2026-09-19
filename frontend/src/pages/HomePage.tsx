@@ -2,7 +2,7 @@ import { PageContainer } from "@ant-design/pro-layout";
 
 import { ProjectionSummaryCard } from "../components/home/ProjectionSummaryCard";
 import { SpendingByCategoryCard } from "../components/home/SpendingByCategoryCard";
-import { PendingBalanceCard } from "../components/home/PendingBalanceCard";
+import { PeriodBalanceCard } from "../components/home/PeriodBalanceCard";
 
 import { PeriodNavigator } from "../components/filters/PeriodNavigator";
 import { periodPresets } from "../components/filters/periodPresets";
@@ -23,7 +23,7 @@ export function HomePage() {
     >
       <div className="dashboard-layout">
         <div className="dashboard-current-summary">
-          <PendingBalanceCard />
+          <PeriodBalanceCard period={period} />
           <SpendingByCategoryCard period={period} />
         </div>
         <ProjectionSummaryCard period={period} />

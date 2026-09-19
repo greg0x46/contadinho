@@ -104,6 +104,13 @@ func TestTimelineOverHTTP(t *testing.T) {
 	if august["income"] != "2000.00" || august["expense"] != "100.00" || august["result"] != "1900.00" {
 		t.Errorf("august summary = %+v", august)
 	}
+
+	// The requested window is exactly one calendar month here, so
+	// period_totals must agree with monthly_breakdown's single row.
+	periodTotals := body["period_totals"].(map[string]any)
+	if periodTotals["income"] != "2000.00" || periodTotals["expense"] != "100.00" || periodTotals["result"] != "1900.00" {
+		t.Errorf("period_totals = %+v", periodTotals)
+	}
 }
 
 // aggregations=false is what the Home dashboard sends: it plots the balance

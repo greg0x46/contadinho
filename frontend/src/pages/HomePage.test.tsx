@@ -1,37 +1,20 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import dayjs from "dayjs";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import * as payablesApi from "../api/payables";
 import * as timelineApi from "../api/timeline";
 import * as transactionsApi from "../api/transactions";
 import type {
-  PayableTotalOwed,
-  PayableTotalToReceive,
   CategoryBreakdown,
   TimelineResponse,
 } from "../api/contracts";
 import { QueryTestProvider } from "../test/QueryTestProvider";
 import { HomePage } from "./HomePage";
 
-vi.mock("../api/payables");
 vi.mock("../api/timeline");
 vi.mock("../api/transactions");
-
-const totalOwed: PayableTotalOwed = {
-  remaining_debts_total: "800.00",
-  future_installments_total: "361.49",
-  total_owed: "1161.49",
-  currency_code: "BRL",
-};
-
-const totalToReceive: PayableTotalToReceive = {
-  remaining_receivables_total: "500.00",
-  total_to_receive: "500.00",
-  currency_code: "BRL",
-};
 
 const spendingByCategory: CategoryBreakdown = {
   classification: "outflow",
@@ -61,8 +44,8 @@ const spendingByCategory: CategoryBreakdown = {
 const projection: TimelineResponse = {
   base: {
     points: [
-      { date: "2026-08-15", balance: "1900.00", inflow: "0.00", outflow: "0.00", lowest_tier: "realizado" },
-      { date: "2026-11-30", balance: "1500.00", inflow: "0.00", outflow: "400.00", lowest_tier: "projetado" },
+      { date: "2026-08-15", balance: "1900.00", inflow: "620.00", outflow: "0.00", lowest_tier: "realizado" },
+      { date: "2026-11-30", balance: "1500.00", inflow: "0.00", outflow: "-950.00", lowest_tier: "projetado" },
     ],
     entries: [],
     starting_balance: "1900.00",
@@ -70,11 +53,12 @@ const projection: TimelineResponse = {
       date: "2026-11-30",
       balance: "1500.00",
       inflow: "0.00",
-      outflow: "400.00",
+      outflow: "-950.00",
       lowest_tier: "projetado",
     },
     first_negative: null,
   },
+  period_totals: { income: "620.00", expense: "950.00", result: "-330.00" },
   monthly_breakdown: [],
   category_breakdown: [],
   simulation: null,
@@ -99,80 +83,87 @@ beforeEach(() => {
   // would otherwise decide the next test's request.
   window.localStorage.clear();
   vi.mocked(transactionsApi.getCategoryBreakdown).mockResolvedValue(spendingByCategory);
-  vi.mocked(payablesApi.getPayableTotalToReceive).mockResolvedValue(totalToReceive);
   vi.mocked(timelineApi.getTimeline).mockResolvedValue(projection);
   vi.mocked(timelineApi.getTimelineDataRange).mockResolvedValue({ from: "2024-03-07", to: "2028-06-15" });
 });
 
-describe("PendingBalanceCard", () => {
-  beforeEach(() => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
-  });
-
-  it("shows separate payable, receivable and card amounts without hiding the card cost", async () => {
+describe("PeriodBalanceCard", () => {
+  it("shows entradas, saídas and the resulting saldo for the period", async () => {
     renderPage();
-    expect(await screen.findByText(/-R\$\s661,49/)).toBeVisible();
-    expect(screen.getByRole("link", { name: /A pagar.*800,00/ })).toHaveAttribute("href", "/pendencias?kind=debt");
-    expect(screen.getByRole("link", { name: /A receber.*500,00/ })).toHaveAttribute("href", "/pendencias?kind=receivable");
-    const cardLink = screen.getByRole("link", { name: /Cartão de Crédito.*361,49/ });
-    expect(cardLink).toBeVisible();
-    expect(screen.getByRole("img", { name: /Entradas:.*500,00.*Saídas.*1\.161,49/ })).toBeVisible();
-    expect(cardLink).toHaveAttribute("href", "/transacoes?credit_card=true&card_balance=true&period=all");
-    expect(document.querySelector(".pending-balance details")).toBeNull();
+    expect(await screen.findByText(/-R\$\s330,00/)).toBeVisible();
+    expect(screen.getByRole("link", { name: /Entradas.*620,00/ })).toBeVisible();
+    expect(screen.getByRole("link", { name: /Saídas.*950,00/ })).toBeVisible();
+    expect(screen.getByRole("img", { name: /Entradas:.*620,00.*Saídas:.*950,00/ })).toBeVisible();
   });
 
-  it.each([
-    ["1200.00", "1161.49", /\+R\$\s38,51/],
-    ["1161.49", "1161.49", /R\$\s0,00/],
-    ["0.00", "0.00", /R\$\s0,00/],
-    ["0.30", "0.20", /\+R\$\s0,10/],
-    ["0.00", "12.00", /-R\$\s12,00/],
-    ["12.00", "0.00", /\+R\$\s12,00/],
-    ["9007199254740993.01", "9007199254740993.00", /\+R\$\s0,01/],
-  ])("renders receiving %s minus owing %s", async (receiving, owing, figure) => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue({
-      ...totalOwed, total_owed: owing, remaining_debts_total: owing, future_installments_total: "0.00",
-    });
-    vi.mocked(payablesApi.getPayableTotalToReceive).mockResolvedValue({
-      ...totalToReceive, total_to_receive: receiving, remaining_receivables_total: receiving,
+  it("links entradas and saídas to the matching transactions for the period", async () => {
+    renderPage();
+    await screen.findByText(/-R\$\s330,00/);
+    const today = dayjs();
+    expect(screen.getByRole("link", { name: /Entradas/ })).toHaveAttribute(
+      "href",
+      `/transacoes?date_from=${today.startOf("month").format("YYYY-MM-DD")}&date_to=${today.endOf("month").format("YYYY-MM-DD")}&classification=inflow`,
+    );
+    expect(screen.getByRole("link", { name: /Saídas/ })).toHaveAttribute(
+      "href",
+      `/transacoes?date_from=${today.startOf("month").format("YYYY-MM-DD")}&date_to=${today.endOf("month").format("YYYY-MM-DD")}&classification=outflow`,
+    );
+  });
+
+  it("shows a plus sign only for a positive saldo", async () => {
+    vi.mocked(timelineApi.getTimeline).mockResolvedValue({
+      ...projection,
+      period_totals: { income: "400.00", expense: "100.00", result: "300.00" },
     });
     renderPage();
-    expect(await screen.findByRole("link", { name: /Cartão de Crédito/ })).toBeVisible();
-    if (receiving === "0.00" && owing === "0.00") {
-      expect(screen.getByText("Nenhuma pendência em aberto")).toBeVisible();
-      expect(screen.queryByRole("img", { name: /Entradas:/ })).not.toBeInTheDocument();
-    }
-    expect(document.querySelector(".pending-balance-figure")).toHaveTextContent(figure);
-    expect(screen.queryByText("Inclui parcelas futuras do cartão.")).not.toBeInTheDocument();
+    expect(await screen.findByText(/\+R\$\s300,00/)).toBeVisible();
   });
 
-  it.each(["debt", "receivable"])("waits for the %s total before showing a balance", async (source) => {
+  it("shows an empty state instead of a zero-width proportion bar when there is no movement", async () => {
+    vi.mocked(timelineApi.getTimeline).mockResolvedValue({
+      ...projection,
+      period_totals: { income: "0.00", expense: "0.00", result: "0.00" },
+    });
+    renderPage();
+    expect(await screen.findByText("Nenhuma movimentação no período")).toBeVisible();
+    expect(screen.queryByRole("img", { name: /Entradas:/ })).not.toBeInTheDocument();
+  });
+
+  it("shows a loading state before the period's timeline resolves", async () => {
     let resolve!: () => void;
-    if (source === "debt") {
-      vi.mocked(payablesApi.getPayableTotalOwed).mockReturnValue(new Promise((done) => { resolve = () => done(totalOwed); }));
-    } else {
-      vi.mocked(payablesApi.getPayableTotalToReceive).mockReturnValue(new Promise((done) => { resolve = () => done(totalToReceive); }));
-    }
+    vi.mocked(timelineApi.getTimeline).mockReturnValue(new Promise((done) => { resolve = () => done(projection); }));
     renderPage();
-    expect(screen.getByText("Carregando saldo das pendências…")).toBeVisible();
-    expect(document.querySelector(".pending-balance-figure")).toBeNull();
+    expect(screen.getByText("Carregando o saldo do período…")).toBeVisible();
+    expect(document.querySelector(".period-balance-figure")).toBeNull();
     resolve();
-    expect(await screen.findByText(/-R\$\s661,49/)).toBeVisible();
+    expect(await screen.findByText(/-R\$\s330,00/)).toBeVisible();
   });
 
-  it.each(["debt", "receivable"])("retries both totals after a %s failure", async (source) => {
+  it("retries after a failure", async () => {
     const user = userEvent.setup();
-    const failing = source === "debt" ? payablesApi.getPayableTotalOwed : payablesApi.getPayableTotalToReceive;
-    vi.mocked(failing).mockRejectedValueOnce(new Error("boom"));
+    // Both period widgets share the same failing timeline query, so each
+    // shows its own retry button — this one must click the right card's.
+    vi.mocked(timelineApi.getTimeline).mockRejectedValueOnce(new Error("boom"));
     renderPage();
-    expect(await screen.findByText("Não foi possível carregar o saldo das pendências.")).toBeVisible();
-    expect(document.querySelector(".pending-balance-figure")).toBeNull();
-    const debtCalls = vi.mocked(payablesApi.getPayableTotalOwed).mock.calls.length;
-    const receivableCalls = vi.mocked(payablesApi.getPayableTotalToReceive).mock.calls.length;
-    await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
-    expect(await screen.findByText(/-R\$\s661,49/)).toBeVisible();
-    expect(payablesApi.getPayableTotalOwed).toHaveBeenCalledTimes(debtCalls + 1);
-    expect(payablesApi.getPayableTotalToReceive).toHaveBeenCalledTimes(receivableCalls + 1);
+    const message = await screen.findByText("Não foi possível carregar o saldo do período.");
+    expect(document.querySelector(".period-balance-figure")).toBeNull();
+    const calls = vi.mocked(timelineApi.getTimeline).mock.calls.length;
+    await user.click(within(message.closest(".ant-alert")!).getByRole("button", { name: "Tentar novamente" }));
+    expect(await screen.findByText(/-R\$\s330,00/)).toBeVisible();
+    expect(timelineApi.getTimeline).toHaveBeenCalledTimes(calls + 1);
+  });
+
+  it("uses period_totals for the whole period, active scenarios included", async () => {
+    const user = userEvent.setup();
+    vi.mocked(timelineApi.getTimeline).mockResolvedValue({
+      ...projection,
+      period_totals: { income: "700.00", expense: "0.00", result: "700.00" },
+    });
+    renderPage();
+    await screen.findByText("Saldo hoje");
+    await user.click(screen.getByRole("button", { name: "Selecionar período" }));
+    await user.click(await screen.findByRole("button", { name: "Todo o período" }));
+    expect(await screen.findByText(/\+R\$\s700,00/)).toBeVisible();
   });
 });
 
@@ -182,7 +173,6 @@ function timelineParams() {
 
 describe("HomePage", () => {
   it("renders a compact projection summary on the Home dashboard", async () => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
     renderPage();
     expect(await screen.findByText("Saldo hoje")).toBeVisible();
     expect(screen.getByText("Evolução do saldo")).toBeVisible();
@@ -192,7 +182,6 @@ describe("HomePage", () => {
   });
 
   it("asks for the current month by default, anchored on today", async () => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
     renderPage();
     await screen.findByText("Saldo hoje");
 
@@ -208,7 +197,6 @@ describe("HomePage", () => {
   });
 
   it("offers the same period shortcuts as the transactions filter", async () => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("Saldo hoje");
@@ -222,7 +210,6 @@ describe("HomePage", () => {
   });
 
   it("walks back a year at a time with the period arrows", async () => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("Saldo hoje");
@@ -245,14 +232,11 @@ describe("HomePage", () => {
     expect(await screen.findByText(String(previous.year()))).toBeVisible();
   });
 
-  it("applies a custom range to both widgets and links while keeping pending totals stable", async () => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
+  it("applies a custom range to every widget and their links", async () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("Mercado");
     expect(screen.getAllByRole("button", { name: "Selecionar período" })).toHaveLength(1);
-    const debtCalls = vi.mocked(payablesApi.getPayableTotalOwed).mock.calls.length;
-    const receivableCalls = vi.mocked(payablesApi.getPayableTotalToReceive).mock.calls.length;
     await user.click(screen.getByRole("button", { name: "Selecionar período" }));
     await user.clear(screen.getByLabelText("Data inicial"));
     await user.type(screen.getByLabelText("Data inicial"), "2025-02-15");
@@ -265,13 +249,13 @@ describe("HomePage", () => {
     const params = new URL(screen.getByRole("link", { name: /Mercado/ }).getAttribute("href")!, "http://localhost").searchParams;
     expect(params.get("date_from")).toBe("2025-02-15");
     expect(params.get("date_to")).toBe("2025-03-20");
-    expect(screen.getByText("Total em aberto · independente do período")).toBeVisible();
-    expect(payablesApi.getPayableTotalOwed).toHaveBeenCalledTimes(debtCalls);
-    expect(payablesApi.getPayableTotalToReceive).toHaveBeenCalledTimes(receivableCalls);
+    expect(screen.getByRole("link", { name: /Entradas/ })).toHaveAttribute(
+      "href",
+      "/transacoes?date_from=2025-02-15&date_to=2025-03-20&classification=inflow",
+    );
   });
 
   it("allows a future month and cancels the previous category request", async () => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
     vi.mocked(transactionsApi.getCategoryBreakdown).mockImplementationOnce(() => new Promise(() => {}));
     const user = userEvent.setup();
     renderPage();
@@ -312,7 +296,6 @@ describe("HomePage", () => {
   });
 
   it("reports the period's own low point once the window ends today", async () => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
     const today = dayjs();
     // A window ending today has no point after the reference date, which is
     // what flips the card from "previsto" to "no período".
@@ -349,7 +332,6 @@ describe("HomePage", () => {
   });
 
   it("asks the API for the bounds of the whole period", async () => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
     const user = userEvent.setup();
     renderPage();
     await screen.findByText("Saldo hoje");
@@ -375,7 +357,6 @@ describe("HomePage", () => {
   });
 
   it("remembers the chosen period across visits", async () => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
     const user = userEvent.setup();
     const first = renderPage();
     await screen.findByText("Saldo hoje");
@@ -397,7 +378,6 @@ describe("HomePage", () => {
   });
 
   it("resolves a remembered shortcut again instead of freezing its dates", async () => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
     // Stored while 2024 was current; the window must still be *this* year.
     window.localStorage.setItem("contadinho.home.periodo", JSON.stringify({ preset: "this-year" }));
     renderPage();
@@ -415,7 +395,6 @@ describe("HomePage", () => {
   it.each([JSON.stringify({ from: "2026-02-30", to: "2026-03-20" }), "decada", JSON.stringify({ from: "2026-12-31", to: "2026-01-01" }), "{"])(
     "falls back to the default window when the stored period is %s",
     async (stored) => {
-      vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
       window.localStorage.setItem("contadinho.home.periodo", stored);
       renderPage();
       await screen.findByText("Saldo hoje");
@@ -431,7 +410,6 @@ describe("HomePage", () => {
   );
 
   it("keeps current cards on the left and projection metrics above its chart", async () => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
     renderPage();
     await screen.findByText("Saldo hoje");
 
@@ -445,7 +423,6 @@ describe("HomePage", () => {
   });
 
   it("shows a retry option when the projection fails to load", async () => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
     vi.mocked(timelineApi.getTimeline).mockRejectedValue(new Error("boom"));
     renderPage();
     expect(await screen.findByText("Não foi possível carregar o saldo.")).toBeVisible();
@@ -455,10 +432,6 @@ describe("HomePage", () => {
 });
 
 describe("SpendingByCategoryCard", () => {
-  beforeEach(() => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
-  });
-
   it("renders each category's share of the month's spending once loaded", async () => {
     renderPage();
     expect(await screen.findByText("Mercado")).toBeVisible();
@@ -512,10 +485,6 @@ describe("SpendingByCategoryCard", () => {
 });
 
 describe("Category breakdown navigation", () => {
-  beforeEach(() => {
-    vi.mocked(payablesApi.getPayableTotalOwed).mockResolvedValue(totalOwed);
-  });
-
   it("preserves the month on tab changes and builds category and uncategorized links", async () => {
     const user = userEvent.setup();
     renderPage();

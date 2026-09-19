@@ -128,6 +128,20 @@ func monthSummaryToDTO(m timeline.MonthSummary) monthSummaryDTO {
 	}
 }
 
+type periodTotalsDTO struct {
+	Income  string `json:"income"`
+	Expense string `json:"expense"`
+	Result  string `json:"result"`
+}
+
+func periodTotalsToDTO(t timeline.PeriodTotals) periodTotalsDTO {
+	return periodTotalsDTO{
+		Income:  money.CanonicalDecimal(t.Income),
+		Expense: money.CanonicalDecimal(t.Expense),
+		Result:  money.CanonicalDecimal(t.Result),
+	}
+}
+
 type categoryImpactDTO struct {
 	CategoryID   *string `json:"category_id"`
 	CategoryName string  `json:"category_name"`
@@ -199,8 +213,13 @@ func comparison2FromResult(comparison *timeline.Comparison2, ok bool) *compariso
 // computed (free — it only reads the MonthlyBreakdown already built).
 // Any of the three comparison/evolution fields is null when there isn't
 // enough data for it — never a misleading zeroed value (seção 25).
+// PeriodTotals is likewise always computed (free, folds over series once)
+// so a caller with aggregations=false — a window rarely aligned to whole
+// calendar months, like the Home dashboard's — still gets an
+// income/expense total for exactly the requested range, not per month.
 type timelineResponseDTO struct {
 	Base              timelineSeriesDTO   `json:"base"`
+	PeriodTotals      periodTotalsDTO     `json:"period_totals"`
 	MonthlyBreakdown  []monthSummaryDTO   `json:"monthly_breakdown"`
 	CategoryBreakdown []categoryImpactDTO `json:"category_breakdown"`
 	Simulation        *timelineSeriesDTO  `json:"simulation"`
@@ -315,6 +334,7 @@ func handleGetTimeline(conn *sql.DB) http.HandlerFunc {
 
 		response := timelineResponseDTO{
 			Base:              timelineSeriesToDTO(series),
+			PeriodTotals:      periodTotalsToDTO(timeline.TotalsForPeriod(series)),
 			MonthlyBreakdown:  monthDTOs,
 			CategoryBreakdown: categoryDTOs,
 			ScenarioImpacts:   []scenarioImpactDTO{},

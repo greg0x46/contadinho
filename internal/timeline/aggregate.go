@@ -70,6 +70,42 @@ func MonthlyBreakdown(series Series) []MonthSummary {
 	return out
 }
 
+// PeriodTotals is the whole-window equivalent of one MonthSummary row: the
+// same Income/Expense/Result, just not bucketed by calendar month.
+type PeriodTotals struct {
+	Income  decimal.Decimal
+	Expense decimal.Decimal // positive magnitude, not signed
+	Result  decimal.Decimal // Income - Expense
+}
+
+// TotalsForPeriod sums Income and Expense across every entry in the series,
+// the same reportingAmount basis as MonthlyBreakdown (a transfer between the
+// user's own accounts, or a settled credit-card entry's re-dated purchase,
+// counts here exactly as it does there — see
+// TestBuildSeriesTransferMovesCashButIsNeitherIncomeNorExpense). It exists
+// because a window a caller cares about — a custom range, "últimos 30
+// dias", "todo o período" — is rarely a whole number of calendar months, so
+// summing MonthlyBreakdown rows would double-count or clip at the edges.
+//
+// This deliberately walks series.Entries, not series.Points: Points is
+// filtered by cashEntries for the balance walk alone (see its doc comment)
+// and would silently drop a settled credit-card purchase's spend with no
+// substitute, since the bill payment that replaces it on the balance curve
+// carries a transfer-kind category and reports as zero itself.
+func TotalsForPeriod(series Series) PeriodTotals {
+	var totals PeriodTotals
+	for _, e := range series.Entries {
+		amount := reportingAmount(e)
+		if amount.IsPositive() {
+			totals.Income = totals.Income.Add(amount)
+		} else {
+			totals.Expense = totals.Expense.Add(amount.Neg())
+		}
+	}
+	totals.Result = totals.Income.Sub(totals.Expense)
+	return totals
+}
+
 // CategoryImpact is one row of CategoryBreakdown.
 type CategoryImpact struct {
 	CategoryID   *string

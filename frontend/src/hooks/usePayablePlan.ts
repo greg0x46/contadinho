@@ -39,8 +39,14 @@ export function usePayablePlan(payableId: string) {
     enabled: planSummary !== null,
   });
 
-  const invalidate = () =>
+  const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: payableScenariosQueryKey(payableId) });
+    // Installments generated/allocated/readjusted here are exactly what the
+    // unified projector reads, so any cached balance curve or period total
+    // is now stale.
+    queryClient.invalidateQueries({ queryKey: ["timeline"] });
+    queryClient.invalidateQueries({ queryKey: ["timeline-data-range"] });
+  };
 
   const createMutation = useMutation({
     mutationFn: (name: string) => createPayableScenario(payableId, { name }),

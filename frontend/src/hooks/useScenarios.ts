@@ -41,7 +41,14 @@ export function useScenarios({ kind }: { kind?: ScenarioKind } = {}) {
     },
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["scenarios"] });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["scenarios"] });
+    // Every mutation here — activating a scenario, editing its transactions
+    // — changes what the unified projector includes, so any cached balance
+    // curve or period total is now stale.
+    queryClient.invalidateQueries({ queryKey: ["timeline"] });
+    queryClient.invalidateQueries({ queryKey: ["timeline-data-range"] });
+  };
 
   const createMutation = useMutation({
     mutationFn: (write: ScenarioCreate) => createStandaloneScenario(write),
