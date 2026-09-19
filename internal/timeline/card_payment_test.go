@@ -188,6 +188,50 @@ func TestBuildSeriesPastBillCountsOnlyTheRealCashPayment(t *testing.T) {
 	}
 }
 
+// TestTotalsForPeriodCountsASettledCardPurchaseThatPointsExcludes is the
+// aggregate side of TestBuildSeriesTreatsCategorizedCardPaymentAsTransferNotDoubleCount:
+// once the bill is paid, cashEntries drops the purchase from the balance
+// walk so its cash is not charged twice (Points), but the money was still
+// spent, and TotalsForPeriod — which walks the unfiltered series.Entries,
+// same as MonthlyBreakdown — must still count it as an expense.
+func TestTotalsForPeriodCountsASettledCardPurchaseThatPointsExcludes(t *testing.T) {
+	f := newFixture(t)
+	bank := f.addAccount("1000.00")
+	card := f.addCreditCardAccount("0")
+	f.addBill(card, "bill-september", "2026-09-10")
+	metadata := `{"billId":"bill-september"}`
+	cat := categorySupermercado
+	cardPaymentCategory := "dd10c680-fb35-4457-8595-4e51c8d279a7"
+
+	f.addTransaction(txn{
+		AccountID: card, Amount: "-150.00", OccurredAt: date(t, "2026-08-20"),
+		CategoryID: &cat, CreditCardMetadata: &metadata,
+	})
+	f.addTransaction(txn{
+		AccountID: bank, Amount: "-150.00", OccurredAt: date(t, "2026-09-02"),
+		CategoryID: &cardPaymentCategory,
+	})
+	f.addTransaction(txn{
+		AccountID: card, Amount: "150.00", OccurredAt: date(t, "2026-09-02"),
+		CreditCardMetadata: &metadata, CategoryID: &cardPaymentCategory,
+	})
+
+	series, err := timeline.BuildSeries(context.Background(), f.conn, timeline.BuildParams{
+		From: date(t, "2026-08-01"), To: date(t, "2026-09-30"), ReferenceDate: date(t, "2026-09-03"),
+	})
+	if err != nil {
+		t.Fatalf("BuildSeries: %v", err)
+	}
+
+	totals := timeline.TotalsForPeriod(series)
+	if got := totals.Expense.String(); got != "150" {
+		t.Errorf("Expense = %s, want 150 (the purchase, even though Points dropped it as settled)", got)
+	}
+	if got := totals.Income.String(); got != "0" {
+		t.Errorf("Income = %s, want 0 (both bill legs are transfer-categorized)", got)
+	}
+}
+
 func TestBuildSeriesCardPaymentWithDelayedBill(t *testing.T) {
 	for _, tc := range []struct{ name, payment, september, october string }{
 		{"full payment", "150.00", "1000", "960"},

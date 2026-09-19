@@ -18,6 +18,7 @@ const emptyResponse: TimelineResponse = {
     lowest_balance: { date: "2026-08-15", balance: "0.00", inflow: "0.00", outflow: "0.00", lowest_tier: "realizado" },
     first_negative: null,
   },
+  period_totals: { income: "0.00", expense: "0.00", result: "0.00" },
   monthly_breakdown: [],
   category_breakdown: [],
   simulation: null,
@@ -52,6 +53,7 @@ const populatedResponse: TimelineResponse = {
     lowest_balance: { date: "2026-08-15", balance: "1900.00", inflow: "0.00", outflow: "0.00", lowest_tier: "realizado" },
     first_negative: null,
   },
+  period_totals: { income: "2000.00", expense: "100.00", result: "1900.00" },
   monthly_breakdown: [
     {
       month: "2026-08-01",

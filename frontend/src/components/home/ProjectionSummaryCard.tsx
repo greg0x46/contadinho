@@ -9,8 +9,8 @@ import { LoadingState, UnavailableState } from "../AsyncState";
 import type { HomePeriod } from "../../hooks/useHomePeriod";
 import { periodNavigation } from "../filters/periodNavigation";
 import { ProjectionTimeline } from "../timeline/ProjectionTimeline";
+import { useHomePeriodBounds } from "../../hooks/useHomePeriodBounds";
 import { useTimeline } from "../../hooks/useTimeline";
-import { useTimelineDataRange } from "../../hooks/useTimelineDataRange";
 import { formatDateOnly } from "../../presentation/dates";
 import { formatBRL } from "../../presentation/money";
 import { colors } from "../../theme/tokens";
@@ -48,13 +48,9 @@ export function ProjectionSummaryCard({ period }: { period: HomePeriod }) {
 
   // "Todo o período" is the one window whose bounds live in the database — the
   // oldest transaction, the last planned installment — so it stays unresolved
-  // until useTimelineDataRange answers.
-  const wholePeriod = period.from === null || period.to === null;
-  const dataRange = useTimelineDataRange(wholePeriod);
-  const bounds = useMemo(() => {
-    if (!wholePeriod) return { from: period.from as string, to: period.to as string };
-    return dataRange.range ? { from: dataRange.range.from, to: dataRange.range.to } : null;
-  }, [wholePeriod, period.from, period.to, dataRange.range]);
+  // until useHomePeriodBounds answers.
+  const { bounds, wholePeriod, isLoading: rangeLoading, error: rangeError, refetch: refetchRange } =
+    useHomePeriodBounds(period);
   const referenceDate = today.format(dateFormat);
   const params = useMemo(
     () => ({
@@ -72,10 +68,10 @@ export function ProjectionSummaryCard({ period }: { period: HomePeriod }) {
   );
   const timeline = useTimeline(params, bounds !== null);
   const base = timeline.base;
-  const isLoading = timeline.isLoading || dataRange.isLoading;
-  const error = timeline.error ?? dataRange.error;
+  const isLoading = timeline.isLoading || rangeLoading;
+  const error = timeline.error ?? rangeError;
   const retry = () => {
-    if (dataRange.error) dataRange.refetch();
+    if (rangeError) refetchRange();
     if (timeline.error) timeline.refetch();
   };
   const lastPoint = base && base.points.length > 0 ? base.points[base.points.length - 1] : null;

@@ -3196,8 +3196,16 @@ export interface MonthAmount {
   amount: string;
 }
 
+/** The whole-window equivalent of one MonthSummary row — see PeriodTotals in internal/timeline/aggregate.go. */
+export interface PeriodTotals {
+  income: string;
+  expense: string;
+  result: string;
+}
+
 export interface TimelineResponse {
   base: TimelineSeries;
+  period_totals: PeriodTotals;
   monthly_breakdown: MonthSummary[];
   category_breakdown: CategoryImpact[];
   simulation: TimelineSeries | null;
@@ -3362,6 +3370,15 @@ function parseMonthSummary(value: unknown): MonthSummary {
   };
 }
 
+function parsePeriodTotals(value: unknown): PeriodTotals {
+  const totals = requiredRecord(value, ["income", "expense", "result"], "Totais do período inválidos.");
+  return {
+    income: decimal(totals.income),
+    expense: decimal(totals.expense),
+    result: decimal(totals.result),
+  };
+}
+
 function parseCategoryImpact(value: unknown): CategoryImpact {
   const impact = requiredRecord(
     value,
@@ -3425,6 +3442,7 @@ export function parseTimelineResponse(value: unknown): TimelineResponse {
     value,
     [
       "base",
+      "period_totals",
       "monthly_breakdown",
       "category_breakdown",
       "simulation",
@@ -3445,6 +3463,7 @@ export function parseTimelineResponse(value: unknown): TimelineResponse {
   }
   return {
     base: parseTimelineSeries(response.base),
+    period_totals: parsePeriodTotals(response.period_totals),
     monthly_breakdown: response.monthly_breakdown.map(parseMonthSummary),
     category_breakdown: response.category_breakdown.map(parseCategoryImpact),
     simulation: response.simulation === null ? null : parseTimelineSeries(response.simulation),

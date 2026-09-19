@@ -17,6 +17,7 @@ export function useTimeline(params: TimelineParams, enabled = true) {
 
   return {
     base: query.data?.base ?? null,
+    periodTotals: query.data?.period_totals ?? null,
     simulation: query.data?.simulation ?? null,
     scenarioImpacts: query.data?.scenario_impacts ?? [],
     monthlyBreakdown: query.data?.monthly_breakdown ?? [],
