@@ -97,12 +97,13 @@ func TestAuthLimitsAndDatabaseFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp := doJSON(t, "GET", srv.URL+"/api/auth/session", nil)
-	// Without a cookie the public endpoint does not need the DB and leaks no state.
-	var state map[string]any
-	decodeJSON(t, resp, &state)
-	if state["authenticated"] != false {
-		t.Fatal(state)
+	// The persisted feature flag is authoritative. If it cannot be read, the
+	// middleware fails closed instead of assuming that authentication is off.
+	if resp.StatusCode != 503 {
+		resp.Body.Close()
+		t.Fatal(resp.StatusCode)
 	}
+	resp.Body.Close()
 	req, _ := http.NewRequest("GET", srv.URL+"/api/categories", nil)
 	req.AddCookie(&http.Cookie{Name: "contadinho_session", Value: strings.Repeat("A", 43)})
 	resp, err := srv.Client().Do(req)
@@ -113,6 +114,52 @@ func TestAuthLimitsAndDatabaseFailure(t *testing.T) {
 	if resp.StatusCode != 503 {
 		t.Fatal(resp.StatusCode)
 	}
+}
+
+func TestAuthenticationFeatureFlagCannotBypassEnabledMode(t *testing.T) {
+	srv, conn := newLockedTestServer(t)
+	request := func(method, path, body, origin, csrf string, cookie *http.Cookie) *http.Response {
+		t.Helper()
+		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+		req.Header.Set("Origin", origin)
+		req.Header.Set("X-Contadinho-Request", csrf)
+		req.Header.Set("Content-Type", "application/json")
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+	assert := func(resp *http.Response, want int) {
+		t.Helper()
+		defer resp.Body.Close()
+		if resp.StatusCode != want {
+			body, _ := io.ReadAll(resp.Body)
+			t.Fatalf("status %d want %d: %s", resp.StatusCode, want, body)
+		}
+	}
+
+	assert(request("PUT", "/api/auth/config", `{"enabled":false}`, testOrigin, "1", nil), 401)
+	login := request("POST", "/api/auth/login", `{"email":"owner@example.com","password":"`+testPassword+`"}`, testOrigin, "1", nil)
+	if login.StatusCode != 200 {
+		assert(login, 200)
+	}
+	cookie := login.Cookies()[0]
+	login.Body.Close()
+	assert(request("PUT", "/api/auth/config", `{"enabled":false}`, testOrigin, "1", cookie), 200)
+	assert(request("GET", "/api/categories", "", "", "", nil), 200)
+	assert(request("POST", "/api/auth/login", `{}`, testOrigin, "1", nil), 409)
+	assert(request("PUT", "/api/preferences", `{"transactions_period_basis":"paid_at"}`, "https://evil.example", "1", nil), 403)
+	assert(request("PUT", "/api/auth/config", `{"enabled":true}`, testOrigin, "1", nil), 200)
+	assert(request("GET", "/api/categories", "", "", "", nil), 401)
+
+	if err := settings.Set(context.Background(), conn, settings.KeyAuthenticationEnabled, "invalid", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	assert(request("GET", "/api/categories", "", "", "", nil), 503)
 }
 func TestProductionCookieAndServerRestart(t *testing.T) {
 	_, conn, keys := newTestServerWithSession(t)

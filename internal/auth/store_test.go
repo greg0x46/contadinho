@@ -206,8 +206,11 @@ func TestSessionsExpiryResetAndRestart(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := s.ResetPassword(ctx, password); err != nil {
+		if err := s.ResetPassword(ctx, "x"); err != nil {
 			t.Fatal(err)
+		}
+		if _, err := s.Login(ctx, "owner@example.com", "x"); err != nil {
+			t.Fatal("one-character password did not work", err)
 		}
 		if _, err := s.Authenticate(ctx, token); !errors.Is(err, ErrSession) {
 			t.Fatal(err)
@@ -235,9 +238,12 @@ func TestConfiguration(t *testing.T) {
 			t.Errorf("%q: %v", value, err)
 		}
 	}
-	for _, value := range []string{"short", string(bytes.Repeat([]byte{'x'}, 129)), string([]byte{0xff})} {
-		if ValidPassword(value) {
-			t.Error("invalid password accepted")
+	if ValidPassword("") {
+		t.Error("empty password accepted")
+	}
+	for _, value := range []string{"x", " ", string(bytes.Repeat([]byte{'x'}, 1024))} {
+		if !ValidPassword(value) {
+			t.Errorf("non-empty password rejected: length %d", len(value))
 		}
 	}
 }

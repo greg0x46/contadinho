@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/mail"
 	"strings"
-	"unicode/utf8"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -19,8 +18,7 @@ func ValidEmail(email string) bool {
 	return err == nil && a.Address == email && len(email) <= 254
 }
 func ValidPassword(password string) bool {
-	n := utf8.RuneCountInString(password)
-	return utf8.ValidString(password) && n >= 15 && n <= 128
+	return password != ""
 }
 func hashPassword(password string) (string, error) {
 	salt := make([]byte, 16)
@@ -51,7 +49,7 @@ func validateCredentials(email, password string) error {
 		return fmt.Errorf("e-mail inválido")
 	}
 	if !ValidPassword(password) {
-		return fmt.Errorf("a senha deve ter de 15 a 128 caracteres")
+		return fmt.Errorf("a senha não pode ficar vazia")
 	}
 	return nil
 }

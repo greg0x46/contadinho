@@ -134,6 +134,28 @@ func TestGetMissingKey(t *testing.T) {
 	}
 }
 
+func TestAuthenticationEnabledDefaultsAndPersists(t *testing.T) {
+	conn := newTestDB(t)
+	ctx := context.Background()
+	enabled, err := settings.AuthenticationEnabled(ctx, conn)
+	if err != nil || !enabled {
+		t.Fatalf("default: enabled=%v err=%v", enabled, err)
+	}
+	if err := settings.SetAuthenticationEnabled(ctx, conn, false); err != nil {
+		t.Fatal(err)
+	}
+	enabled, err = settings.AuthenticationEnabled(ctx, conn)
+	if err != nil || enabled {
+		t.Fatalf("stored: enabled=%v err=%v", enabled, err)
+	}
+	if err := settings.Set(ctx, conn, settings.KeyAuthenticationEnabled, "invalid", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := settings.AuthenticationEnabled(ctx, conn); err == nil {
+		t.Fatal("invalid authentication setting accepted")
+	}
+}
+
 func TestSecretsCopiesKey(t *testing.T) {
 	key := make([]byte, 32)
 	keys := settings.NewSecrets(key)

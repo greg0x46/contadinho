@@ -17,7 +17,7 @@ it("requires login, shows private content and clears it on logout", async () => 
   vi.stubGlobal("fetch", vi.fn(async (path: string) => {
     if (path === "/api/auth/login") authenticated = true;
     if (path === "/api/auth/logout") authenticated = false;
-    return json({ authenticated });
+    return json({ authenticated, authentication_enabled: true });
   }));
   const client = page();
   await screen.findByRole("button", { name: "Entrar" });
@@ -33,7 +33,7 @@ it("requires login, shows private content and clears it on logout", async () => 
   expect(client.getQueryData(["accounts"])).toBeUndefined();
 });
 it("clears cached private data when the session expires", async () => {
-  vi.stubGlobal("fetch", vi.fn(async () => json({ authenticated: true })));
+  vi.stubGlobal("fetch", vi.fn(async () => json({ authenticated: true, authentication_enabled: true })));
   const client = page();
   await screen.findByText("Dados financeiros privados");
   client.setQueryData(["accounts"], ["private"]);
@@ -42,13 +42,27 @@ it("clears cached private data when the session expires", async () => {
   await waitFor(() => expect(client.getQueryData(["accounts"])).toBeUndefined());
 });
 it("changes the password and returns to login", async () => {
-  const mock = vi.fn(async (path: string) => json({ authenticated: path !== "/api/auth/password" }));
+  const mock = vi.fn(async (path: string) => json({ authenticated: path !== "/api/auth/password", authentication_enabled: true }));
   vi.stubGlobal("fetch", mock); page();
   await screen.findByText("Dados financeiros privados");
   fireEvent.change(screen.getByLabelText("Senha atual"), { target: { value: "correct horse battery staple" } });
-  fireEvent.change(screen.getByLabelText("Nova senha (15–128 caracteres)"), { target: { value: "a completely different password" } });
+  fireEvent.change(screen.getByLabelText("Nova senha"), { target: { value: "a completely different password" } });
   fireEvent.change(screen.getByLabelText("Repita a nova senha"), { target: { value: "a completely different password" } });
   fireEvent.click(screen.getByRole("button", { name: "Alterar senha e encerrar sessões" }));
   await screen.findByRole("button", { name: "Entrar" });
   expect(mock).toHaveBeenCalledWith("/api/auth/password", expect.objectContaining({ method: "PUT" }));
+});
+
+it("opens the app without login and can enable authentication again", async () => {
+  let enabled = false;
+  const mock = vi.fn(async (path: string, init?: RequestInit) => {
+    if (path === "/api/auth/config" && init?.body) enabled = (JSON.parse(String(init.body)) as { enabled: boolean }).enabled;
+    return json({ authenticated: false, authentication_enabled: enabled });
+  });
+  vi.stubGlobal("fetch", mock); page();
+  await screen.findByText("Dados financeiros privados");
+  expect(screen.getByText("Autenticação desativada")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Ativar autenticação" }));
+  await screen.findByRole("button", { name: "Entrar" });
+  expect(mock).toHaveBeenCalledWith("/api/auth/config", expect.objectContaining({ method: "PUT" }));
 });
