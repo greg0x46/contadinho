@@ -319,10 +319,10 @@ func TestBuildSeriesKeepsTransferCategorizedCashMovement(t *testing.T) {
 // in another account, and counting them as an expense would make every
 // month with a transfer look poorer than it was. The series carries both
 // readings side by side: buildPoints walks Entry.Amount (cash), while
-// MonthlyBreakdown, CategoryBreakdown and CategoryEvolution walk
-// Entry.ReportableAmount (income/expense), which transactions.toItem zeroes
-// for anything TotalsEligibility excludes. Before ReportableAmount existed
-// the aggregates read Amount and the transfer counted at full value.
+// TotalsForPeriod walks Entry.ReportableAmount (income/expense), which
+// transactions.toItem zeroes for anything TotalsEligibility excludes.
+// Before ReportableAmount existed the totals read Amount and the transfer
+// counted at full value.
 func TestBuildSeriesTransferMovesCashButIsNeitherIncomeNorExpense(t *testing.T) {
 	f := newFixture(t)
 	account := f.addAccount("600.00")
@@ -356,31 +356,12 @@ func TestBuildSeriesTransferMovesCashButIsNeitherIncomeNorExpense(t *testing.T) 
 	}
 
 	// Income/expense: only the supermarket run counts.
-	months := timeline.MonthlyBreakdown(series)
-	if len(months) != 1 {
-		t.Fatalf("MonthlyBreakdown() = %+v, want exactly August", months)
+	totals := timeline.TotalsForPeriod(series)
+	if got := totals.Expense.String(); got != "100" {
+		t.Errorf("Expense = %s, want 100 (the transfer is not an expense)", got)
 	}
-	if got := months[0].Expense.String(); got != "100" {
-		t.Errorf("August Expense = %s, want 100 (the transfer is not an expense)", got)
-	}
-	if got := months[0].Income.String(); got != "0" {
-		t.Errorf("August Income = %s, want 0", got)
-	}
-
-	// Category drill-down: a zero reportable amount is not an outflow, so
-	// the transfer category never even gets a row — only Supermercado and
-	// the ever-present "Sem categoria" placeholder.
-	impacts := timeline.CategoryBreakdown(series, date(t, "2026-08-01"))
-	if len(impacts) != 2 {
-		t.Fatalf("CategoryBreakdown() = %+v, want 2 rows (Supermercado + Sem categoria)", impacts)
-	}
-	for _, impact := range impacts {
-		if impact.CategoryID != nil && *impact.CategoryID == categoryTransferencia {
-			t.Errorf("CategoryBreakdown() lists the transfer category: %+v", impact)
-		}
-	}
-	if impacts[0].CategoryName != "Supermercado" || impacts[0].Amount.String() != "100" || impacts[0].Percentage.String() != "100" {
-		t.Errorf("Supermercado row = %+v, want 100 at 100%% (the transfer takes no share of the month)", impacts[0])
+	if got := totals.Income.String(); got != "0" {
+		t.Errorf("Income = %s, want 0", got)
 	}
 }
 

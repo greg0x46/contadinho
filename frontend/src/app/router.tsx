@@ -77,11 +77,6 @@ const ScenariosPage = lazy(() =>
     default: module.ScenariosPage,
   })),
 );
-const FinancialReportPage = lazy(() =>
-  import("../pages/FinancialReportPage").then((module) => ({
-    default: module.FinancialReportPage,
-  })),
-);
 const NetWorthPage = lazy(() =>
   import("../pages/NetWorthPage").then((module) => ({
     default: module.NetWorthPage,
@@ -117,7 +112,6 @@ export function AppRouter() {
             <Route path="pendencias/:id" element={<PayableDetailPage />} />
             <Route path="recorrencias" element={<RecurringCommitmentsPage />} />
             <Route path="configuracoes/cenarios" element={<ScenariosPage />} />
-            <Route path="relatorio-financeiro" element={<FinancialReportPage />} />
             <Route path="patrimonio-liquido" element={<NetWorthPage />} />
             <Route path="investimentos" element={<InvestmentsPage />} />
             <Route path="investimentos/:id" element={<InvestmentDetailPage />} />

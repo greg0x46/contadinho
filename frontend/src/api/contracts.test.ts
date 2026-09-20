@@ -617,10 +617,7 @@ const timelineEntry = {
   scenario_id: null,
 };
 
-const timelineResponse = (
-  entries: unknown[],
-  monthlyBreakdown: unknown[],
-) => ({
+const timelineResponse = (entries: unknown[]) => ({
   base: {
     points: [
       { date: "2026-08-01", balance: "900.00", inflow: "0.00", outflow: "100.00", lowest_tier: "realizado" },
@@ -636,98 +633,45 @@ const timelineResponse = (
     },
     first_negative: null,
   },
-  monthly_breakdown: monthlyBreakdown,
-  category_breakdown: [],
+  period_totals: { income: "0.00", expense: "100.00", result: "-100.00" },
   simulation: null,
   scenario_impacts: [],
-  month_over_month: null,
-  year_over_year: null,
-  category_evolution: null,
 });
 
 describe("timeline investment contracts", () => {
-  it("reads the investment fields and the investment source kind", () => {
+  it("reads the reportable amount and the investment source kind", () => {
     const parsed = parseTimelineResponse(
-      timelineResponse(
-        [
-          {
-            ...timelineEntry,
-            description: "Aporte na corretora",
-            amount: "-500.00",
-            reportable_amount: "0.00",
-            investment_transfer_amount: "500.00",
-            investment_transfer_kind: "deposit",
-            source: "investment",
-            category_id: null,
-          },
-        ],
-        [
-          {
-            month: "2026-08-01",
-            income: "2000.00",
-            expense: "100.00",
-            result: "1900.00",
-            investment_contributions: "500.00",
-            investment_withdrawals: "80.00",
-          },
-        ],
-      ),
+      timelineResponse([
+        {
+          ...timelineEntry,
+          description: "Aporte na corretora",
+          amount: "-500.00",
+          reportable_amount: "0.00",
+          source: "investment",
+          category_id: null,
+        },
+      ]),
     );
     expect(parsed.base.entries[0]).toMatchObject({
       source: "investment",
       reportable_amount: "0.00",
-      investment_transfer_amount: "500.00",
-      investment_transfer_kind: "deposit",
-    });
-    expect(parsed.monthly_breakdown[0]).toMatchObject({
-      investment_contributions: "500.00",
-      investment_withdrawals: "80.00",
     });
   });
 
-  it("defaults the investment fields when an older server omits them", () => {
-    const parsed = parseTimelineResponse(
-      timelineResponse([timelineEntry], [
-        { month: "2026-08-01", income: "2000.00", expense: "100.00", result: "1900.00" },
-      ]),
-    );
-    expect(parsed.base.entries[0]).toMatchObject({
-      // Nothing was allocated, so the whole entry is reportable.
-      reportable_amount: "-100.00",
-      investment_transfer_amount: "0",
-      investment_transfer_kind: null,
-    });
-    expect(parsed.monthly_breakdown[0]).toMatchObject({
-      investment_contributions: "0",
-      investment_withdrawals: "0",
-    });
+  it("defaults the reportable amount when an older server omits it", () => {
+    const parsed = parseTimelineResponse(timelineResponse([timelineEntry]));
+    // Nothing was allocated, so the whole entry is reportable.
+    expect(parsed.base.entries[0]).toMatchObject({ reportable_amount: "-100.00" });
   });
 
   it.each([
     [{ ...timelineEntry, source: "investimento" }],
-    [{ ...timelineEntry, investment_transfer_kind: "aporte" }],
-    [{ ...timelineEntry, investment_transfer_amount: "quinhentos" }],
-    [{ ...timelineEntry, investiment_transfer_amount: "500.00" }],
-  ])("rejects misspelled or unknown timeline investment fields", (entry) => {
+    [{ ...timelineEntry, reportable_amount: "quinhentos" }],
+    [{ ...timelineEntry, reportable_ammount: "500.00" }],
+  ])("rejects misspelled or unknown timeline entry fields", (entry) => {
     // Either the entry shape or the decimal itself is refused — never parsed
     // into a silently wrong reading.
-    expect(() => parseTimelineResponse(timelineResponse([entry], []))).toThrow(/inválid/);
-  });
-
-  it("rejects a misspelled monthly investment field", () => {
-    expect(() =>
-      parseTimelineResponse(
-        timelineResponse([], [
-          {
-            month: "2026-08-01",
-            income: "2000.00",
-            expense: "100.00",
-            result: "1900.00",
-            investment_contribution: "500.00",
-          },
-        ]),
-      ),
-    ).toThrow("Resumo mensal inválido.");
+    expect(() => parseTimelineResponse(timelineResponse([entry]))).toThrow(/inválid/);
   });
 });
 

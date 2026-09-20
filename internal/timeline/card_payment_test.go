@@ -192,8 +192,8 @@ func TestBuildSeriesPastBillCountsOnlyTheRealCashPayment(t *testing.T) {
 // aggregate side of TestBuildSeriesTreatsCategorizedCardPaymentAsTransferNotDoubleCount:
 // once the bill is paid, cashEntries drops the purchase from the balance
 // walk so its cash is not charged twice (Points), but the money was still
-// spent, and TotalsForPeriod — which walks the unfiltered series.Entries,
-// same as MonthlyBreakdown — must still count it as an expense.
+// spent, and TotalsForPeriod — which walks the unfiltered series.Entries —
+// must still count it as an expense.
 func TestTotalsForPeriodCountsASettledCardPurchaseThatPointsExcludes(t *testing.T) {
 	f := newFixture(t)
 	bank := f.addAccount("1000.00")

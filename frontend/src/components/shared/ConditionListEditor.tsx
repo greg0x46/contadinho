@@ -6,7 +6,7 @@ import type { RuleCondition, RuleConditionField, RuleConditionOperator } from ".
 /**
  * Per-field rendering rules for one row of the shared condition-list
  * builder (used by AutomationRuleForm and RecurringCommitmentForm — see
- * .specs/relatorio-financeiro/m0-motor-de-regras.md). A field is either:
+ * .specs/motores-de-dominio.md, motor de regras). A field is either:
  * - a literal text-match field (operator select + free/select value), or
  * - a "pair" field (amount/day_of_month): the operator is implied by the
  *   field itself, and the input is two plain numbers packed into

@@ -22,10 +22,6 @@ export function PeriodBalanceCard({ period }: { period: HomePeriod }) {
       referenceDate,
       from: bounds ? bounds.from : referenceDate,
       to: bounds ? bounds.to : referenceDate,
-      // period_totals is always computed server-side regardless of this
-      // flag; the monthly/category breakdowns it would add belong to the
-      // Relatório Financeiro, not this widget.
-      aggregations: false,
     }),
     [referenceDate, bounds],
   );

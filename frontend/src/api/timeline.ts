@@ -10,7 +10,7 @@ import {
 } from "./contracts";
 import { ApiError, isAbortError } from "./problems";
 
-const defaultMessage = "Não foi possível carregar o relatório financeiro.";
+const defaultMessage = "Não foi possível carregar a linha do tempo.";
 
 function buildQuery(params: TimelineParams): string {
   const search = new URLSearchParams({
@@ -18,14 +18,10 @@ function buildQuery(params: TimelineParams): string {
     from: params.from,
     to: params.to,
   });
-  if (params.analysisMonth) search.set("analysis_month", params.analysisMonth);
   if (params.accountIds && params.accountIds.length > 0) search.set("account_ids", params.accountIds.join(","));
   if (params.categoryIds && params.categoryIds.length > 0) search.set("category_ids", params.categoryIds.join(","));
   if (params.cardNumbers && params.cardNumbers.length > 0) search.set("card_numbers", params.cardNumbers.join(","));
   if (params.scenarioIds && params.scenarioIds.length > 0) search.set("scenario_ids", params.scenarioIds.join(","));
-  if (params.yearOverYear) search.set("year_over_year", "true");
-  if (params.categoryEvolutionId) search.set("category_evolution_id", params.categoryEvolutionId);
-  if (params.aggregations === false) search.set("aggregations", "false");
   return search.toString();
 }
 

@@ -157,7 +157,7 @@ flag gravada.
 O motor de fusão: junta lançamentos reais e o fluxo unificado de projeção de
 cenários numa única `Series`, com um `CertaintyTier` explícito por `Entry`
 (Realizado / Confirmado / Projetado / Hipotético). Toda camada de
-apresentação (cards, gráfico, drill-down) lê dessa mesma `Series` — nunca
+apresentação (os cards e o gráfico da Home) lê dessa mesma `Series` — nunca
 recalcula localmente.
 
 Fontes hoje: Lançamentos + Cenários (**2**). A nota de direção futura que
@@ -172,7 +172,7 @@ Hipotético (`standalone`).
 
 **Nota de divergência:** o `CertaintyTier` é produzido e transportado até a
 API, mas nenhuma tela o exibe hoje — ver
-`.specs/contextos/relatorio-financeiro/reference.md`, seção Notas. O
+`.specs/contextos/home/reference.md`, seção Notas. O
 princípio 4 abaixo continua valendo como régua de domínio; o que falta é a
 expressão dele na interface.
 

@@ -27,7 +27,7 @@ correspondente.
 ### `contextos/<contexto>/reference.md`
 
 Um arquivo por contexto/feature (`contextos/pendencias/`,
-`contextos/relatorio-financeiro/`, etc.), descrevendo o **estado atual,
+`contextos/home/`, etc.), descrevendo o **estado atual,
 literal**: o que o backend/frontend fazem hoje, pacotes envolvidos, rotas
 HTTP, páginas do frontend. É a fonte de verdade para "isso já foi
 implementado?".
@@ -38,7 +38,7 @@ commit/PR da mudança. Um `reference.md` desatualizado é pior que nenhum.
 
 Contextos existentes hoje: `sincronizacao-open-banking`, `transacoes`,
 `categorias`, `automacao`, `pendencias`, `cenarios`, `recorrencias`,
-`relatorio-financeiro`, `patrimonio-liquido`, `configuracoes-autenticacao`.
+`home`, `patrimonio-liquido`, `configuracoes-autenticacao`.
 
 `investimentos` documenta contas de custódia, carteiras por objetivo, operações
 manuais e conciliação de aportes/resgates com o extrato.
@@ -48,7 +48,7 @@ manuais e conciliação de aportes/resgates com o extrato.
 Nenhum existe no momento — os specs de feature anteriores
 (`relatorio-financeiro.md` e milestones, `plano-pagamento-e-cenarios-
 projecao.md`) foram removidos por já estarem cobertos pelos `reference.md`
-correspondentes (`contextos/relatorio-financeiro/`, `contextos/pendencias/`,
+correspondentes (`contextos/home/`, `contextos/pendencias/`,
 `contextos/cenarios/`). O formato continua sendo a convenção para a
 **próxima** feature de escopo razoável, quando fizer sentido registrar o
 racional de uma decisão de design num momento específico — motivação,
@@ -70,7 +70,7 @@ Não pertencem a um contexto específico — reaproveitados por vários:
   para `URLSearchParams` (filtros de transações, seleção de cenários).
 - `frontend/src/presentation/money.ts` — formatação/aritmética de dinheiro
   sobre strings decimais.
-- Recharts é a biblioteca de gráficos (Relatório Financeiro, Patrimônio
+- Recharts é a biblioteca de gráficos (projeção da Home, Patrimônio
   Líquido).
 
 Testes: Vitest + Testing Library cobrem o frontend hoje (colocalizados,

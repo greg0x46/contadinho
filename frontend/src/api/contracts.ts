@@ -656,7 +656,7 @@ export function parseTransactionInclusionResult(value: unknown): TransactionIncl
 
 // RuleCondition is the shared field/operator/value shape both automation
 // rules and recurring commitments compose — see internal/rules (backend)
-// and .specs/relatorio-financeiro/m0-motor-de-regras.md. "amount"/
+// and .specs/motores-de-dominio.md (motor de regras). "amount"/
 // "day_of_month" only make sense where there's an occurrence to compare
 // against — on an AutomationRule that means a "reconcile" action is present
 // (see ruleConditionFieldOperators and AutomationAction below); the backend
@@ -3117,9 +3117,6 @@ export const timelineSourceKinds = [
 ] as const;
 export type TimelineSourceKind = (typeof timelineSourceKinds)[number];
 
-export const investmentTransferKinds = ["deposit", "withdrawal"] as const;
-export type InvestmentTransferKind = (typeof investmentTransferKinds)[number];
-
 export interface TimelineEntry {
   date: string;
   description: string;
@@ -3130,10 +3127,6 @@ export interface TimelineEntry {
    * investment it is what is left after the transferred parcel is taken out.
    */
   reportable_amount: string;
-  /** Absolute amount moved to/from investments — "0" when nothing was moved. */
-  investment_transfer_amount: string;
-  /** Direction of that movement, null when the entry is not a transfer. */
-  investment_transfer_kind: InvestmentTransferKind | null;
   category_id: string | null;
   category_name: string;
   tier: CertaintyTier;
@@ -3158,45 +3151,13 @@ export interface TimelineSeries {
   first_negative: string | null;
 }
 
-export interface MonthSummary {
-  month: string;
-  income: string;
-  expense: string;
-  result: string;
-  /**
-   * Money moved into and out of investments in the month. Kept apart from
-   * income/expense on purpose: an aporte is not a despesa, a resgate is not
-   * uma receita — both only move money between the caixa and the patrimônio.
-   */
-  investment_contributions: string;
-  investment_withdrawals: string;
-}
-
-export interface CategoryImpact {
-  category_id: string | null;
-  category_name: string;
-  amount: string;
-  percentage: string;
-}
-
 export interface ScenarioImpact {
   scenario_id: string;
   scenario_name: string;
   delta: string;
 }
 
-export interface Comparison2 {
-  current: string;
-  previous: string;
-  delta_percent: string;
-}
-
-export interface MonthAmount {
-  month: string;
-  amount: string;
-}
-
-/** The whole-window equivalent of one MonthSummary row — see PeriodTotals in internal/timeline/aggregate.go. */
+/** Income/expense/result over the whole window — see PeriodTotals in internal/timeline/aggregate.go. */
 export interface PeriodTotals {
   income: string;
   expense: string;
@@ -3206,13 +3167,8 @@ export interface PeriodTotals {
 export interface TimelineResponse {
   base: TimelineSeries;
   period_totals: PeriodTotals;
-  monthly_breakdown: MonthSummary[];
-  category_breakdown: CategoryImpact[];
   simulation: TimelineSeries | null;
   scenario_impacts: ScenarioImpact[];
-  month_over_month: Comparison2 | null;
-  year_over_year: Comparison2 | null;
-  category_evolution: MonthAmount[] | null;
 }
 
 export interface TimelineParams {
@@ -3220,24 +3176,10 @@ export interface TimelineParams {
   referenceDate: string;
   from: string;
   to: string;
-  /**
-   * First day of the month the retrospective aggregations are about
-   * (category breakdown, month-over-month, year-over-year). Defaults
-   * server-side to referenceDate's month.
-   */
-  analysisMonth?: string;
   accountIds?: string[];
   categoryIds?: string[];
   cardNumbers?: string[];
   scenarioIds?: string[];
-  yearOverYear?: boolean;
-  categoryEvolutionId?: string | null;
-  /**
-   * Set false to drop monthly_breakdown, category_breakdown and
-   * month_over_month from the response — for callers that only plot the
-   * balance curve. Defaults to true server-side.
-   */
-  aggregations?: boolean;
 }
 
 function isNullableCategoryId(value: unknown): value is string | null {
@@ -3258,8 +3200,8 @@ function parseTimelineEntry(value: unknown): TimelineEntry {
       "source_ref_id",
       "scenario_id",
     ],
-    ["reportable_amount", "investment_transfer_amount", "investment_transfer_kind"],
-    "Entrada do relatório inválida.",
+    ["reportable_amount"],
+    "Entrada da linha do tempo inválida.",
   );
   if (
     !dateOnlyPattern.test(entry.date as string) ||
@@ -3270,14 +3212,9 @@ function parseTimelineEntry(value: unknown): TimelineEntry {
     !timelineSourceKinds.includes(entry.source as TimelineSourceKind) ||
     typeof entry.source_ref_id !== "string" ||
     entry.source_ref_id === "" ||
-    !isNullableCategoryId(entry.scenario_id) ||
-    !(
-      entry.investment_transfer_kind === undefined ||
-      entry.investment_transfer_kind === null ||
-      investmentTransferKinds.includes(entry.investment_transfer_kind as InvestmentTransferKind)
-    )
+    !isNullableCategoryId(entry.scenario_id)
   ) {
-    throw new TypeError("Entrada do relatório inválida.");
+    throw new TypeError("Entrada da linha do tempo inválida.");
   }
   const amount = decimal(entry.amount);
   return {
@@ -3288,12 +3225,6 @@ function parseTimelineEntry(value: unknown): TimelineEntry {
     // report nothing transferred, so the whole entry is reportable.
     reportable_amount:
       entry.reportable_amount === undefined ? amount : decimal(entry.reportable_amount),
-    investment_transfer_amount:
-      entry.investment_transfer_amount === undefined ? "0" : decimal(entry.investment_transfer_amount),
-    investment_transfer_kind:
-      entry.investment_transfer_kind === undefined
-        ? null
-        : (entry.investment_transfer_kind as InvestmentTransferKind | null),
     category_id: entry.category_id as string | null,
     category_name: entry.category_name,
     tier: entry.tier as CertaintyTier,
@@ -3307,13 +3238,13 @@ function parseTimelineDayPoint(value: unknown): TimelineDayPoint {
   const point = requiredRecord(
     value,
     ["date", "balance", "inflow", "outflow", "lowest_tier"],
-    "Ponto do relatório inválido.",
+    "Ponto da linha do tempo inválido.",
   );
   if (
     !dateOnlyPattern.test(point.date as string) ||
     !certaintyTiers.includes(point.lowest_tier as CertaintyTier)
   ) {
-    throw new TypeError("Ponto do relatório inválido.");
+    throw new TypeError("Ponto da linha do tempo inválido.");
   }
   return {
     date: point.date as string,
@@ -3328,14 +3259,14 @@ function parseTimelineSeries(value: unknown): TimelineSeries {
   const series = requiredRecord(
     value,
     ["points", "entries", "starting_balance", "lowest_balance", "first_negative"],
-    "Série do relatório inválida.",
+    "Série da linha do tempo inválida.",
   );
   if (
     !Array.isArray(series.points) ||
     !Array.isArray(series.entries) ||
     !(series.first_negative === null || dateOnlyPattern.test(series.first_negative as string))
   ) {
-    throw new TypeError("Série do relatório inválida.");
+    throw new TypeError("Série da linha do tempo inválida.");
   }
   return {
     points: series.points.map(parseTimelineDayPoint),
@@ -3346,53 +3277,12 @@ function parseTimelineSeries(value: unknown): TimelineSeries {
   };
 }
 
-function parseMonthSummary(value: unknown): MonthSummary {
-  const summary = requiredRecordWithOptionalKeys(
-    value,
-    ["month", "income", "expense", "result"],
-    ["investment_contributions", "investment_withdrawals"],
-    "Resumo mensal inválido.",
-  );
-  if (!dateOnlyPattern.test(summary.month as string)) {
-    throw new TypeError("Resumo mensal inválido.");
-  }
-  return {
-    month: summary.month as string,
-    income: decimal(summary.income),
-    expense: decimal(summary.expense),
-    result: decimal(summary.result),
-    // Absent on servers and fixtures that predate the investment reading:
-    // nothing was moved, not "unknown".
-    investment_contributions:
-      summary.investment_contributions === undefined ? "0" : decimal(summary.investment_contributions),
-    investment_withdrawals:
-      summary.investment_withdrawals === undefined ? "0" : decimal(summary.investment_withdrawals),
-  };
-}
-
 function parsePeriodTotals(value: unknown): PeriodTotals {
   const totals = requiredRecord(value, ["income", "expense", "result"], "Totais do período inválidos.");
   return {
     income: decimal(totals.income),
     expense: decimal(totals.expense),
     result: decimal(totals.result),
-  };
-}
-
-function parseCategoryImpact(value: unknown): CategoryImpact {
-  const impact = requiredRecord(
-    value,
-    ["category_id", "category_name", "amount", "percentage"],
-    "Impacto de categoria inválido.",
-  );
-  if (!isNullableCategoryId(impact.category_id) || typeof impact.category_name !== "string") {
-    throw new TypeError("Impacto de categoria inválido.");
-  }
-  return {
-    category_id: impact.category_id as string | null,
-    category_name: impact.category_name,
-    amount: decimal(impact.amount),
-    percentage: decimal(impact.percentage),
   };
 }
 
@@ -3416,62 +3306,20 @@ function parseScenarioImpact(value: unknown): ScenarioImpact {
   };
 }
 
-function parseComparison2(value: unknown): Comparison2 {
-  const comparison = requiredRecord(
-    value,
-    ["current", "previous", "delta_percent"],
-    "Comparação inválida.",
-  );
-  return {
-    current: decimal(comparison.current),
-    previous: decimal(comparison.previous),
-    delta_percent: decimal(comparison.delta_percent),
-  };
-}
-
-function parseMonthAmount(value: unknown): MonthAmount {
-  const item = requiredRecord(value, ["month", "amount"], "Evolução de categoria inválida.");
-  if (!dateOnlyPattern.test(item.month as string)) {
-    throw new TypeError("Evolução de categoria inválida.");
-  }
-  return { month: item.month as string, amount: decimal(item.amount) };
-}
-
 export function parseTimelineResponse(value: unknown): TimelineResponse {
   const response = requiredRecord(
     value,
-    [
-      "base",
-      "period_totals",
-      "monthly_breakdown",
-      "category_breakdown",
-      "simulation",
-      "scenario_impacts",
-      "month_over_month",
-      "year_over_year",
-      "category_evolution",
-    ],
-    "Resposta do relatório financeiro inválida.",
+    ["base", "period_totals", "simulation", "scenario_impacts"],
+    "Resposta da linha do tempo inválida.",
   );
-  if (
-    !Array.isArray(response.monthly_breakdown) ||
-    !Array.isArray(response.category_breakdown) ||
-    !Array.isArray(response.scenario_impacts) ||
-    !(response.category_evolution === null || Array.isArray(response.category_evolution))
-  ) {
-    throw new TypeError("Resposta do relatório financeiro inválida.");
+  if (!Array.isArray(response.scenario_impacts)) {
+    throw new TypeError("Resposta da linha do tempo inválida.");
   }
   return {
     base: parseTimelineSeries(response.base),
     period_totals: parsePeriodTotals(response.period_totals),
-    monthly_breakdown: response.monthly_breakdown.map(parseMonthSummary),
-    category_breakdown: response.category_breakdown.map(parseCategoryImpact),
     simulation: response.simulation === null ? null : parseTimelineSeries(response.simulation),
     scenario_impacts: response.scenario_impacts.map(parseScenarioImpact),
-    month_over_month: response.month_over_month === null ? null : parseComparison2(response.month_over_month),
-    year_over_year: response.year_over_year === null ? null : parseComparison2(response.year_over_year),
-    category_evolution:
-      response.category_evolution === null ? null : (response.category_evolution as unknown[]).map(parseMonthAmount),
   };
 }
 
@@ -3486,9 +3334,9 @@ export interface TimelineDataRange {
 }
 
 export function parseTimelineDataRange(value: unknown): TimelineDataRange {
-  const range = requiredRecord(value, ["from", "to"], "Intervalo do relatório inválido.");
+  const range = requiredRecord(value, ["from", "to"], "Intervalo da linha do tempo inválido.");
   if (!dateOnlyPattern.test(range.from as string) || !dateOnlyPattern.test(range.to as string)) {
-    throw new TypeError("Intervalo do relatório inválido.");
+    throw new TypeError("Intervalo da linha do tempo inválido.");
   }
   return { from: range.from as string, to: range.to as string };
 }
