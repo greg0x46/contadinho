@@ -183,7 +183,7 @@ export function RecurrenceOccurrenceList({ commitment }: { commitment: Recurring
             {occurrence.status === "reconciled" ? (
               <Popconfirm
                 title="Desconciliar ocorrência"
-                description="A ocorrência volta a ser projetada no relatório. A transação permanece inalterada."
+                description="A ocorrência volta a ser projetada na Home. A transação permanece inalterada."
                 onConfirm={() =>
                   runAction(
                     occurrence.date,

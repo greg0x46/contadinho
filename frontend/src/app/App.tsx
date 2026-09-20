@@ -1,6 +1,5 @@
 import {
   BankOutlined,
-  BarChartOutlined,
   FundOutlined,
   HomeOutlined,
   RedoOutlined,
@@ -50,7 +49,6 @@ export function App() {
           routes: [
             { path: "/", name: "Home", icon: <HomeOutlined /> },
             { path: "/transacoes", name: "Transações", icon: <TransactionOutlined /> },
-            { path: "/relatorio-financeiro", name: "Relatório financeiro", icon: <BarChartOutlined /> },
             { path: "/patrimonio-liquido", name: "Patrimônio líquido", icon: <FundOutlined /> },
             { path: "/contas-e-cartoes", name: "Contas e cartões", icon: <BankOutlined /> },
             { path: "/pendencias", name: "Pendências", icon: <WalletOutlined /> },

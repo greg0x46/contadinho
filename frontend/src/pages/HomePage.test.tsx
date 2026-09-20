@@ -59,13 +59,8 @@ const projection: TimelineResponse = {
     first_negative: null,
   },
   period_totals: { income: "620.00", expense: "950.00", result: "-330.00" },
-  monthly_breakdown: [],
-  category_breakdown: [],
   simulation: null,
   scenario_impacts: [],
-  month_over_month: null,
-  year_over_year: null,
-  category_evolution: null,
 };
 
 function renderPage() {
@@ -192,7 +187,6 @@ describe("HomePage", () => {
       referenceDate: today.format("YYYY-MM-DD"),
       from: today.startOf("month").format("YYYY-MM-DD"),
       to: today.endOf("month").format("YYYY-MM-DD"),
-      aggregations: false,
     });
   });
 
@@ -226,7 +220,6 @@ describe("HomePage", () => {
         referenceDate: today.format("YYYY-MM-DD"),
         from: previous.startOf("year").format("YYYY-MM-DD"),
         to: previous.endOf("year").format("YYYY-MM-DD"),
-        aggregations: false,
       }),
     );
     expect(await screen.findByText(String(previous.year()))).toBeVisible();
@@ -322,7 +315,6 @@ describe("HomePage", () => {
         referenceDate: today.format("YYYY-MM-DD"),
         from: today.subtract(29, "day").format("YYYY-MM-DD"),
         to: today.format("YYYY-MM-DD"),
-        aggregations: false,
       }),
     );
     // No future left in the window, so the card stops calling it a forecast
@@ -345,7 +337,6 @@ describe("HomePage", () => {
         referenceDate: today.format("YYYY-MM-DD"),
         from: "2024-03-07",
         to: "2028-06-15",
-        aggregations: false,
       }),
     );
     // The header keeps saying "todo o período"; the card spells out the span
@@ -373,7 +364,6 @@ describe("HomePage", () => {
       referenceDate: today.format("YYYY-MM-DD"),
       from: today.startOf("year").format("YYYY-MM-DD"),
       to: today.endOf("year").format("YYYY-MM-DD"),
-      aggregations: false,
     });
   });
 
@@ -388,7 +378,6 @@ describe("HomePage", () => {
       referenceDate: today.format("YYYY-MM-DD"),
       from: today.startOf("year").format("YYYY-MM-DD"),
       to: today.endOf("year").format("YYYY-MM-DD"),
-      aggregations: false,
     });
   });
 
@@ -404,7 +393,6 @@ describe("HomePage", () => {
         referenceDate: today.format("YYYY-MM-DD"),
         from: today.startOf("month").format("YYYY-MM-DD"),
         to: today.endOf("month").format("YYYY-MM-DD"),
-        aggregations: false,
       });
     },
   );

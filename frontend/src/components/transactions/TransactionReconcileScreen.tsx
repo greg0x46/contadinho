@@ -98,7 +98,7 @@ export function TransactionReconcileScreen({
           <PanelFooter>
             <Popconfirm
               title="Desconciliar"
-              description="A ocorrência volta a ser projetada no relatório. A transação permanece inalterada."
+              description="A ocorrência volta a ser projetada na Home. A transação permanece inalterada."
               onConfirm={() =>
                 run(
                   () =>

@@ -53,8 +53,6 @@ function entry(overrides: Partial<TimelineEntry> & { description: string; amount
   return {
     date: "2026-08-22",
     reportable_amount: overrides.amount,
-    investment_transfer_amount: "0",
-    investment_transfer_kind: null,
     category_id: null,
     category_name: "Sem categoria",
     tier: "realizado",

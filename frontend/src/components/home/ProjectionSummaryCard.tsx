@@ -60,9 +60,6 @@ export function ProjectionSummaryCard({ period }: { period: HomePeriod }) {
       referenceDate,
       from: bounds ? bounds.from : referenceDate,
       to: bounds ? bounds.to : referenceDate,
-      // This widget plots only the balance curve; the monthly and per-category
-      // breakdowns belong to the Relatório Financeiro.
-      aggregations: false,
     }),
     [referenceDate, bounds],
   );

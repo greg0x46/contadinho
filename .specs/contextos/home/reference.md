@@ -1,4 +1,4 @@
-# Relatório Financeiro
+# Home
 
 > Referência viva deste contexto — o que existe e funciona hoje. Mantenha
 > atualizado ao mudar a feature. Motor de domínio por trás: Timeline, a
@@ -6,13 +6,17 @@
 
 ## O que é
 
-Retrospectiva mensal: quanto entrou, quanto saiu e onde o usuário mais
-gastou no mês selecionado, e como isso se acumula no ano — cards, gráfico e
-drill-down todos lendo da mesma série, nunca recalculando localmente.
+O painel inicial: saldo/entradas/saídas do período selecionado, a projeção
+de saldo (hoje, fim do horizonte, menor saldo) e o gasto por categoria. Os
+dois primeiros leem da mesma `Series` do backend, nunca recalculando
+localmente; o que muda entre eles é o campo que cada um consome.
 
-O **futuro** saiu desta tela: a projeção de saldo vive na Home
-(`ProjectionSummaryCard`), e a edição de cenários em Cenários. A `Series`
-por trás das duas é a mesma; o que muda é a janela que cada tela pede.
+Já existiu uma tela de retrospectiva mensal (`/relatorio-financeiro`, com
+quebra mês a mês, drill-down por categoria e comparativos); foi removida
+junto com as agregações do `/api/timeline` que só ela consumia
+(`monthly_breakdown`, `category_breakdown`, `month_over_month`,
+`year_over_year`, `category_evolution`). Recuperá-las do histórico é o
+caminho se a retrospectiva voltar.
 
 ## Backend
 
@@ -48,45 +52,44 @@ fica encapsulado em `internal/scenarios` (`Scenario.PayableID`/`Kind`, via
 
 Cada `Entry` carrega duas leituras do mesmo dinheiro. A curva de saldo
 (`Points`) usa `Amount` e inclui todo movimento que moveu caixa — o filtro
-de `BuildSeries` é `MovesCash`, não `Included`. Receitas, despesas e a
-quebra por categoria (`MonthlyBreakdown`, `CategoryBreakdown`,
-`CategoryEvolution`) usam `ReportableAmount`, o valor reportável que
+de `BuildSeries` é `MovesCash`, não `Included`. Entradas e saídas do
+período (`TotalsForPeriod`) usam `ReportableAmount`, o valor reportável que
 `transactions.toItem` zera para o que a elegibilidade de totais exclui.
 Assim uma transferência entre contas próprias (categoria de transferência,
 ou a parcela conciliada como aporte/resgate de investimento) desconta o
-saldo mas fica fora de receitas, despesas e do drill-down por categoria.
+saldo mas fica fora de entradas e saídas.
 
 ## Rotas HTTP
 
-`GET /api/timeline`.
+`GET /api/timeline` — `reference_date`, `from`, `to`, filtros
+(`account_ids`, `category_ids`, `card_numbers`) e `scenario_ids`. Devolve
+`base`, `period_totals`, `simulation` e `scenario_impacts`.
+
+`GET /api/timeline/range` — a janela mais larga que a curva cobre (da
+transação mais antiga à última parcela planejada), usada pela opção "todo o
+período".
 
 ## Frontend
 
-`/relatorio-financeiro`:
-- `TimeNavigator` (navegação mensal, mês na URL via `?mes=`).
-- `SummaryCards` (mês selecionado × acumulado no ano).
-- Comparativos mês-a-mês/ano-a-ano (`ComparisonStatistic`, local à página).
-- `AccumulatedResultCard`.
-- Drill-down por categoria: `CategoryImpactList` → `CategoryEvolutionChart`.
-
 Home (`/`):
+- `PeriodBalanceCard` — saldo, entradas e saídas do período
+  (`period_totals`).
 - `ProjectionSummaryCard` — saldo hoje, saldo no fim do horizonte, menor
   saldo, mais `ProjectionTimeline`. Horizonte selecionável (fim do mês, 3,
   6, 12 meses; 3 por padrão).
+- `SpendingByCategoryCard` — gasto por categoria, lido de
+  `GET /api/transactions/category-breakdown` (contexto Transações).
 
 ## Notas
-
-A Timeline já colapsou de 3 para 2 fontes: Recorrências passou a se
-construir a partir de Cenários, como a nota antiga previa.
 
 **Simulação de cenários não tem entrada na UI hoje.** `GET /api/timeline`
 continua aceitando `scenario_ids` e devolvendo `simulation` e
 `scenario_impacts` — o backend está inteiro —, mas nenhuma tela os
-consome desde que a projeção migrou para a Home, que é deliberadamente só a
-base ("sem cenários hipotéticos"). Os componentes que faziam essa leitura
-(`ScenarioMultiSelect`, `BaseVsSimulationCompare`, `ProjectionComposition`)
-foram removidos por estarem mortos; recuperá-los do histórico é o caminho
-se a simulação voltar para a tela.
+consome: a Home é deliberadamente só a base ("sem cenários hipotéticos").
+Os componentes que faziam essa leitura (`ScenarioMultiSelect`,
+`BaseVsSimulationCompare`, `ProjectionComposition`) foram removidos por
+estarem mortos; recuperá-los do histórico é o caminho se a simulação
+voltar para a tela.
 
 Pelo mesmo motivo o `CertaintyTier` não aparece mais em lugar nenhum da
 interface — o vocabulário de certeza (princípio 4 de

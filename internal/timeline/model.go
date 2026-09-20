@@ -1,7 +1,6 @@
-// Package timeline builds the single financial timeline series every layer
-// of the "Relatório Financeiro" (cards, chart, drill-down) consumes — see
-// .specs/contextos/relatorio-financeiro/reference.md and
-// .specs/motores-de-dominio.md section 6. Nothing downstream recomputes
+// Package timeline builds the single financial timeline series every
+// presentation layer (the Home's projection and period totals) consumes —
+// see .specs/motores-de-dominio.md section 6. Nothing downstream recomputes
 // totals locally: BuildSeries is the one place that merges sources into
 // Entries, so reconciliation across presentation layers is guaranteed by
 // construction rather than by convention.
@@ -52,22 +51,20 @@ const (
 	SourceScenario    = timelinetypes.SourceScenario
 )
 
-// Entry is one atomic cash-flow item — the same shape consumed by cards,
-// chart, and drill-down alike, never a second parallel representation.
+// Entry is one atomic cash-flow item — the one shape every consumer reads,
+// never a second parallel representation.
 type Entry struct {
-	Date                     time.Time
-	Description              string
-	Amount                   decimal.Decimal  // signed: positive = inflow, negative = outflow
-	ReportableAmount         *decimal.Decimal // signed income/expense amount; nil uses Amount
-	InvestmentTransferAmount decimal.Decimal  // absolute allocation; direction is InvestmentTransferKind
-	InvestmentTransferKind   string           // deposit or withdrawal whenever InvestmentTransferAmount > 0; empty otherwise
-	CategoryID               *string          // nil means "Sem categoria" — never dropped from totals
-	CategoryName             string
-	Tier                     CertaintyTier
-	Source                   SourceKind
-	SourceRefID              string
-	EventKey                 string  // stable identity for projected events; real events use transaction:<id>
-	ScenarioID               *string // set for every projected Scenario event
+	Date             time.Time
+	Description      string
+	Amount           decimal.Decimal  // signed: positive = inflow, negative = outflow
+	ReportableAmount *decimal.Decimal // signed income/expense amount; nil uses Amount
+	CategoryID       *string          // nil means "Sem categoria" — never dropped from totals
+	CategoryName     string
+	Tier             CertaintyTier
+	Source           SourceKind
+	SourceRefID      string
+	EventKey         string  // stable identity for projected events; real events use transaction:<id>
+	ScenarioID       *string // set for every projected Scenario event
 }
 
 // DayPoint is the running balance at the end of one calendar day.

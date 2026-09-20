@@ -25,29 +25,15 @@ const validResponse = {
     lowest_balance: { date: "2026-08-15", balance: "1000.00", inflow: "0.00", outflow: "0.00", lowest_tier: "realizado" },
     first_negative: null,
   },
-  monthly_breakdown: [
-    { month: "2026-08-01", income: "2000.00", expense: "100.00", result: "1900.00" },
-  ],
-  category_breakdown: [
-    {
-      category_id: "000433b6-3094-5a9c-87df-465b70574a4b",
-      category_name: "Supermercado",
-      amount: "100.00",
-      percentage: "100.00",
-    },
-    { category_id: null, category_name: "Sem categoria", amount: "0.00", percentage: "0.00" },
-  ],
+  period_totals: { income: "2000.00", expense: "100.00", result: "1900.00" },
   simulation: null,
   scenario_impacts: [],
-  month_over_month: null,
-  year_over_year: null,
-  category_evolution: null,
 };
 
 describe("timeline contracts", () => {
   it("accepts a well-formed response", () => {
     // This fixture predates the investment reading, like a response from an
-    // older server: the absent fields are filled with "nothing was moved"
+    // older server: the absent reportable_amount is filled from amount
     // instead of rejecting the payload.
     expect(parseTimelineResponse(validResponse)).toEqual({
       ...validResponse,
@@ -56,15 +42,8 @@ describe("timeline contracts", () => {
         entries: validResponse.base.entries.map((entry) => ({
           ...entry,
           reportable_amount: entry.amount,
-          investment_transfer_amount: "0",
-          investment_transfer_kind: null,
         })),
       },
-      monthly_breakdown: validResponse.monthly_breakdown.map((month) => ({
-        ...month,
-        investment_contributions: "0",
-        investment_withdrawals: "0",
-      })),
     });
   });
 
@@ -82,8 +61,8 @@ describe("timeline contracts", () => {
         entries: [{ ...validResponse.base.entries[0], tier: "unknown" }],
       },
     },
-    { ...validResponse, monthly_breakdown: "not-an-array" },
-    { ...validResponse, category_breakdown: [{ category_id: "not-a-uuid", category_name: "X", amount: "1.00", percentage: "0" }] },
+    { ...validResponse, scenario_impacts: "not-an-array" },
+    { ...validResponse, period_totals: { income: "1.00", expense: "muito", result: "0" } },
   ])("rejects malformed responses", (payload) => {
     expect(() => parseTimelineResponse(payload)).toThrow();
   });

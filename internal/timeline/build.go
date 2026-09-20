@@ -109,6 +109,8 @@ func eligibleRealItems(ctx context.Context, q Querier, from, to time.Time, accou
 	return items, nil
 }
 
+const noCategoryName = "Sem categoria"
+
 // realEntries projects eligible real transactions into TierRealizado/
 // SourceReal entries. Credit card transactions are the exception: the
 // purchase already happened, but the cash only leaves the paying account
@@ -170,25 +172,6 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item, refe
 			}
 			reportable = &value
 		}
-		transfer := decimal.Zero
-		transferKind := ""
-		if item.InvestmentTransferAmount != "" {
-			transfer, err = decimal.NewFromString(item.InvestmentTransferAmount)
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-		if transfer.IsPositive() {
-			// The reconciled portion's direction follows the bank line's
-			// classification, the same thing that signs amount above: an
-			// Outflow left the bank for the investment (deposit), an Inflow
-			// came back (withdrawal). Consumers read this field and never
-			// re-derive the direction from Amount's sign.
-			transferKind = string(investments.OperationWithdrawal)
-			if item.Classification == money.Outflow {
-				transferKind = string(investments.OperationDeposit)
-			}
-		}
 		var categoryID *string
 		categoryName := noCategoryName
 		if item.InternalCategory != nil {
@@ -211,18 +194,16 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item, refe
 			}
 		}
 		entries = append(entries, Entry{
-			Date:                     date,
-			Description:              description,
-			Amount:                   amount,
-			ReportableAmount:         reportable,
-			InvestmentTransferAmount: transfer,
-			InvestmentTransferKind:   transferKind,
-			CategoryID:               categoryID,
-			CategoryName:             categoryName,
-			Tier:                     tier,
-			Source:                   SourceReal,
-			SourceRefID:              item.ID,
-			EventKey:                 eventKey,
+			Date:             date,
+			Description:      description,
+			Amount:           amount,
+			ReportableAmount: reportable,
+			CategoryID:       categoryID,
+			CategoryName:     categoryName,
+			Tier:             tier,
+			Source:           SourceReal,
+			SourceRefID:      item.ID,
+			EventKey:         eventKey,
 		})
 	}
 	return entries, settled, nil
@@ -261,7 +242,7 @@ func BuildSeries(ctx context.Context, q Querier, params BuildParams) (Series, er
 	if err != nil {
 		return Series{}, err
 	}
-	// Investment-account income/costs belong in financial reports but do not
+	// Investment-account income/costs belong in period totals but do not
 	// change the bank-cash anchor. Linked portions are already represented by
 	// their bank entries, and are removed by the investment reporting helper.
 	if len(params.AccountIDs) == 0 && len(params.CategoryIDs) == 0 && len(params.CardNumbers) == 0 {
@@ -278,8 +259,6 @@ func BuildSeries(ctx context.Context, q Querier, params BuildParams) (Series, er
 			switch movement.Kind {
 			case investments.OperationDeposit, investments.OperationWithdrawal:
 				reportable = decimal.Zero
-				entry.InvestmentTransferAmount = movement.Amount.Abs()
-				entry.InvestmentTransferKind = string(movement.Kind)
 				entry.Description = "Resgate de investimento"
 				if movement.Kind == investments.OperationDeposit {
 					entry.Description = "Aporte em investimento"

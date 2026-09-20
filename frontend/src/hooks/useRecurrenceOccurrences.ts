@@ -32,9 +32,9 @@ export function useRecurrenceOccurrences(commitmentId: string, enabled = true) {
     enabled,
   });
 
-  // Reconciling changes which occurrences project, so the report and the
-  // transaction views that read the same decision have to be refetched too —
-  // this is the moment the number on /relatorio-financeiro moves.
+  // Reconciling changes which occurrences project, so the Home's projection
+  // and the transaction views that read the same decision have to be
+  // refetched too.
   const afterReconciliationChange = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: recurrenceOccurrencesQueryKey(commitmentId) }),
