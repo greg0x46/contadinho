@@ -9,14 +9,13 @@ import {
   type ManualTransactionWrite,
   type TransactionFilters,
   type TransactionGrouping,
-  type TransactionItem,
   type TransactionQueryResult,
 } from "../api/contracts";
 import { filtersToSearchParams } from "../components/filters/filterUrl";
 import { PeriodNavigator } from "../components/filters/PeriodNavigator";
 import { periodPresets } from "../components/filters/periodPresets";
 import { ManualTransactionForm } from "../components/transactions/ManualTransactionForm";
-import { TransactionDetailDrawer } from "../components/transactions/TransactionDetailDrawer";
+import { TransactionPanel } from "../components/transactions/TransactionPanel";
 import { TransactionFilters as TransactionFilterBar } from "../components/transactions/TransactionFilters";
 import { TransactionGroup } from "../components/transactions/TransactionGroup";
 import { TransactionSummaryBar } from "../components/transactions/TransactionSummaryBar";
@@ -112,34 +111,31 @@ export function TransactionsPage() {
   const accounts = useAccounts();
   const manualTransaction = useManualTransaction();
   const [manualFormOpen, setManualFormOpen] = useState(false);
-  const [editingManualTransaction, setEditingManualTransaction] = useState<TransactionItem | null>(null);
   const [manualSaveError, setManualSaveError] = useState<string | null>(null);
   const [manualDeleteError, setManualDeleteError] = useState<string | null>(null);
   const data = query.data;
   const selected = data?.items.find((item) => item.id === selectedId) ?? null;
 
   const openManualCreate = () => {
-    setEditingManualTransaction(null);
-    setManualSaveError(null);
-    setManualFormOpen(true);
-  };
-  const openManualEdit = (transaction: TransactionItem) => {
-    setEditingManualTransaction(transaction);
     setManualSaveError(null);
     setManualFormOpen(true);
   };
   const closeManualForm = () => setManualFormOpen(false);
-  const submitManualTransaction = async (write: ManualTransactionWrite) => {
+  const createManualTransaction = async (write: ManualTransactionWrite) => {
     setManualSaveError(null);
     try {
-      if (editingManualTransaction) {
-        await manualTransaction.update({ transactionId: editingManualTransaction.id, write });
-      } else {
-        await manualTransaction.create(write);
-      }
+      await manualTransaction.create(write);
       setManualFormOpen(false);
     } catch (error) {
       setManualSaveError(manualTransactionErrorMessage(error, "save"));
+    }
+  };
+  // Editing happens inside the transaction panel; it shows the message itself.
+  const updateManualTransaction = async (transactionId: string, write: ManualTransactionWrite) => {
+    try {
+      await manualTransaction.update({ transactionId, write });
+    } catch (error) {
+      throw new Error(manualTransactionErrorMessage(error, "save"));
     }
   };
   const deleteManualTransactionAndClose = async (transactionId: string) => {
@@ -415,9 +411,10 @@ export function TransactionsPage() {
           </div>
         )}
       </Card>
-      <TransactionDetailDrawer
+      <TransactionPanel
         item={selected}
         categories={categories.categories}
+        accounts={accounts.accounts}
         onClose={() => selectTransaction(null)}
         onInclusion={(transactionId, target) =>
           inclusion.setInclusion({ transactionId, state: target })
@@ -425,19 +422,20 @@ export function TransactionsPage() {
         inclusionPending={inclusion.pendingTarget?.transactionId === selected?.id}
         onCategory={(transactionId, categoryId) => category.setCategory({ transactionId, categoryId })}
         categoryPending={category.pendingTarget?.transactionId === selected?.id}
-        onEditManual={openManualEdit}
+        onSaveManual={updateManualTransaction}
+        saveManualPending={manualTransaction.isUpdating}
         onDeleteManual={deleteManualTransactionAndClose}
         deleteManualPending={manualTransaction.isRemoving}
         deleteManualError={manualDeleteError}
       />
       <ManualTransactionForm
         open={manualFormOpen}
-        transaction={editingManualTransaction}
+        transaction={null}
         accounts={accounts.accounts}
         categories={categories.categories}
-        submitting={manualTransaction.isCreating || manualTransaction.isUpdating}
+        submitting={manualTransaction.isCreating}
         submitError={manualSaveError}
-        onSubmit={submitManualTransaction}
+        onSubmit={createManualTransaction}
         onCancel={closeManualForm}
       />
     </PageContainer>

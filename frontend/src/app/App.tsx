@@ -49,10 +49,10 @@ export function App() {
         route={{
           routes: [
             { path: "/", name: "Home", icon: <HomeOutlined /> },
+            { path: "/transacoes", name: "Transações", icon: <TransactionOutlined /> },
             { path: "/relatorio-financeiro", name: "Relatório financeiro", icon: <BarChartOutlined /> },
             { path: "/patrimonio-liquido", name: "Patrimônio líquido", icon: <FundOutlined /> },
             { path: "/contas-e-cartoes", name: "Contas e cartões", icon: <BankOutlined /> },
-            { path: "/transacoes", name: "Transações", icon: <TransactionOutlined /> },
             { path: "/pendencias", name: "Pendências", icon: <WalletOutlined /> },
             { path: "/recorrencias", name: "Recorrências", icon: <RedoOutlined /> },
             { path: "/investimentos", name: "Investimentos", icon: <RiseOutlined /> },
