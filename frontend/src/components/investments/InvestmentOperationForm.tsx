@@ -1,6 +1,6 @@
 import { Alert, Button, DatePicker, Drawer, Flex, Input, InputNumber, Select, Checkbox, Typography } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type {
   InvestmentAccount,
@@ -88,68 +88,63 @@ function isNegative(value: string | null): boolean {
   return value !== null && Number(value) < 0;
 }
 
-export function InvestmentOperationForm({
-  open,
-  operation,
-  initial,
-  accounts,
-  positions,
-  submitting,
-  submitError,
-  onSubmit,
-  onCancel,
-  onSubmitCompound,
-  allowedKinds,
-}: {
-  open: boolean;
+type FieldsProps = {
+  /** The `<form>` id, so a submit button can live outside the fields (e.g. a sticky footer). */
+  formId: string;
   operation: InvestmentOperation | null;
   initial?: Partial<InvestmentOperationWrite> | null;
   accounts: InvestmentAccount[];
   positions: InvestmentPosition[];
-  submitting: boolean;
   submitError: string | null;
   onSubmit: (write: InvestmentOperationWrite) => void;
-  onCancel: () => void;
   onSubmitCompound?: (writes: InvestmentOperationWrite[]) => void;
   allowedKinds?: InvestmentOperationKind[];
-}) {
+};
+
+/**
+ * The fields of a movimentação, without a container. The draft lives here
+ * and is seeded once on mount: callers pass `initial` as a fresh literal on
+ * every render and `accounts` changes identity on every refetch, and
+ * neither may wipe what the person typed (a 409 on save re-renders the
+ * parent). Remount (a `key`) to start over.
+ *
+ * Renders a `<form>` so the submit control can sit anywhere — the drawer's
+ * footer, a panel's sticky bar — via `form={formId}`.
+ */
+export function InvestmentOperationFields({
+  formId,
+  operation,
+  initial,
+  accounts,
+  positions,
+  submitError,
+  onSubmit,
+  onSubmitCompound,
+  allowedKinds,
+}: FieldsProps) {
   const [draft, setDraft] = useState<Draft>(() => draftFrom(operation, accounts, initial ?? undefined));
   const [error, setError] = useState<string | null>(null);
   const [funding, setFunding] = useState<"deposit" | "income" | null>(null);
-  // Whether the person typed into "Valor bruto" since the drawer opened. Until
-  // then a trade's amount follows quantity × price, so changing either clears it.
+  // Whether the person typed into "Valor bruto" since mount. Until then a
+  // trade's amount follows quantity × price, so changing either clears it.
   const [amountTouched, setAmountTouched] = useState(false);
   const integrated = accounts.find((account) => account.id === draft.accountId)?.kind === "integrated";
   const isEditing = operation !== null;
   const isTrade = tradeKinds.includes(draft.kind) || (draft.kind === "initial_balance" && draft.positionId !== null);
   const needsPosition = kindsNeedingPosition.includes(draft.kind) || (draft.kind === "initial_balance" && draft.positionId !== null);
 
-  // Callers pass `initial` as a fresh literal on every render and `accounts`
-  // changes identity on every refetch. Neither should wipe what the person
-  // typed (a 409 on save re-renders the parent), so the draft only resets when
-  // the drawer opens or switches operation; the latest props are read from a ref.
-  const latest = useRef({ initial, accounts });
-  useEffect(() => {
-    latest.current = { initial, accounts };
-  });
-  useEffect(() => {
-    if (open) {
-      setDraft(draftFrom(operation, latest.current.accounts, latest.current.initial ?? undefined));
-      setError(null);
-      setFunding(null);
-      setAmountTouched(false);
-    }
-  }, [open, operation]);
-  // Accounts may still be loading when the drawer opens; fill the account in
+  // Accounts may still be loading when the fields mount; fill the account in
   // once they arrive instead of leaving the select empty.
   useEffect(() => {
-    if (!open || accounts.length === 0) return;
+    if (accounts.length === 0) return;
     setDraft((current) => {
       if (current.accountId !== "") return current;
-      const accountId = latest.current.initial?.account_id ?? accounts.find((account) => account.active)?.id ?? "";
+      const accountId = initial?.account_id ?? accounts.find((account) => account.active)?.id ?? "";
       return accountId === "" ? current : { ...current, accountId };
     });
-  }, [open, accounts]);
+    // `initial` is read, not tracked: a new literal must not re-run this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accounts]);
 
   const writableAccounts = useMemo(
     () => accounts.filter((account) => account.active),
@@ -223,20 +218,12 @@ export function InvestmentOperationForm({
   };
 
   return (
-    <Drawer
-      title={isEditing ? "Editar movimentação manual" : "Registrar movimentação"}
-      open={open}
-      onClose={onCancel}
-      width={500}
-      destroyOnHidden
-      footer={
-        <Flex justify="end" gap="small">
-          <Button onClick={onCancel}>Cancelar</Button>
-          <Button type="primary" loading={submitting} onClick={submit}>
-            Salvar
-          </Button>
-        </Flex>
-      }
+    <form
+      id={formId}
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit();
+      }}
     >
       <Flex vertical gap="middle">
         {(error ?? submitError) && <Alert type="error" showIcon message={error ?? submitError} />}
@@ -413,6 +400,41 @@ export function InvestmentOperationForm({
         </div>
         {isEditing && <Typography.Text type="secondary">Ao salvar, as quantidades, os custos e o caixa são recalculados.</Typography.Text>}
       </Flex>
+    </form>
+  );
+}
+
+const drawerFormId = "investment-operation-form";
+
+/** The fields inside a side drawer — the Investimentos page's own editor. */
+export function InvestmentOperationForm({
+  open,
+  submitting,
+  onCancel,
+  ...fields
+}: Omit<FieldsProps, "formId"> & {
+  open: boolean;
+  submitting: boolean;
+  onCancel: () => void;
+}) {
+  const isEditing = fields.operation !== null;
+  return (
+    <Drawer
+      title={isEditing ? "Editar movimentação manual" : "Registrar movimentação"}
+      open={open}
+      onClose={onCancel}
+      width={500}
+      destroyOnHidden
+      footer={
+        <Flex justify="end" gap="small">
+          <Button onClick={onCancel}>Cancelar</Button>
+          <Button type="primary" htmlType="submit" form={drawerFormId} loading={submitting}>
+            Salvar
+          </Button>
+        </Flex>
+      }
+    >
+      <InvestmentOperationFields key={fields.operation?.id ?? "new"} formId={drawerFormId} {...fields} />
     </Drawer>
   );
 }

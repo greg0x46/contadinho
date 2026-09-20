@@ -1,6 +1,6 @@
 import { Alert, Button, DatePicker, Drawer, Flex, Input, InputNumber, Segmented, Select } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import type { Account, Category, ManualTransactionWrite, TransactionItem } from "../../api/contracts";
 import { categoryKindLabel, renderCategoryIcon } from "../../presentation/categoryLabels";
@@ -63,36 +63,33 @@ function categoryOptions(categories: Category[], direction: Direction) {
  * existing category picker (TransactionDetailDrawer) once the lançamento
  * exists, but can also be set up front here.
  */
-export function ManualTransactionForm({
-  open,
-  transaction,
-  accounts,
-  categories,
-  submitting,
-  submitError,
-  onSubmit,
-  onCancel,
-}: {
-  open: boolean;
+type FieldsProps = {
+  /** The `<form>` id, so a submit button can live outside the fields (e.g. a sticky footer). */
+  formId: string;
   transaction: TransactionItem | null;
   accounts: Account[];
   categories: Category[];
-  submitting: boolean;
   submitError: string | null;
   onSubmit: (write: ManualTransactionWrite) => void;
-  onCancel: () => void;
-}) {
+};
+
+/**
+ * The fields of a lançamento manual, without a container. The draft is
+ * seeded once on mount (remount with a `key` to start over) and rendered as
+ * a `<form>` so the submit control can live in a drawer footer or a panel's
+ * sticky bar via `form={formId}`.
+ */
+export function ManualTransactionFields({
+  formId,
+  transaction,
+  accounts,
+  categories,
+  submitError,
+  onSubmit,
+}: FieldsProps) {
   const isEditing = transaction !== null;
   const [draft, setDraft] = useState<Draft>(() => draftFrom(transaction, accounts[0]?.id ?? ""));
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (open) {
-      setDraft(draftFrom(transaction, accounts[0]?.id ?? ""));
-      setError(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, transaction]);
 
   const accountOptions = accounts.map((account) => ({
     value: account.id,
@@ -124,20 +121,12 @@ export function ManualTransactionForm({
   };
 
   return (
-    <Drawer
-      title={isEditing ? "Editar lançamento manual" : "Novo lançamento manual"}
-      open={open}
-      onClose={onCancel}
-      width={420}
-      destroyOnHidden
-      footer={
-        <Flex justify="end" gap="small">
-          <Button onClick={onCancel}>Cancelar</Button>
-          <Button type="primary" loading={submitting} onClick={submit}>
-            Salvar
-          </Button>
-        </Flex>
-      }
+    <form
+      id={formId}
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit();
+      }}
     >
       <Flex vertical gap="middle">
         {(error ?? submitError) && <Alert type="error" showIcon message={error ?? submitError} />}
@@ -242,6 +231,41 @@ export function ManualTransactionForm({
           />
         </div>
       </Flex>
+    </form>
+  );
+}
+
+const drawerFormId = "manual-transaction-form";
+
+/** The fields inside a side drawer — how a new lançamento is created from the list. */
+export function ManualTransactionForm({
+  open,
+  submitting,
+  onCancel,
+  ...fields
+}: Omit<FieldsProps, "formId"> & {
+  open: boolean;
+  submitting: boolean;
+  onCancel: () => void;
+}) {
+  const isEditing = fields.transaction !== null;
+  return (
+    <Drawer
+      title={isEditing ? "Editar lançamento manual" : "Novo lançamento manual"}
+      open={open}
+      onClose={onCancel}
+      width={420}
+      destroyOnHidden
+      footer={
+        <Flex justify="end" gap="small">
+          <Button onClick={onCancel}>Cancelar</Button>
+          <Button type="primary" htmlType="submit" form={drawerFormId} loading={submitting}>
+            Salvar
+          </Button>
+        </Flex>
+      }
+    >
+      <ManualTransactionFields key={fields.transaction?.id ?? "new"} formId={drawerFormId} {...fields} />
     </Drawer>
   );
 }

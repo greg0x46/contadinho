@@ -6,12 +6,13 @@ import * as recurringCommitmentsApi from "../../api/recurringCommitments";
 import * as transactionsApi from "../../api/transactions";
 import type { TransactionReconciliation } from "../../api/contracts";
 import { QueryTestProvider } from "../../test/QueryTestProvider";
-import { TransactionReconciliationSection } from "./TransactionReconciliationSection";
+import { transactionResult } from "../../test/transactionFixtures";
+import { TransactionReconcileScreen } from "./TransactionReconcileScreen";
 
 vi.mock("../../api/transactions");
 vi.mock("../../api/recurringCommitments");
 
-const transactionId = "11111111-1111-4111-8111-111111111111";
+const transaction = transactionResult.items[0]!;
 const commitmentId = "22222222-2222-4222-8222-222222222222";
 
 const unreconciled: TransactionReconciliation = {
@@ -38,15 +39,17 @@ async function confirmPopconfirm(user: ReturnType<typeof userEvent.setup>, label
   await user.click(within(popover).getByRole("button", { name: label }));
 }
 
-function renderSection() {
-  return render(
+function renderScreen() {
+  const onDone = vi.fn();
+  render(
     <QueryTestProvider>
-      <TransactionReconciliationSection transactionId={transactionId} />
+      <TransactionReconcileScreen item={transaction} onDone={onDone} />
     </QueryTestProvider>,
   );
+  return { onDone };
 }
 
-describe("TransactionReconciliationSection", () => {
+describe("TransactionReconcileScreen", () => {
   beforeEach(() => {
     vi.mocked(recurringCommitmentsApi.putReconciliation).mockResolvedValue({
       date: "2026-02-05",
@@ -57,31 +60,41 @@ describe("TransactionReconciliationSection", () => {
     });
   });
 
-  it("reconciles a transaction with a nearby occurrence", async () => {
+  it("reconciles a transaction with a chosen occurrence on Conciliar and hands back", async () => {
     const user = userEvent.setup();
     vi.mocked(transactionsApi.getTransactionReconciliation).mockResolvedValue(unreconciled);
-    renderSection();
+    const { onDone } = renderScreen();
 
     await user.click(await screen.findByRole("combobox", { name: "Conciliar com uma recorrência" }));
     await user.click(await screen.findByText(/Aluguel · 05\/02\/2026/));
+    expect(recurringCommitmentsApi.putReconciliation).not.toHaveBeenCalled();
 
+    await user.click(screen.getByRole("button", { name: "Conciliar" }));
     await waitFor(() =>
-      expect(recurringCommitmentsApi.putReconciliation).toHaveBeenCalledWith(
-        commitmentId,
-        "2026-02-05",
-        { state: "linked", transaction_id: transactionId },
-      ),
+      expect(recurringCommitmentsApi.putReconciliation).toHaveBeenCalledWith(commitmentId, "2026-02-05", {
+        state: "linked",
+        transaction_id: transaction.id,
+      }),
     );
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+  });
+
+  it("asks for an occurrence before writing", async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.getTransactionReconciliation).mockResolvedValue(unreconciled);
+    renderScreen();
+
+    await user.click(await screen.findByRole("button", { name: "Conciliar" }));
+    expect(await screen.findByText("Selecione uma ocorrência para conciliar.")).toBeVisible();
+    expect(recurringCommitmentsApi.putReconciliation).not.toHaveBeenCalled();
   });
 
   it("explains when no compatible occurrence is nearby instead of offering an empty picker", async () => {
-    vi.mocked(transactionsApi.getTransactionReconciliation).mockResolvedValue({
-      current: null,
-      options: [],
-    });
-    renderSection();
+    vi.mocked(transactionsApi.getTransactionReconciliation).mockResolvedValue({ current: null, options: [] });
+    renderScreen();
 
     expect(await screen.findByText(/Nenhuma ocorrência de recorrência compatível/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Conciliar" })).toBeDisabled();
   });
 
   it("shows the current reconciliation with its origin", async () => {
@@ -96,9 +109,9 @@ describe("TransactionReconciliationSection", () => {
       },
       options: [],
     });
-    renderSection();
+    renderScreen();
 
-    expect(await screen.findByText(/Aluguel · 05\/02\/2026/)).toBeVisible();
+    expect(await screen.findByText("Aluguel")).toBeVisible();
     expect(screen.getByText("Conciliação automática")).toBeVisible();
   });
 
@@ -118,17 +131,15 @@ describe("TransactionReconciliationSection", () => {
       },
       options: [],
     });
-    renderSection();
+    renderScreen();
 
     await user.click(await screen.findByRole("button", { name: "Desconciliar" }));
     await confirmPopconfirm(user, "Desconciliar");
 
     await waitFor(() =>
-      expect(recurringCommitmentsApi.putReconciliation).toHaveBeenCalledWith(
-        commitmentId,
-        "2026-02-05",
-        { state: "detached" },
-      ),
+      expect(recurringCommitmentsApi.putReconciliation).toHaveBeenCalledWith(commitmentId, "2026-02-05", {
+        state: "detached",
+      }),
     );
     expect(recurringCommitmentsApi.deleteReconciliation).not.toHaveBeenCalled();
   });

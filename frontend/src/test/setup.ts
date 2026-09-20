@@ -2,10 +2,14 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
+// jsdom has no viewport. Answer antd's breakpoint queries as a desktop
+// would (every min-width matches, no max-width does) so components that
+// switch layout on Grid.useBreakpoint render their default, wide form;
+// a test that needs the compact form overrides this itself.
 Object.defineProperty(window, "matchMedia", {
   writable: true,
   value: vi.fn().mockImplementation((query: string) => ({
-    matches: false,
+    matches: /min-width/.test(query),
     media: query,
     onchange: null,
     addListener: vi.fn(),

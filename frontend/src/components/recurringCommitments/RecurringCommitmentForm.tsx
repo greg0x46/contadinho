@@ -1,6 +1,6 @@
 import { Alert, Button, DatePicker, Divider, Drawer, Flex, Input, InputNumber, Select, Switch, Typography } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import type {
   Category,
@@ -72,36 +72,35 @@ function draftFrom(commitment: RecurringCommitment | null): RecurringCommitmentD
   };
 }
 
-export function RecurringCommitmentForm({
-  open,
-  commitment,
-  initialDraft,
-  categories,
-  submitting,
-  submitError,
-  onSubmit,
-  onCancel,
-}: {
-  open: boolean;
+type FieldsProps = {
+  /** The `<form>` id, so a submit button can live outside the fields (e.g. a sticky footer). */
+  formId: string;
   commitment: RecurringCommitment | null;
   initialDraft?: Partial<RecurringCommitmentDraft> | null;
   categories: Category[];
-  submitting: boolean;
   submitError: string | null;
   onSubmit: (write: RecurringCommitmentWrite) => void;
-  onCancel: () => void;
-}) {
-  const [draft, setDraft] = useState<RecurringCommitmentDraft>(() => draftFrom(commitment));
-  const [error, setError] = useState<string | null>(null);
-  const isEditing = commitment !== null;
+};
 
-  useEffect(() => {
-    if (open) {
-      setDraft({ ...draftFrom(commitment), ...(commitment ? {} : initialDraft) });
-      setError(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, commitment]);
+/**
+ * The fields of a compromisso recorrente, without a container. The draft is
+ * seeded once on mount (remount with a `key` to start over) and rendered as
+ * a `<form>` so the submit control can live in a drawer footer or a panel's
+ * sticky bar via `form={formId}`.
+ */
+export function RecurringCommitmentFields({
+  formId,
+  commitment,
+  initialDraft,
+  categories,
+  submitError,
+  onSubmit,
+}: FieldsProps) {
+  const [draft, setDraft] = useState<RecurringCommitmentDraft>(() => ({
+    ...draftFrom(commitment),
+    ...(commitment ? {} : initialDraft),
+  }));
+  const [error, setError] = useState<string | null>(null);
 
   const categoryOptions = categories
     .filter((category) => category.is_active && category.kind !== "transfer")
@@ -149,20 +148,12 @@ export function RecurringCommitmentForm({
   };
 
   return (
-    <Drawer
-      title={isEditing ? "Editar compromisso" : "Novo compromisso"}
-      open={open}
-      onClose={onCancel}
-      width={480}
-      destroyOnHidden
-      footer={
-        <Flex justify="end" gap="small">
-          <Button onClick={onCancel}>Cancelar</Button>
-          <Button type="primary" loading={submitting} onClick={submit}>
-            Salvar
-          </Button>
-        </Flex>
-      }
+    <form
+      id={formId}
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit();
+      }}
     >
       <Flex vertical gap="middle">
         {(error ?? submitError) && <Alert type="error" showIcon message={error ?? submitError} />}
@@ -306,6 +297,41 @@ export function RecurringCommitmentForm({
           <label htmlFor="recurring-commitment-active">Ativo</label>
         </Flex>
       </Flex>
+    </form>
+  );
+}
+
+const drawerFormId = "recurring-commitment-form";
+
+/** The fields inside a side drawer — the Recorrências page's own editor. */
+export function RecurringCommitmentForm({
+  open,
+  submitting,
+  onCancel,
+  ...fields
+}: Omit<FieldsProps, "formId"> & {
+  open: boolean;
+  submitting: boolean;
+  onCancel: () => void;
+}) {
+  const isEditing = fields.commitment !== null;
+  return (
+    <Drawer
+      title={isEditing ? "Editar compromisso" : "Novo compromisso"}
+      open={open}
+      onClose={onCancel}
+      width={480}
+      destroyOnHidden
+      footer={
+        <Flex justify="end" gap="small">
+          <Button onClick={onCancel}>Cancelar</Button>
+          <Button type="primary" htmlType="submit" form={drawerFormId} loading={submitting}>
+            Salvar
+          </Button>
+        </Flex>
+      }
+    >
+      <RecurringCommitmentFields key={fields.commitment?.id ?? "new"} formId={drawerFormId} {...fields} />
     </Drawer>
   );
 }

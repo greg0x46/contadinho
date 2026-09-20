@@ -1,0 +1,281 @@
+/* PanelStack: the one-level-at-a-time container (side panel from `md`
+   up, full-screen page below). The header is ours, not antd's, so the
+   back control and title read the same on both. */
+.panel-stack .ant-drawer-header {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--color-border-secondary);
+}
+
+.panel-stack .ant-drawer-header-title {
+  min-width: 0;
+}
+
+.panel-stack .ant-drawer-title {
+  min-width: 0;
+  width: 100%;
+}
+
+.panel-stack-header {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 40px;
+}
+
+.panel-stack-title {
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: 1rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-stack-title:focus {
+  outline: none;
+}
+
+.panel-stack-extra {
+  display: flex;
+  min-width: 40px;
+  justify-content: flex-end;
+}
+
+.panel-stack .ant-drawer-body {
+  padding: 0;
+}
+
+.panel-stack-body {
+  display: grid;
+  gap: 1.25rem;
+  padding: 1rem 1.25rem 1.5rem;
+  overflow-wrap: anywhere;
+}
+
+/* The action bar is always in the tree so the body never jumps between
+   screens; it only takes space once a screen fills it. */
+.panel-stack .ant-drawer-footer {
+  padding: 0;
+  border-top: 0;
+}
+
+.panel-stack-footer:not(:empty) {
+  padding: 0.75rem 1.25rem;
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--color-border-secondary);
+  background: var(--color-bg-container);
+}
+
+.panel-stack-compact .ant-drawer-body {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.panel-section {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.panel-section + .panel-section {
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--color-border-secondary);
+}
+
+.panel-section-title {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.panel-section-rows {
+  gap: 0;
+}
+
+.panel-section-rows .panel-section-title {
+  margin-bottom: 0.25rem;
+}
+
+/* Navigation rows: full-bleed tap targets that visibly lead somewhere. */
+.panel-nav-row {
+  display: grid;
+  width: calc(100% + 1.5rem);
+  min-height: 48px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  margin-inline: -0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 0;
+  border-radius: 8px;
+  color: var(--color-text-primary);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.panel-nav-row:hover:not(:disabled),
+.panel-nav-row:focus-visible {
+  background: var(--color-bg-layout);
+}
+
+.panel-nav-row:disabled {
+  color: var(--color-text-secondary);
+  cursor: not-allowed;
+}
+
+.panel-nav-row-icon {
+  display: inline-flex;
+  width: 1.5rem;
+  justify-content: center;
+  color: var(--color-text-secondary);
+  font-size: 1rem;
+}
+
+.panel-nav-row-text {
+  display: grid;
+  min-width: 0;
+  gap: 0.125rem;
+}
+
+.panel-nav-row-label {
+  font-weight: 500;
+}
+
+.panel-nav-row-hint {
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-nav-row-chevron {
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+}
+
+/* "Saiba mais": the summary stays, the rest folds. */
+.panel-disclosure {
+  display: grid;
+  gap: 0;
+  font-size: 0.8125rem;
+}
+
+.panel-disclosure-more.ant-collapse > .ant-collapse-item > .ant-collapse-header {
+  padding: 0.25rem 0;
+  color: var(--color-primary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.panel-disclosure-more.ant-collapse .ant-collapse-content > .ant-collapse-content-box {
+  padding: 0 0 0.25rem;
+  font-size: 0.8125rem;
+}
+
+.panel-disclosure-more .ant-typography {
+  margin-bottom: 0;
+}
+
+/* ChoiceField on a compact screen: a select-looking trigger that opens a
+   bottom sheet instead of a dropdown. Mirrors antd Select's outline so the
+   two variants read as the same control. */
+.choice-field-trigger {
+  display: flex;
+  width: 100%;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  color: var(--color-text-primary);
+  background: var(--color-bg-container);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.choice-field-trigger.is-placeholder {
+  color: var(--color-text-secondary);
+}
+
+.choice-field-trigger:disabled {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-layout);
+  cursor: not-allowed;
+}
+
+.choice-field-trigger > .anticon {
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+}
+
+.choice-field-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.choice-option {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.choice-option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.choice-sheet .ant-drawer-body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+}
+
+.choice-sheet-list {
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.choice-sheet-option {
+  display: flex;
+  width: 100%;
+  min-height: 48px;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border: 0;
+  border-radius: 8px;
+  color: var(--color-text-primary);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.choice-sheet-option:hover,
+.choice-sheet-option:focus-visible {
+  background: var(--color-bg-layout);
+}
+
+.choice-sheet-option.is-selected {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.choice-sheet-empty {
+  padding: 0.5rem 0.75rem;
+}
