@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type R
 
 import { calendarParts, formatCompactDay } from "../../presentation/dates";
 import { formatBRL, formatSignedBRL } from "../../presentation/money";
+import { readableName } from "../../presentation/readableName";
 import { useCompactScreen } from "./useCompactScreen";
 
 /**
@@ -69,6 +70,7 @@ function normalize(text: string): string {
 function haystack(transaction: PickerTransaction): string {
   const parts: string[] = [
     transaction.description,
+    readableName(transaction.description),
     transaction.account ?? "",
     transaction.institution ?? "",
     transaction.category ?? "",
@@ -103,7 +105,26 @@ function Amount({ transaction }: { transaction: PickerTransaction }) {
   );
 }
 
-/** A list row: description and amount, then date · account · category. */
+/**
+ * The description as a person recognises it, with the provider's raw text
+ * one hover away. The amount is what tells look-alike rows apart, so it is
+ * never asked to make room for the description.
+ */
+function Description({ transaction }: { transaction: PickerTransaction }) {
+  const readable = readableName(transaction.description);
+  const title = readable === transaction.description ? undefined : transaction.description;
+  return (
+    <span className="txn-picker-description" title={title}>
+      {readable}
+    </span>
+  );
+}
+
+/**
+ * A list row on a two-column grid: the left column (description, then
+ * date · account · category) grows and truncates; the right column holds the
+ * amount at its natural width, so no description can push it out of view.
+ */
 function Row({ transaction }: { transaction: PickerTransaction }) {
   const meta = [
     transaction.date ? formatCompactDay(transaction.date) : null,
@@ -113,10 +134,8 @@ function Row({ transaction }: { transaction: PickerTransaction }) {
   ].filter(Boolean);
   return (
     <span className="txn-picker-row">
-      <span className="txn-picker-main">
-        <span className="txn-picker-description">{transaction.description}</span>
-        <Amount transaction={transaction} />
-      </span>
+      <Description transaction={transaction} />
+      <Amount transaction={transaction} />
       {(meta.length > 0 || transaction.tag) && (
         <span className="txn-picker-meta">
           <span className="txn-picker-meta-text">{meta.join(" · ")}</span>
@@ -131,7 +150,7 @@ function Row({ transaction }: { transaction: PickerTransaction }) {
 function Value({ transaction }: { transaction: PickerTransaction }) {
   return (
     <span className="txn-picker-value">
-      <span className="txn-picker-description">{transaction.description}</span>
+      <Description transaction={transaction} />
       {transaction.date && <span className="txn-picker-value-date">{formatCompactDay(transaction.date)}</span>}
       <Amount transaction={transaction} />
     </span>

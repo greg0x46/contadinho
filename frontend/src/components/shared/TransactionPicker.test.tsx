@@ -90,6 +90,27 @@ describe("TransactionPicker", () => {
     expect(onSelect).toHaveBeenCalledWith("small", transactions[1]);
   });
 
+  it("shows a readable description and keeps the provider's raw text in the title", async () => {
+    const user = userEvent.setup();
+    const raw = "Resgate CDB - NU FINANCEIRA S.A. - SOCIEDADE DE CREDITO, FINANCIAMENTO E INVESTIMENTO";
+    renderPicker({
+      value: "raw",
+      transactions: [{ id: "raw", description: raw, amount: "1630.04", direction: "inflow", date: "2026-07-09", account: "Nubank" }],
+    });
+
+    const control = document.querySelector(".ant-select-selector") as HTMLElement;
+    expect(within(control).getByTitle(raw)).toHaveTextContent("Resgate CDB - Nu Financeira");
+    expect(control).toHaveTextContent("+R$ 1.630,04");
+
+    await user.click(screen.getByRole("combobox", { name: "Movimentação" }));
+    const row = rowsIn(openMenu())[0]!;
+    expect(within(row).getByTitle(raw)).toHaveTextContent("Resgate CDB - Nu Financeira");
+    expect(row).toHaveTextContent("+R$ 1.630,04");
+    // Both spellings are searchable.
+    await user.type(screen.getByRole("combobox", { name: "Movimentação" }), "sociedade");
+    expect(rowsIn(openMenu())).toHaveLength(1);
+  });
+
   it("searches by amount, account and accent-insensitive description", async () => {
     const user = userEvent.setup();
     renderPicker();

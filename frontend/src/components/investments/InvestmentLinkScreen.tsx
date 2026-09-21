@@ -35,6 +35,12 @@ function joinLabel(parts: Array<string | null | undefined>): string {
   return parts.filter(Boolean).join(" · ");
 }
 
+// A picker description reads as one phrase — "Resgate CDB - Nu Financeira" —
+// not as kind · position; the picker's second line carries the separators.
+function pickerDescription(kind: string, position: string | null | undefined): string {
+  return [kind, position].filter(Boolean).join(" ");
+}
+
 function operationLabel(operation: InvestmentOperation, accountName: string, positionName: string | null): string {
   const figures = `${formatBRL(operation.amount)} · ${dayjs(operation.occurred_on).format("DD/MM/YYYY")}`;
   if (operation.source === "synced") {
@@ -137,7 +143,7 @@ export function InvestmentLinkScreen({
       key: `operation:${operation.id}`,
       picker: {
         id: `operation:${operation.id}`,
-        description: joinLabel([investmentOperationKindLabel[operation.kind], positionName]),
+        description: pickerDescription(investmentOperationKindLabel[operation.kind], positionName),
         amount: operation.amount,
         direction: transaction.classification === "unclassified" ? null : transaction.classification,
         date: operation.occurred_on,
@@ -162,10 +168,10 @@ export function InvestmentLinkScreen({
           key: `movement:${movement.id}`,
           picker: {
             id: `movement:${movement.id}`,
-            description: joinLabel([
+            description: pickerDescription(
               movementTypeLabel[movement.movement_type ?? ""] ?? movement.movement_type ?? "Movimento",
               position.name,
-            ]),
+            ),
             amount: total,
             direction: transaction.classification === "unclassified" ? null : transaction.classification,
             date,
