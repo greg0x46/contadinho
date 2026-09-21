@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"contadinho-go/internal/auth"
+	"contadinho-go/internal/settings"
 )
 
 type identityKey struct{}
+type authenticationEnabledKey struct{}
 type identity struct {
 	Email string
 	Token string
@@ -79,13 +81,19 @@ func (a *authAPI) gate(next http.Handler) http.Handler {
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
+		enabled, err := settings.AuthenticationEnabled(r.Context(), a.store.DB)
+		if err != nil {
+			writeProblem(w, 503, "auth-config-unavailable", "Configuração de autenticação indisponível", "Tente novamente em instantes.")
+			return
+		}
 		if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" {
 			if r.Header.Get("Origin") != a.config.PublicURL || r.Header.Get("X-Contadinho-Request") != "1" {
 				writeProblem(w, 403, "invalid-origin", "Origem da solicitação inválida", "")
 				return
 			}
 		}
-		public := (r.URL.Path == "/api/auth/login" && r.Method == "POST") || (r.URL.Path == "/api/auth/session" && r.Method == "GET")
+		r = r.WithContext(context.WithValue(r.Context(), authenticationEnabledKey{}, enabled))
+		public := !enabled || (r.URL.Path == "/api/auth/login" && r.Method == "POST") || (r.URL.Path == "/api/auth/session" && r.Method == "GET")
 		if !public {
 			who, err := a.identity(r)
 			if err != nil {
@@ -105,16 +113,20 @@ func (a *authAPI) authError(w http.ResponseWriter, err error) {
 	writeProblem(w, 503, "auth-unavailable", "Autenticação indisponível", "Tente novamente em instantes.")
 }
 func (a *authAPI) session(w http.ResponseWriter, r *http.Request) {
+	if !r.Context().Value(authenticationEnabledKey{}).(bool) {
+		writeJSON(w, 200, map[string]any{"authenticated": false, "authentication_enabled": false})
+		return
+	}
 	who, err := a.identity(r)
 	if errors.Is(err, auth.ErrSession) {
-		writeJSON(w, 200, map[string]any{"authenticated": false})
+		writeJSON(w, 200, map[string]any{"authenticated": false, "authentication_enabled": true})
 		return
 	}
 	if err != nil {
 		a.authError(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"authenticated": true, "email": who.Email})
+	writeJSON(w, 200, map[string]any{"authenticated": true, "authentication_enabled": true, "email": who.Email})
 }
 func (a *authAPI) acquire(w http.ResponseWriter, email string) bool {
 	if !a.limited(email) {
@@ -129,12 +141,16 @@ func (a *authAPI) acquire(w http.ResponseWriter, email string) bool {
 	return false
 }
 func (a *authAPI) login(w http.ResponseWriter, r *http.Request) {
+	if !r.Context().Value(authenticationEnabledKey{}).(bool) {
+		writeProblem(w, 409, "auth-disabled", "Autenticação desativada", "Ative a autenticação nas configurações para entrar.")
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	var req struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
-	if decodeStrict(r, &req) != nil || len(req.Email) > 254 || len(req.Password) > 512 {
+	if decodeStrict(r, &req) != nil || len(req.Email) > 254 {
 		writeProblem(w, 422, "invalid-login", "Solicitação inválida", "")
 		return
 	}
@@ -148,25 +164,33 @@ func (a *authAPI) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.setCookie(w, token)
-	writeJSON(w, 200, map[string]any{"authenticated": true, "email": auth.NormalizeEmail(req.Email)})
+	writeJSON(w, 200, map[string]any{"authenticated": true, "authentication_enabled": true, "email": auth.NormalizeEmail(req.Email)})
 }
 func (a *authAPI) logout(w http.ResponseWriter, r *http.Request) {
+	if !r.Context().Value(authenticationEnabledKey{}).(bool) {
+		writeProblem(w, 409, "auth-disabled", "Autenticação desativada", "")
+		return
+	}
 	who := r.Context().Value(identityKey{}).(identity)
 	if err := a.store.Logout(r.Context(), who.Token); err != nil {
 		a.authError(w, err)
 		return
 	}
 	a.setCookie(w, "")
-	writeJSON(w, 200, map[string]bool{"authenticated": false})
+	writeJSON(w, 200, map[string]bool{"authenticated": false, "authentication_enabled": true})
 }
 func (a *authAPI) password(w http.ResponseWriter, r *http.Request) {
+	if !r.Context().Value(authenticationEnabledKey{}).(bool) {
+		writeProblem(w, 409, "auth-disabled", "Autenticação desativada", "")
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	var req struct {
 		CurrentPassword string `json:"current_password"`
 		Password        string `json:"password"`
 	}
-	if decodeStrict(r, &req) != nil || !auth.ValidPassword(req.Password) || len(req.CurrentPassword) > 512 {
-		writeProblem(w, 422, "invalid-password", "Senha inválida", "A nova senha deve ter de 15 a 128 caracteres.")
+	if decodeStrict(r, &req) != nil || !auth.ValidPassword(req.Password) {
+		writeProblem(w, 422, "invalid-password", "Senha inválida", "A nova senha não pode ficar vazia.")
 		return
 	}
 	who := r.Context().Value(identityKey{}).(identity)
@@ -179,5 +203,21 @@ func (a *authAPI) password(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.setCookie(w, "")
-	writeJSON(w, 200, map[string]bool{"authenticated": false})
+	writeJSON(w, 200, map[string]bool{"authenticated": false, "authentication_enabled": true})
+}
+
+func (a *authAPI) updateConfig(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	var req struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if decodeStrict(r, &req) != nil || req.Enabled == nil {
+		writeProblem(w, 422, "invalid-auth-config", "Configuração de autenticação inválida", "Informe enabled como true ou false.")
+		return
+	}
+	if err := settings.SetAuthenticationEnabled(r.Context(), a.store.DB, *req.Enabled); err != nil {
+		writeProblem(w, 503, "auth-config-unavailable", "Configuração de autenticação indisponível", "Tente novamente em instantes.")
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"authenticated": false, "authentication_enabled": *req.Enabled})
 }

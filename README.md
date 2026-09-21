@@ -194,8 +194,9 @@ Para banco novo:
 ./contadinho -db ./contadinho.db
 ```
 
-O comando solicita e-mail e senha de 15–128 caracteres em terminal interativo,
-sem eco da senha. Entre no navegador e configure as credenciais da Pluggy em
+O comando solicita e-mail e uma senha não vazia em terminal interativo, sem
+eco da senha. Não há regras de tamanho ou composição: a escolha é do usuário.
+Entre no navegador e configure as credenciais da Pluggy em
 **Configurações**; o Item ID opcional cadastra uma nova conexão. Conexões
 adicionais continuam disponíveis em **Open Banking**.
 
@@ -233,6 +234,15 @@ sobrevivem a reinícios. Todos os acessos privados são verificados no backend.
 Login aceita até cinco tentativas por minuto por e-mail e trinta por minuto
 no processo; o limite reinicia junto com o processo. Escritas HTTP exigem
 `Origin` igual à origem configurada e `X-Contadinho-Request: 1`.
+
+Em **Configurações > Acesso**, o proprietário pode desativar a autenticação.
+Desativá-la exige uma sessão válida; depois disso, qualquer pessoa que alcance
+a instância pode consultar e alterar todos os dados sem login. Religá-la é
+permitido a partir do modo aberto e faz as requisições seguintes voltarem a
+exigir sessão imediatamente. As verificações de origem para escritas continuam
+ativas nos dois modos. A preferência fica no banco; se não existir, o modo
+protegido é usado, e se ela não puder ser lida a API fica indisponível — nunca
+é aberta por falha de configuração.
 
 ### Rodando com Postgres
 

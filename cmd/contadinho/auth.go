@@ -61,7 +61,7 @@ func authCommand(args []string) error {
 		}
 		email = strings.TrimSpace(email)
 	}
-	password, err := readPassword("Nova senha (15–128 caracteres): ")
+	password, err := readPassword("Nova senha: ")
 	if err != nil {
 		return err
 	}

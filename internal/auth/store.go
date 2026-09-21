@@ -156,7 +156,7 @@ func (s *Store) ChangePassword(ctx context.Context, old, password string) error 
 }
 func (s *Store) replacePassword(ctx context.Context, old *string, password string) error {
 	if !ValidPassword(password) {
-		return fmt.Errorf("a senha deve ter de 15 a 128 caracteres")
+		return fmt.Errorf("a senha não pode ficar vazia")
 	}
 	var previous string
 	if err := s.DB.QueryRowContext(ctx, `SELECT password_hash FROM auth_owner WHERE id=1`).Scan(&previous); err != nil {
