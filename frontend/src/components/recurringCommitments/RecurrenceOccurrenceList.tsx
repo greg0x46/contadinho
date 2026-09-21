@@ -1,8 +1,8 @@
-import { Alert, Button, Flex, Modal, Popconfirm, Select, Space, Table, Tag, Typography } from "antd";
+import { Alert, Button, Flex, Modal, Popconfirm, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useState } from "react";
 
-import type { EligibleTransaction, RecurrenceOccurrence, RecurringCommitment } from "../../api/contracts";
+import type { RecurrenceOccurrence, RecurringCommitment, RecurringCommitmentKind } from "../../api/contracts";
 import { formatDay, formatOptionalLocalDay } from "../../presentation/dates";
 import { formatBRL, formatMoney } from "../../presentation/money";
 import {
@@ -13,30 +13,27 @@ import {
   useReconciliationCandidates,
   useRecurrenceOccurrences,
 } from "../../hooks/useRecurrenceOccurrences";
+import { TransactionPicker } from "../shared/TransactionPicker";
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
-function candidateLabel(candidate: EligibleTransaction): string {
-  const date = formatOptionalLocalDay(candidate.occurred_at);
-  const description = candidate.description ?? "Sem descrição";
-  return `${date} · ${description} · ${formatBRL(candidate.effective_money.value)}`;
-}
-
 /**
- * The picker for "Conciliar com…": a server-side searchable Select over the
- * transactions eligible for one occurrence. Same shape as the payables link
+ * The picker for "Conciliar com…": a server-side searched TransactionPicker
+ * over the transactions eligible for one occurrence. Same shape as the payables link
  * dialog, because it is the same problem — choosing a real transaction for a
  * planned thing.
  */
 function ReconcileDialog({
   commitmentId,
+  kind,
   occurrence,
   onCancel,
   onConfirm,
 }: {
   commitmentId: string;
+  kind: RecurringCommitmentKind;
   occurrence: RecurrenceOccurrence | null;
   onCancel: () => void;
   onConfirm: (transactionId: string) => Promise<unknown>;
@@ -88,23 +85,24 @@ function ReconcileDialog({
             Valor esperado: {formatBRL(occurrence.expected_amount)}
           </Typography.Text>
         )}
-        <Select
-          aria-label="Buscar transação para conciliar"
-          showSearch
+        <TransactionPicker
+          id="recurrence-reconcile-transaction"
+          label="Buscar transação para conciliar"
           allowClear
-          style={{ width: "100%" }}
           placeholder="Buscar por descrição"
           value={selectedId}
-          searchValue={search}
-          onSearch={setSearch}
-          filterOption={false}
+          search={{ value: search, onChange: setSearch }}
           loading={isSearching}
-          notFoundContent={isSearching ? "Buscando…" : "Nenhuma transação elegível por perto"}
-          options={candidates.map((candidate) => ({
-            value: candidate.id,
-            label: candidateLabel(candidate),
+          emptyText="Nenhuma transação elegível por perto"
+          transactions={candidates.map((candidate) => ({
+            id: candidate.id,
+            description: candidate.description ?? "Sem descrição",
+            amount: candidate.effective_money.value,
+            direction: kind === "expense" ? "outflow" : "inflow",
+            date: candidate.occurred_at,
+            account: candidate.account_name,
           }))}
-          onChange={(value: string | null) => setSelectedId(value)}
+          onSelect={setSelectedId}
         />
       </Flex>
     </Modal>
@@ -267,6 +265,7 @@ export function RecurrenceOccurrenceList({ commitment }: { commitment: Recurring
       />
       <ReconcileDialog
         commitmentId={commitment.id}
+        kind={commitment.kind}
         occurrence={picking}
         onCancel={() => setPicking(null)}
         onConfirm={(transactionId) => occurrences.reconcile(picking!.date, transactionId)}

@@ -66,7 +66,10 @@ describe("TransactionReconcileScreen", () => {
     const { onDone } = renderScreen();
 
     await user.click(await screen.findByRole("combobox", { name: "Conciliar com uma recorrência" }));
-    await user.click(await screen.findByText(/Aluguel · 05\/02\/2026/));
+    // The row splits description, date and amount across elements.
+    const description = await screen.findByText("Aluguel");
+    expect(description.closest(".ant-select-item-option")).toHaveTextContent("05 fev.");
+    await user.click(description);
     expect(recurringCommitmentsApi.putReconciliation).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Conciliar" }));

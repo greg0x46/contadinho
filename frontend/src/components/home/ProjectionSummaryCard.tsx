@@ -6,7 +6,7 @@ import { useNavigate } from "react-router-dom";
 
 import type { TimelineDayPoint } from "../../api/contracts";
 import { LoadingState, UnavailableState } from "../AsyncState";
-import type { HomePeriod } from "../../hooks/useHomePeriod";
+import type { Period } from "../../hooks/usePeriod";
 import { periodNavigation } from "../filters/periodNavigation";
 import { ProjectionTimeline } from "../timeline/ProjectionTimeline";
 import { useHomePeriodBounds } from "../../hooks/useHomePeriodBounds";
@@ -42,7 +42,7 @@ function useToday(): dayjs.Dayjs {
   return today;
 }
 
-export function ProjectionSummaryCard({ period }: { period: HomePeriod }) {
+export function ProjectionSummaryCard({ period }: { period: Period }) {
   const today = useToday();
   const navigate = useNavigate();
 

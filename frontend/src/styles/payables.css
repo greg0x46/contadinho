@@ -1,16 +1,27 @@
 .debts-summary-body {
-  container-type: inline-size;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 1.5rem;
+  gap: 0.75rem 1.5rem;
 }
 
 .debts-summary-figure {
   display: flex;
+  flex: 1 1 12rem;
   flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.debts-summary-value {
+  display: flex;
+  align-items: center;
   gap: 0.375rem;
-  min-width: 220px;
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 1.25rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .debts-summary-caption {
@@ -21,17 +32,15 @@
 
 .debts-summary-counts {
   display: flex;
-  flex: 1;
   flex-wrap: wrap;
-  gap: 0.75rem;
-  min-width: 220px;
+  gap: 0.5rem;
 }
 
 .debts-summary-chip {
   display: flex;
   flex-direction: column;
-  gap: 0.125rem;
-  padding: 0.5rem 0.875rem;
+  gap: 0;
+  padding: 0.25rem 0.75rem;
   border: 1px solid #e4e8ee;
   border-radius: 0.5rem;
 }
@@ -43,7 +52,7 @@
 
 .debts-summary-chip-value {
   color: var(--color-text-primary);
-  font-size: 1.125rem;
+  font-size: 1rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -79,6 +88,73 @@
   color: var(--color-text-secondary);
   font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
+}
+
+/* Phone representation of the payables table — see CompactPayableList. */
+.debt-list-compact {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.debt-item {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--color-border-secondary);
+}
+
+.debt-item:last-child {
+  border-bottom: 0;
+}
+
+.debt-item-main {
+  display: grid;
+  gap: 0.375rem;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.debt-item-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.debt-item-heading .ant-tag {
+  margin: 0;
+}
+
+.debt-item-name {
+  font-weight: 600;
+}
+
+.debt-item-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+}
+
+.debt-item .debt-row-progress {
+  min-width: 0;
+}
+
+.debt-item-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.debt-item-actions .ant-btn {
+  padding-inline: 0.5rem;
 }
 
 .debt-list-empty {

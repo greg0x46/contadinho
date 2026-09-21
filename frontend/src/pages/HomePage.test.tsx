@@ -369,7 +369,7 @@ describe("HomePage", () => {
 
   it("resolves a remembered shortcut again instead of freezing its dates", async () => {
     // Stored while 2024 was current; the window must still be *this* year.
-    window.localStorage.setItem("contadinho.home.periodo", JSON.stringify({ preset: "this-year" }));
+    window.localStorage.setItem("contadinho.periodo", JSON.stringify({ preset: "this-year" }));
     renderPage();
     await screen.findByText("Saldo hoje");
 
@@ -384,7 +384,7 @@ describe("HomePage", () => {
   it.each([JSON.stringify({ from: "2026-02-30", to: "2026-03-20" }), "decada", JSON.stringify({ from: "2026-12-31", to: "2026-01-01" }), "{"])(
     "falls back to the default window when the stored period is %s",
     async (stored) => {
-      window.localStorage.setItem("contadinho.home.periodo", stored);
+      window.localStorage.setItem("contadinho.periodo", stored);
       renderPage();
       await screen.findByText("Saldo hoje");
 

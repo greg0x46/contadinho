@@ -6,8 +6,9 @@ import { useTransactionReconciliation } from "../../hooks/useTransactionReconcil
 import { formatDay } from "../../presentation/dates";
 import { formatBRL } from "../../presentation/money";
 import { reconciliationOriginLabel } from "../../presentation/reconciliationLabels";
+import { recurringCommitmentKindLabel } from "../../presentation/recurringCommitmentLabels";
 import { detailValue } from "../../presentation/transactionDetail";
-import { ChoiceField } from "../shared/ChoiceField";
+import { TransactionPicker } from "../shared/TransactionPicker";
 import { PanelDisclosure, PanelFooter, PanelSection } from "../shared/PanelStack";
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -20,9 +21,6 @@ function optionValue(option: ReconciliationOption): string {
   return `${option.commitment_id}|${option.occurrence_date}`;
 }
 
-function optionLabel(option: ReconciliationOption): string {
-  return `${option.commitment_name} · ${formatDay(option.occurrence_date)} · ${formatBRL(option.expected_amount)}`;
-}
 
 /**
  * Reconciliation seen from a transaction: what recurring occurrence it
@@ -121,18 +119,22 @@ export function TransactionReconcileScreen({
       ) : (
         <>
           <PanelSection title="Ocorrência">
-            <ChoiceField
+            <TransactionPicker
               id="transaction-reconcile-occurrence"
               label="Conciliar com uma recorrência"
               value={selected}
               placeholder="Selecione uma ocorrência"
               disabled={reconciliation.options.length === 0}
               emptyText="Nenhuma ocorrência compatível por perto"
-              options={reconciliation.options.map((option) => ({
-                value: optionValue(option),
-                label: optionLabel(option),
+              transactions={reconciliation.options.map((option) => ({
+                id: optionValue(option),
+                description: option.commitment_name,
+                amount: option.expected_amount,
+                direction: option.kind === "expense" ? "outflow" : "inflow",
+                date: option.occurrence_date,
+                category: `${recurringCommitmentKindLabel[option.kind]} recorrente`,
               }))}
-              onChange={setSelected}
+              onSelect={setSelected}
             />
             {reconciliation.options.length === 0 && (
               <Typography.Text type="secondary" className="transaction-field-hint">

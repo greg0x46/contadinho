@@ -1,6 +1,5 @@
 import { PlusOutlined } from "@ant-design/icons";
-import { PageContainer } from "@ant-design/pro-layout";
-import { Alert, Button, Empty, Segmented, Space, Switch } from "antd";
+import { Alert, Button, Empty, Switch } from "antd";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -28,13 +27,14 @@ import { InvestmentPortfolioForm } from "../components/investments/InvestmentPor
 import { InvestmentPositionForm } from "../components/investments/InvestmentPositionForm";
 import { InvestmentWorkspaceSummary } from "../components/investments/InvestmentWorkspaceSummary";
 import { InvestmentsSummary } from "../components/investments/InvestmentsSummary";
+import { ListToolbar, Page, PageTabs } from "../components/layout";
 import { useAccounts } from "../hooks/useAccounts";
 import { useInvestmentWorkspace } from "../hooks/useInvestmentWorkspace";
 import { useInvestments } from "../hooks/useInvestments";
 
 type View = "accounts" | "goals" | "synced";
 
-const viewOptions = [
+const viewOptions: { label: string; value: View }[] = [
   { label: "Por conta", value: "accounts" },
   { label: "Por objetivo", value: "goals" },
   { label: "Sincronizados", value: "synced" },
@@ -228,12 +228,11 @@ export function InvestmentsPage() {
   ];
 
   return (
-    <PageContainer
+    <Page
       title="Investimentos"
-      subTitle="Contas de custódia, objetivos e o caixa disponível para investir"
-      content="Aportes e resgates transferem patrimônio: eles mudam o seu caixa, aparecem como aporte ou resgate e não contam como gasto nem alteram o total do patrimônio."
-      extra={[
-        <Space key="actions" wrap>
+      description="Contas de custódia, objetivos e o caixa disponível para investir"
+      actions={
+        <>
           <Button onClick={() => navigate("/transacoes?period=all")}>Revisar lançamentos antigos</Button>
           <Button onClick={() => openOperationCreate(null)} disabled={workspace.accounts.length === 0}>
             Registrar movimentação
@@ -245,8 +244,9 @@ export function InvestmentsPage() {
           <Button type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={openAccountCreate}>
             Nova conta de custódia
           </Button>
-        </Space>,
-      ]}
+        </>
+      }
+      tabs={<PageTabs label="Visão dos investimentos" options={viewOptions} value={view} onChange={setView} />}
     >
       {workspace.error && !workspace.isLoading && (
         <UnavailableState onRetry={() => void workspace.refetch()}>
@@ -274,24 +274,17 @@ export function InvestmentsPage() {
           )}
           <InvestmentWorkspaceSummary summary={workspace.summary} operations={workspace.operations} />
 
-          <Space style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", width: "100%" }} wrap>
-            <Segmented
-              options={viewOptions}
-              value={view}
-              onChange={(value) => setView(value as View)}
+          {view !== "synced" && (
+            <ListToolbar
+              label="Controles das posições"
+              end={
+                <label className="list-toolbar-switch">
+                  <Switch size="small" checked={showClosedPositions} onChange={setShowClosedPositions} />
+                  <span>Mostrar posições fechadas</span>
+                </label>
+              }
             />
-            {view !== "synced" && (
-              <Space>
-                <Switch
-                  size="small"
-                  checked={showClosedPositions}
-                  onChange={setShowClosedPositions}
-                  aria-label="Mostrar posições fechadas"
-                />
-                <span>Mostrar posições fechadas</span>
-              </Space>
-            )}
-          </Space>
+          )}
 
           {view === "accounts" &&
             (workspace.accounts.length === 0 ? (
@@ -435,6 +428,6 @@ export function InvestmentsPage() {
         onSubmitCompound={(operations) => void save(() => workspace.createOperations({ operations }), () => setOperationFormOpen(false), "Não foi possível salvar a movimentação.")}
         onCancel={() => setOperationFormOpen(false)}
       />
-    </PageContainer>
+    </Page>
   );
 }

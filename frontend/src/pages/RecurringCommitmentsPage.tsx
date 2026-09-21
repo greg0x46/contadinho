@@ -1,10 +1,10 @@
 import { PlusOutlined } from "@ant-design/icons";
-import { PageContainer } from "@ant-design/pro-layout";
 import { Alert, Button } from "antd";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import type { RecurringCommitment, RecurringCommitmentWrite } from "../api/contracts";
+import { Page } from "../components/layout";
 import type { RecurringCommitmentDraft } from "../components/recurringCommitments/RecurringCommitmentForm";
 import { RecurringCommitmentForm } from "../components/recurringCommitments/RecurringCommitmentForm";
 import { RecurringCommitmentList } from "../components/recurringCommitments/RecurringCommitmentList";
@@ -85,15 +85,14 @@ export function RecurringCommitmentsPage() {
   };
 
   return (
-    <PageContainer
+    <Page
       title="Recorrências"
-      subTitle="Compromissos financeiros que se repetem"
-      content="Cadastre salário, aluguel e assinaturas recorrentes para acompanhar esses compromissos mesmo antes de eles aparecerem como transação."
-      extra={[
-        <Button key="new-commitment" type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={openCreate}>
+      description="Acompanhe salário, aluguel e assinaturas que se repetem"
+      actions={
+        <Button type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={openCreate}>
           Novo compromisso
-        </Button>,
-      ]}
+        </Button>
+      }
     >
       {actionError && (
         <Alert
@@ -133,6 +132,6 @@ export function RecurringCommitmentsPage() {
         onSubmit={submit}
         onCancel={closeForm}
       />
-    </PageContainer>
+    </Page>
   );
 }

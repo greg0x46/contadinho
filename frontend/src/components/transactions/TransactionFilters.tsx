@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 
 import type {
   TransactionFilters as Filters,
@@ -8,44 +8,39 @@ import {
   ConfigurableFilters,
   type FilterConfig,
 } from "../filters/ConfigurableFilters";
-import { periodPresets } from "../filters/periodPresets";
 import { categoryFilterOptions, renderCategoryIcon } from "../../presentation/categoryLabels";
 import { classificationLabel } from "../../presentation/transactionStatus";
 
+/**
+ * The collection controls of the transactions list. The period is not one
+ * of them: it is the page's context and lives in the Page header, so the
+ * values here only carry `date_from`/`date_to` through untouched.
+ */
 export function TransactionFilters({
   applied,
   emptyValues,
   facets,
   onApply,
   onClear,
+  end,
 }: {
   applied: Filters;
   emptyValues?: Filters;
   facets: TransactionQueryResult["available_filters"] | undefined;
   onApply: (filters: Filters) => void;
   onClear: () => void;
+  end?: ReactNode;
 }) {
   const config = useMemo<FilterConfig<Filters>[]>(
     () => [
       {
-        key: "date_from",
-        secondaryKey: "date_to",
-        label: "Período",
-        type: "date-range",
-        placement: "main",
-        presets: periodPresets(),
-        navigatePeriod: true,
-        hideChip: true,
-        hidden: true,
-      },
-      {
         key: "description",
         label: "Descrição",
         type: "text",
-        placement: "advanced",
-        placeholder: "Buscar descrição",
+        placement: "main",
+        placeholder: "Buscar transações…",
         debounceMs: 300,
-        formatActive: (value) => String(value),
+        formatActive: (value) => `Busca: ${String(value)}`,
       },
       {
         key: "card_balance",
@@ -151,6 +146,8 @@ export function TransactionFilters({
 
   return (
     <ConfigurableFilters
+      label="Filtros de transações"
+      end={end}
       values={applied}
       emptyValues={emptyValues ?? applied}
       config={config}

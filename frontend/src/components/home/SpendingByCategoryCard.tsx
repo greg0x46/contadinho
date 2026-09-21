@@ -6,7 +6,7 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
 import type { CategoryBreakdown, CategoryDirection, CategorySpendingItem } from "../../api/contracts";
 import { useCategoryBreakdown } from "../../hooks/useCategoryBreakdown";
-import type { HomePeriod } from "../../hooks/useHomePeriod";
+import type { Period } from "../../hooks/usePeriod";
 import { renderCategoryIcon } from "../../presentation/categoryLabels";
 import { formatBRL } from "../../presentation/money";
 import { LoadingState, UnavailableState } from "../AsyncState";
@@ -26,7 +26,7 @@ function percent(amount: number, total: number) {
   const value = total > 0 ? amount / total * 100 : 0;
   return value > 0 && value < 0.1 ? "<0,1%" : `${percentFormatter.format(value)}%`;
 }
-function transactionLink(period: HomePeriod, classification: CategoryDirection, item?: CategorySpendingItem) {
+function transactionLink(period: Period, classification: CategoryDirection, item?: CategorySpendingItem) {
   const params = filtersToSearchParams({
     ...(period.from === null ? { period: "all" } : { date_from: period.from, date_to: period.to }),
     classification,
@@ -36,7 +36,7 @@ function transactionLink(period: HomePeriod, classification: CategoryDirection, 
   return `/transacoes?${params}`;
 }
 
-function Breakdown({ data, period, direction }: { data: CategoryBreakdown; period: HomePeriod; direction: CategoryDirection }) {
+function Breakdown({ data, period, direction }: { data: CategoryBreakdown; period: Period; direction: CategoryDirection }) {
   const [active, setActive] = useState<string | null>(null);
   const navigate = useNavigate();
   const total = Number(data.total);
@@ -90,7 +90,7 @@ function Breakdown({ data, period, direction }: { data: CategoryBreakdown; perio
   </div>;
 }
 
-export function SpendingByCategoryCard({ period }: { period: HomePeriod }) {
+export function SpendingByCategoryCard({ period }: { period: Period }) {
   const [direction, setDirection] = useState<CategoryDirection>("outflow");
   const { data, isLoading, error, refetch } = useCategoryBreakdown(period, direction);
 

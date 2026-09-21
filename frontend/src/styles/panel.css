@@ -182,10 +182,134 @@
   margin-bottom: 0;
 }
 
-/* ChoiceField on a compact screen: a select-looking trigger that opens a
-   bottom sheet instead of a dropdown. Mirrors antd Select's outline so the
-   two variants read as the same control. */
-.choice-field-trigger {
+/* TransactionPicker: the one control for choosing a transaction. Rows are two
+   lines — description and amount, then date · account · category — so that
+   look-alike lines can be told apart without a tooltip. From `md` up it is an
+   antd Select with rich options; on a compact screen a bottom sheet. */
+.txn-picker-row {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: 100%;
+  gap: 0.125rem;
+}
+
+.txn-picker-main,
+.txn-picker-meta,
+.txn-picker-value {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.txn-picker-description {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-primary);
+}
+
+.txn-picker-amount {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.txn-picker-amount.is-inflow {
+  color: #1f6f46;
+}
+
+.txn-picker-amount.is-outflow {
+  color: #a62920;
+}
+
+.txn-picker-amount.is-neutral {
+  color: var(--color-text-primary);
+}
+
+.txn-picker-meta {
+  justify-content: flex-start;
+  align-items: center;
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+}
+
+.txn-picker-meta-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.txn-picker-meta .ant-tag {
+  flex-shrink: 0;
+  margin-inline-end: 0;
+  line-height: 1.25rem;
+}
+
+/* The closed control has one 32px line: description · date · amount. */
+.txn-picker-value {
+  justify-content: flex-start;
+  gap: 0.5rem;
+}
+
+.txn-picker-value .txn-picker-description {
+  flex: 0 1 auto;
+}
+
+.txn-picker-value-date {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+}
+
+.txn-picker-value .txn-picker-amount {
+  margin-left: auto;
+}
+
+.txn-picker .ant-select-selection-item {
+  display: flex;
+  align-items: center;
+}
+
+/* Let an antd option grow to two lines; its default is one clipped line. */
+.txn-picker-popup .ant-select-item-option {
+  min-height: 48px;
+  padding: 0.375rem 0.75rem;
+  align-items: center;
+}
+
+.txn-picker-popup .ant-select-item-option-content {
+  display: block;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.txn-picker-popup .ant-select-item-option-selected .txn-picker-description {
+  font-weight: 600;
+}
+
+.txn-picker-state {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  color: var(--color-text-primary);
+}
+
+.txn-picker-state .ant-spin {
+  margin-right: 0.5rem;
+}
+
+/* Compact screen: a select-looking trigger that opens the sheet. */
+.txn-picker-trigger {
   display: flex;
   width: 100%;
   min-height: 40px;
@@ -202,80 +326,88 @@
   cursor: pointer;
 }
 
-.choice-field-trigger.is-placeholder {
+.txn-picker-trigger:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.txn-picker-trigger.is-placeholder {
   color: var(--color-text-secondary);
 }
 
-.choice-field-trigger:disabled {
+.txn-picker-trigger:disabled {
   color: var(--color-text-secondary);
   background: var(--color-bg-layout);
   cursor: not-allowed;
 }
 
-.choice-field-trigger > .anticon {
+.txn-picker-trigger > .anticon {
+  flex-shrink: 0;
   color: var(--color-text-secondary);
   font-size: 0.75rem;
 }
 
-.choice-field-value {
+.txn-picker-trigger-value {
+  display: flex;
+  flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.choice-option {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  gap: 0.5rem;
+.txn-picker-trigger-value .txn-picker-value {
+  width: 100%;
 }
 
-.choice-option-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.choice-sheet .ant-drawer-body {
+.txn-picker-sheet .ant-drawer-body {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 0.75rem;
   padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
 }
 
-.choice-sheet-list {
+.txn-picker-list {
   margin: 0;
   padding: 0;
   overflow-y: auto;
   list-style: none;
+  -webkit-overflow-scrolling: touch;
 }
 
-.choice-sheet-option {
+.txn-picker-option {
   display: flex;
-  width: 100%;
-  min-height: 48px;
+  min-height: 56px;
   align-items: center;
-  padding: 0.5rem 0.75rem;
-  border: 0;
+  padding: 0.625rem 0.75rem;
   border-radius: 8px;
-  color: var(--color-text-primary);
-  background: transparent;
-  font: inherit;
-  text-align: left;
+  border-bottom: 1px solid var(--color-border-secondary);
   cursor: pointer;
 }
 
-.choice-sheet-option:hover,
-.choice-sheet-option:focus-visible {
+.txn-picker-option:last-child {
+  border-bottom: 0;
+}
+
+/* Two lines of description on a phone, where one would cut too early. */
+.txn-picker-option .txn-picker-description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  overflow: hidden;
+}
+
+.txn-picker-option .txn-picker-main {
+  align-items: flex-start;
+}
+
+.txn-picker-option.is-active {
   background: var(--color-bg-layout);
 }
 
-.choice-sheet-option.is-selected {
+.txn-picker-option.is-selected .txn-picker-description {
   color: var(--color-primary);
   font-weight: 600;
 }
 
-.choice-sheet-empty {
+.txn-picker-sheet .txn-picker-state {
   padding: 0.5rem 0.75rem;
 }

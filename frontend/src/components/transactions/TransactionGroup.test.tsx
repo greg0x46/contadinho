@@ -45,7 +45,7 @@ describe("TransactionGroup", () => {
     expect(screen.getByRole("heading", { name: "Sem data" })).toBeVisible();
   });
 
-  it("renders sibling detail and explicit ignore controls without hiding facts", async () => {
+  it("opens details from the row and keeps Ignorar behind the row's menu", async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     const onInclusion = vi.fn();
@@ -58,14 +58,34 @@ describe("TransactionGroup", () => {
       />,
     );
     const details = screen.getByRole("button", { name: "Ver detalhes de Mercado" });
-    const ignore = screen.getByRole("button", { name: "Ignorar Mercado" });
-    expect(details).not.toContainElement(ignore);
+    const actions = screen.getByRole("button", { name: "Ações de Mercado" });
+    expect(details).not.toContainElement(actions);
+    expect(screen.queryByRole("menuitem", { name: "Ignorar" })).not.toBeInTheDocument();
     expect(screen.getByText("Conta corrente · Banco Teste")).toBeVisible();
+    expect(screen.getAllByText("15 jul.").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/123,45/).length).toBeGreaterThan(0);
-    await user.click(ignore);
+
+    await user.click(actions);
+    await user.click(await screen.findByRole("menuitem", { name: "Ignorar" }));
     expect(onInclusion).toHaveBeenCalledWith(transactionId, "ignored");
+    expect(onSelect).not.toHaveBeenCalled();
+
     await user.click(details);
     expect(onSelect).toHaveBeenCalledWith(transactionId);
+  });
+
+  it("marks the row whose panel is open as current", () => {
+    render(
+      <TransactionGroup
+        group={transactionResult.groups[0]!}
+        items={transactionResult.items}
+        selectedId={transactionId}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Ver detalhes de Mercado" }).closest(".transaction-row")).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
   });
 
   it("shows the internal category name, falling back to Sem categoria", () => {
@@ -95,9 +115,11 @@ describe("TransactionGroup", () => {
       />,
     );
     expect(screen.getByText("Ignorada")).toBeVisible();
-    const restore = screen.getByRole("button", { name: "Restaurar Mercado" });
-    expect(restore).toHaveClass("ant-btn-loading");
-    await user.click(restore);
+    expect(screen.getByText("Mercado")).toBeVisible();
+    const actions = screen.getByRole("button", { name: "Ações de Mercado" });
+    expect(actions).toHaveClass("ant-btn-loading");
+    await user.click(actions);
+    expect(screen.queryByRole("menuitem", { name: "Restaurar" })).not.toBeInTheDocument();
     expect(onInclusion).not.toHaveBeenCalled();
   });
 });

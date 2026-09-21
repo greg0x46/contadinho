@@ -1,0 +1,384 @@
+/* The page structure every screen composes — see components/layout:
+
+     Título + descrição                [ contexto ] [ ações ]
+     [ tabs ]
+     [ busca ] [ filtros ]          [ agrupar ] [ ordenar ]
+     ┌──────────────────────────────────────────────────┐
+     │ resumo / totais                                  │
+     ├──────────────────────────────────────────────────┤
+     │ listagem                                         │
+     └──────────────────────────────────────────────────┘
+
+   Written mobile-first: the base rules are the phone layout and the
+   min-width queries widen it. */
+
+.app-page {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+/* ---- Page header: title + description | context | actions ------------- */
+
+/* PageHeader packs heading-left and heading-extra into one row; on a phone
+   the extra (context + actions) drops under the title at full width. */
+.app-page .ant-page-header-heading {
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+}
+
+/* Title and description stack, always: the description is a line under the
+   name, not a tail glued to it, and the header keeps room for the slots. */
+.app-page .ant-page-header-heading-left {
+  flex: 1 1 18rem;
+  flex-wrap: wrap;
+  min-width: 0;
+  overflow: visible;
+}
+
+.app-page .ant-page-header-heading-title,
+.app-page .ant-page-header-heading-sub-title {
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+.app-page .ant-page-header-heading-sub-title {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.app-page .ant-page-header-heading-extra {
+  width: 100%;
+  margin: 0;
+  white-space: normal;
+}
+
+/* PageHeader wraps `extra` in a Space whose items shrink to fit; on a phone
+   the slots must span the row instead. */
+.app-page .ant-page-header-heading-extra > .ant-space,
+.app-page .ant-page-header-heading-extra > .ant-space > .ant-space-item {
+  display: block;
+  width: 100%;
+}
+
+.page-title {
+  margin: 0;
+  font: inherit;
+}
+
+.page-header-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+/* The context is the biggest touch target in the header: it owns a full
+   row, centred, so a thumb finds the arrows without aiming. */
+.page-context {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+
+.page-context .filter-period-navigation {
+  flex-wrap: nowrap;
+  justify-content: center;
+  width: 100%;
+  max-width: 100%;
+}
+
+.page-context .filter-period-navigation .filter-period-heading {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Actions fill the width, one per row, so the primary action is never a
+   small target crammed beside another. */
+.page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.page-actions > .ant-btn,
+.page-actions > .ant-space,
+.page-actions > .ant-space > .ant-space-item,
+.page-actions > .ant-space > .ant-space-item > .ant-btn {
+  width: 100%;
+}
+
+.page-actions .ant-btn {
+  min-height: 40px;
+}
+
+/* ---- Tabs ------------------------------------------------------------- */
+
+.page-tabs {
+  margin-bottom: 1rem;
+}
+
+.page-tabs .page-tabs-control {
+  max-width: 100%;
+}
+
+/* ---- List toolbar: [busca] [filtros] ... [agrupar] [ordenar] ------------ */
+
+.list-toolbar {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  margin-bottom: 0.75rem;
+}
+
+/* Phone: the search takes its own row; filters (left) and grouping /
+   sorting (right) share the next one, all compact, none of them wider than
+   the screen. The start group dissolves into the grid so the search and the
+   filter button place themselves. */
+.list-toolbar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.list-toolbar-start {
+  display: contents;
+}
+
+.list-toolbar-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  min-width: 0;
+  grid-column: 2;
+}
+
+.list-toolbar-search {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+/* Sits alone at the start of its row. */
+.list-toolbar-filter-button {
+  grid-column: 1;
+  justify-self: start;
+}
+
+.list-toolbar-search .ant-input-affix-wrapper,
+.list-toolbar-select .ant-select,
+.list-toolbar-filter-button {
+  min-height: 40px;
+}
+
+.list-toolbar-filter-button {
+  flex: none;
+}
+
+.list-toolbar-filter-count {
+  margin-left: 0.25rem;
+}
+
+/* On a phone the button keeps only its icon and the count. */
+.list-toolbar-filter-label {
+  display: none;
+}
+
+.list-toolbar-select {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.list-toolbar-select > label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.list-toolbar-select .ant-select {
+  min-width: 7.5rem;
+}
+
+.list-toolbar-select .ant-select .ant-select-selector {
+  min-height: 40px;
+}
+
+.list-toolbar-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 40px;
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.list-toolbar-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  min-height: 26px;
+}
+
+.list-toolbar-chips .ant-tag {
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  border-color: #d8dee9;
+  border-radius: 999px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Data card: summary on top, content below --------------------------- */
+
+.data-card > .ant-card-body {
+  padding: 0;
+}
+
+/* Sticky under the fixed 64px app bar so the figures stay reachable while
+   the list scrolls, without competing with it visually. */
+.data-card-summary {
+  position: sticky;
+  z-index: 5;
+  top: 64px;
+  padding: 0.625rem 0.75rem;
+  border-bottom: 1px solid var(--color-border-secondary);
+  border-radius: 10px 10px 0 0;
+  background: var(--color-bg-container);
+}
+
+.data-card-summary-note {
+  margin: 0.375rem 0 0;
+  color: var(--color-text-secondary);
+  font-size: 0.6875rem;
+}
+
+.data-card-body {
+  padding: 0.75rem;
+}
+
+.data-card-flush .data-card-body {
+  padding: 0;
+}
+
+/* The ProTable inside a flush card brings its own card chrome; drop it so
+   the table reads as the card's content, not a card inside a card. */
+.data-card-flush .ant-pro-card,
+.data-card-flush .ant-pro-table-list-toolbar {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.data-card-flush .ant-pro-card > .ant-pro-card-body {
+  padding: 0;
+}
+
+/* ---- Wider screens ----------------------------------------------------- */
+
+@media (min-width: 48rem) {
+  .app-page .ant-page-header-heading-extra {
+    width: auto;
+    margin-left: auto;
+  }
+
+  .app-page .ant-page-header-heading-extra > .ant-space,
+  .app-page .ant-page-header-heading-extra > .ant-space > .ant-space-item {
+    display: inline-flex;
+    width: auto;
+  }
+
+  .page-header-slots {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 1rem;
+  }
+
+  .page-context {
+    justify-content: flex-end;
+  }
+
+  .page-context .filter-period-navigation {
+    width: auto;
+  }
+
+  .page-context .filter-period-navigation .filter-period-heading {
+    flex: none;
+  }
+
+  .page-actions {
+    justify-content: flex-end;
+  }
+
+  .page-actions > .ant-btn,
+  .page-actions > .ant-space,
+  .page-actions > .ant-space > .ant-space-item,
+  .page-actions > .ant-space > .ant-space-item > .ant-btn {
+    width: auto;
+  }
+
+  .list-toolbar-row {
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .list-toolbar-start {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  .list-toolbar-end {
+    flex: none;
+    flex-wrap: nowrap;
+  }
+
+  .list-toolbar-search {
+    flex: 0 1 22rem;
+  }
+
+  .list-toolbar-filter-label {
+    display: inline;
+  }
+
+  .list-toolbar-select > label {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    color: var(--color-text-secondary);
+    font-size: 0.8125rem;
+  }
+
+  .list-toolbar-select .ant-select {
+    min-width: 9rem;
+  }
+
+  .data-card-summary {
+    padding: 0.625rem 1.25rem;
+  }
+
+  .data-card-body {
+    padding: 1.25rem;
+  }
+
+  .data-card-flush .data-card-body {
+    padding: 0;
+  }
+}

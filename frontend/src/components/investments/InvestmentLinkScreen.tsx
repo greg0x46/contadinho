@@ -19,7 +19,7 @@ import { investmentOperationKindLabel } from "../../presentation/investmentWorks
 import { formatBRL } from "../../presentation/money";
 import { detailValue } from "../../presentation/transactionDetail";
 import { PanelDisclosure, PanelFooter, PanelSection } from "../shared/PanelStack";
-import { ChoiceField } from "../shared/ChoiceField";
+import { TransactionPicker, type PickerTransaction } from "../shared/TransactionPicker";
 import { InvestmentOperationFields } from "./InvestmentOperationForm";
 
 function absolute(value: string): string {
@@ -55,7 +55,8 @@ function movementDate(movement: InvestmentTransaction): string | null {
  */
 type Candidate = {
   key: string;
-  label: string;
+  /** How the picker shows this row; the amount is the movement's total. */
+  picker: PickerTransaction;
   operationId: string | null;
   movementId: string | null;
   available: string;
@@ -130,18 +131,26 @@ export function InvestmentLinkScreen({
   const operationCandidates: Candidate[] = workspace.operations
     .filter((operation) => operation.source === "manual" && compatibleKinds.includes(operation.kind))
     .filter((operation) => accountById.get(operation.account_id)?.currency_code === "BRL")
-    .map((operation) => ({
+    .map((operation) => {
+      const positionName = operation.position_id ? positionById.get(operation.position_id)?.name ?? null : null;
+      return {
       key: `operation:${operation.id}`,
-      label: operationLabel(
-        operation,
-        accountById.get(operation.account_id)?.name ?? "Conta não encontrada",
-        operation.position_id ? positionById.get(operation.position_id)?.name ?? null : null,
-      ),
+      picker: {
+        id: `operation:${operation.id}`,
+        description: joinLabel([investmentOperationKindLabel[operation.kind], positionName]),
+        amount: operation.amount,
+        direction: transaction.classification === "unclassified" ? null : transaction.classification,
+        date: operation.occurred_on,
+        account: accountById.get(operation.account_id)?.name ?? "Conta não encontrada",
+        category: "Movimentação manual",
+        keywords: operation.notes ? [operation.notes] : undefined,
+      },
       operationId: operation.id,
       movementId: null,
       available: subtractDecimals(operation.amount, linkedToOperation(operation.id)),
       date: operation.occurred_on,
-    }));
+      };
+    });
   const importedCandidates: Candidate[] = syncedPositions.flatMap((position: InvestmentPosition, index) =>
     (importedQueries[index]?.data ?? [])
       .filter((movement) => movement.amount !== null && movement.direction === (direction === "deposit" ? "inflow" : "outflow"))
@@ -151,11 +160,19 @@ export function InvestmentLinkScreen({
         const date = movementDate(movement);
         return {
           key: `movement:${movement.id}`,
-          label: joinLabel([
-            movementTypeLabel[movement.movement_type ?? ""] ?? movement.movement_type ?? "Movimento",
-            position.name,
-            `${formatBRL(total)} · ${date ? dayjs(date).format("DD/MM/YYYY") : "Sem data"}`,
-          ]),
+          picker: {
+            id: `movement:${movement.id}`,
+            description: joinLabel([
+              movementTypeLabel[movement.movement_type ?? ""] ?? movement.movement_type ?? "Movimento",
+              position.name,
+            ]),
+            amount: total,
+            direction: transaction.classification === "unclassified" ? null : transaction.classification,
+            date,
+            account: accountById.get(position.account_id)?.name ?? null,
+            category: "Importado da instituição",
+            keywords: position.ticker ? [position.ticker] : undefined,
+          },
           operationId: pivot?.id ?? null,
           movementId: movement.id,
           available: pivot ? subtractDecimals(pivot.amount, linkedToOperation(pivot.id)) : total,
@@ -285,20 +302,19 @@ export function InvestmentLinkScreen({
       ) : (
         <>
           <PanelSection title="Movimentação de destino">
-            <ChoiceField
+            <TransactionPicker
               id="investment-link-destination"
               label="Movimentação de destino"
               value={selectedKey}
               loading={importedLoading}
               disabled={!canLink}
               placeholder={direction === "deposit" ? "Selecione um aporte ou aplicação" : "Selecione um resgate ou rendimento"}
-              emptyText={importedLoading ? "Carregando histórico importado…" : "Nenhuma movimentação compatível. Crie uma nova."}
-              options={candidates.map((candidate) => ({
-                value: candidate.key,
-                label: candidate.label,
+              emptyText="Nenhuma movimentação compatível. Crie uma nova."
+              transactions={candidates.map((candidate) => ({
+                ...candidate.picker,
                 tag: suggested(candidate) ? "Sugestão" : undefined,
               }))}
-              onChange={setSelectedKey}
+              onSelect={setSelectedKey}
             />
             <Button
               icon={<PlusOutlined aria-hidden="true" />}

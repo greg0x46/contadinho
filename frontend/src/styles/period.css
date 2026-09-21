@@ -26,6 +26,27 @@
   white-space: normal;
 }
 
+/* The calendar says what the button is; the caret says it opens. Both are
+   quiet next to the bold label, and the caret flips while the popover is
+   open. */
+.filter-period-heading-icon,
+.filter-period-heading-caret {
+  color: var(--color-text-secondary);
+}
+
+.filter-period-heading-icon {
+  font-size: 0.875em;
+}
+
+.filter-period-heading-caret {
+  font-size: 0.625em;
+  transition: transform 0.15s ease;
+}
+
+.filter-period-heading[aria-expanded="true"] .filter-period-heading-caret {
+  transform: rotate(180deg);
+}
+
 /* Without chrome: the period reads as the heading of whatever it labels,
    not as one more form control. */
 .filter-period-navigation-bare {

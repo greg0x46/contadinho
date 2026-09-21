@@ -49,3 +49,33 @@ export function formatDateOnly(value: string): string {
   const [year, month, day] = value.split("-");
   return year && month && day ? `${day}/${month}/${year}` : value;
 }
+
+const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The calendar parts of either kind of date the API sends: a plain
+ * "YYYY-MM-DD" is taken as written, an instant is read in the local zone
+ * (see formatLocalDay). Null when the value can't be parsed.
+ */
+export function calendarParts(value: string): { day: number; month: number; year: number } | null {
+  if (dateOnlyPattern.test(value)) {
+    const [year, month, day] = value.split("-").map(Number);
+    return { day, month, year };
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return { day: date.getDate(), month: date.getMonth() + 1, year: date.getFullYear() };
+}
+
+const shortMonths = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+
+/**
+ * "13 set." — the shortest date that still tells rows apart in a dense list;
+ * the year is appended only when it isn't the current one.
+ */
+export function formatCompactDay(value: string): string {
+  const parts = calendarParts(value);
+  if (parts === null) return "Data inválida";
+  const label = `${String(parts.day).padStart(2, "0")} ${shortMonths[parts.month - 1]}.`;
+  return parts.year === new Date().getFullYear() ? label : `${label} ${parts.year}`;
+}

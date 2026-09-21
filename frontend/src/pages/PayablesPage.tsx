@@ -1,10 +1,10 @@
 import { PlusOutlined } from "@ant-design/icons";
-import { PageContainer } from "@ant-design/pro-layout";
-import { Alert, Button, Segmented, Space } from "antd";
+import { Alert, Button } from "antd";
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import type { Payable, PayableKind } from "../api/contracts";
+import { DataCard, ListToolbar, Page, PageTabs, SearchField, SortSelect } from "../components/layout";
 import { PayableForm } from "../components/payables/PayableForm";
 import { PayableList } from "../components/payables/PayableList";
 import { PayablesSummary } from "../components/payables/PayablesSummary";
@@ -14,25 +14,51 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Não foi possível salvar a pendência.";
 }
 
-const filterOptions = [
+type PayableView = PayableKind | "all";
+type PayableSort = "recent" | "name" | "remaining";
+
+const viewOptions: { label: string; value: PayableView }[] = [
   { label: "Todas", value: "all" },
   { label: "Dívidas", value: "debt" },
   { label: "A receber", value: "receivable" },
 ];
 
+const sortOptions: { label: string; value: PayableSort }[] = [
+  { label: "Mais recentes", value: "recent" },
+  { label: "Nome", value: "name" },
+  { label: "Maior valor restante", value: "remaining" },
+];
+
+const comparators: Record<PayableSort, (left: Payable, right: Payable) => number> = {
+  recent: (left, right) => right.created_at.localeCompare(left.created_at),
+  name: (left, right) => left.name.localeCompare(right.name, "pt-BR"),
+  remaining: (left, right) => Number(right.remaining_amount) - Number(left.remaining_amount),
+};
+
+/** Search and sort happen here: the list is small and already fully loaded. */
+function arrange(payables: Payable[], search: string, sort: PayableSort): Payable[] {
+  const needle = search.trim().toLocaleLowerCase("pt-BR");
+  const matched = needle
+    ? payables.filter((payable) => payable.name.toLocaleLowerCase("pt-BR").includes(needle))
+    : payables;
+  return [...matched].sort(comparators[sort]);
+}
+
 export function PayablesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const kindParam = searchParams.get("kind");
-  const filter: PayableKind | "all" = kindParam === "debt" || kindParam === "receivable" ? kindParam : "all";
+  const filter: PayableView = kindParam === "debt" || kindParam === "receivable" ? kindParam : "all";
   const payables = usePayables(filter === "all" ? null : filter);
   const navigate = useNavigate();
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<PayableSort>("recent");
   const [formOpen, setFormOpen] = useState(false);
   const [formKind, setFormKind] = useState<PayableKind>("debt");
   const [editingPayable, setEditingPayable] = useState<Payable | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const setFilter = (value: PayableKind | "all") => {
+  const setFilter = (value: PayableView) => {
     if (value === "all") {
       searchParams.delete("kind");
     } else {
@@ -94,13 +120,14 @@ export function PayablesPage() {
 
   const openDetail = (payable: Payable) => navigate(`/pendencias/${payable.id}?kind=${payable.kind}`);
 
+  const visible = arrange(payables.payables, search, sort);
+
   return (
-    <PageContainer
+    <Page
       title="Pendências"
-      subTitle="Acompanhe dívidas e contas a receber em um só lugar"
-      content="Cadastre dívidas e contas a receber, e vincule transações já importadas para acompanhar o valor restante automaticamente."
-      extra={[
-        <Space key="new-payable">
+      description="Acompanhe dívidas e contas a receber em um só lugar"
+      actions={
+        <>
           {filter !== "receivable" && (
             <Button
               type="primary"
@@ -112,23 +139,17 @@ export function PayablesPage() {
           )}
           {filter !== "debt" && (
             <Button
-              type="primary"
+              type={filter === "receivable" ? "primary" : "default"}
               icon={<PlusOutlined aria-hidden="true" />}
               onClick={() => openCreate("receivable")}
             >
               Nova conta a receber
             </Button>
           )}
-        </Space>,
-      ]}
+        </>
+      }
+      tabs={<PageTabs label="Tipo de pendência" options={viewOptions} value={filter} onChange={setFilter} />}
     >
-      <Segmented
-        options={filterOptions}
-        value={filter}
-        onChange={(value) => setFilter(value as PayableKind | "all")}
-        style={{ marginBottom: 16 }}
-      />
-
       {actionError && (
         <Alert
           type="error"
@@ -148,16 +169,37 @@ export function PayablesPage() {
           style={{ marginBottom: 16 }}
         />
       )}
-      {!payables.isLoading && filter !== "all" && payables.payables.length > 0 && (
-        <PayablesSummary kind={filter} payables={payables.payables} />
-      )}
-      <PayableList
-        payables={payables.payables}
-        isLoading={payables.isLoading}
-        onOpen={openDetail}
-        onEdit={openEdit}
-        onDelete={remove}
+
+      <ListToolbar
+        label="Controles das pendências"
+        start={
+          <SearchField
+            id="payables-search"
+            label="Buscar pendências"
+            placeholder="Buscar por nome…"
+            value={search}
+            onChange={setSearch}
+          />
+        }
+        end={<SortSelect id="payables-sort" value={sort} options={sortOptions} onChange={setSort} />}
       />
+
+      <DataCard
+        flush
+        summary={
+          !payables.isLoading && filter !== "all" && payables.payables.length > 0 ? (
+            <PayablesSummary kind={filter} payables={payables.payables} />
+          ) : undefined
+        }
+      >
+        <PayableList
+          payables={visible}
+          isLoading={payables.isLoading}
+          onOpen={openDetail}
+          onEdit={openEdit}
+          onDelete={remove}
+        />
+      </DataCard>
       <PayableForm
         kind={formKind}
         open={formOpen}
@@ -167,6 +209,6 @@ export function PayablesPage() {
         onSubmit={submit}
         onCancel={closeForm}
       />
-    </PageContainer>
+    </Page>
   );
 }

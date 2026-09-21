@@ -3,7 +3,7 @@ import dayjs from "dayjs";
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 
-import type { HomePeriod } from "../../hooks/useHomePeriod";
+import type { Period } from "../../hooks/usePeriod";
 import { useHomePeriodBounds } from "../../hooks/useHomePeriodBounds";
 import { useTimeline } from "../../hooks/useTimeline";
 import { formatBRL } from "../../presentation/money";
@@ -11,7 +11,7 @@ import { SummaryCard } from "../shared/SummaryCard";
 
 const dateFormat = "YYYY-MM-DD";
 
-export function PeriodBalanceCard({ period }: { period: HomePeriod }) {
+export function PeriodBalanceCard({ period }: { period: Period }) {
   const { bounds, isLoading: rangeLoading, error: rangeError, refetch: refetchRange } =
     useHomePeriodBounds(period);
   // Only the day span matters here, not the exact instant, so this needs

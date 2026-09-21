@@ -1,10 +1,11 @@
 import type { ProColumns } from "@ant-design/pro-table";
 import ProTable from "@ant-design/pro-table";
-import { Button, Popconfirm, Space, Tag } from "antd";
+import { Button, Popconfirm, Skeleton, Space, Tag } from "antd";
 
 import type { Payable } from "../../api/contracts";
 import { payableStatusColor, payableStatusLabel, payableVocabulary } from "../../presentation/payableLabels";
 import { formatBRL } from "../../presentation/money";
+import { useCompactScreen } from "../shared/useCompactScreen";
 
 function deleteDescription(payable: Payable): string {
   if (payable.link_count === 0) {
@@ -41,19 +42,82 @@ function PayableProgress({ payable }: { payable: Payable }) {
   );
 }
 
-export function PayableList({
-  payables,
-  isLoading,
-  onOpen,
-  onEdit,
-  onDelete,
-}: {
+type Props = {
   payables: Payable[];
   isLoading: boolean;
   onOpen: (payable: Payable) => void;
   onEdit: (payable: Payable) => void;
   onDelete: (payable: Payable) => void;
-}) {
+};
+
+function PayableActions({ payable, onEdit, onDelete }: Pick<Props, "onEdit" | "onDelete"> & { payable: Payable }) {
+  return (
+    <Space onClick={(event) => event.stopPropagation()}>
+      <Button type="link" onClick={() => onEdit(payable)}>
+        Editar
+      </Button>
+      <Popconfirm
+        title={payableVocabulary[payable.kind].deleteTitle}
+        description={deleteDescription(payable)}
+        onConfirm={() => onDelete(payable)}
+        okText="Excluir"
+        cancelText="Cancelar"
+      >
+        <Button type="link" danger>
+          Excluir
+        </Button>
+      </Popconfirm>
+    </Space>
+  );
+}
+
+const emptyText = <span>Nenhuma dívida ou conta a receber cadastrada ainda.</span>;
+
+/**
+ * On a phone the table would scroll sideways, so each payable becomes a
+ * stacked row: name and kind, the progress meter, the status and the same
+ * actions the table offers.
+ */
+function CompactPayableList({ payables, isLoading, onOpen, onEdit, onDelete }: Props) {
+  if (isLoading) {
+    return (
+      <div className="debt-list-compact" role="status" aria-label="Carregando pendências">
+        <Skeleton active paragraph={{ rows: 3 }} />
+      </div>
+    );
+  }
+  if (payables.length === 0) {
+    return <div className="debt-list-empty">{emptyText}</div>;
+  }
+  return (
+    <ul className="debt-list-compact" aria-label="Pendências">
+      {payables.map((payable) => (
+        <li key={payable.id} className="debt-item">
+          <button type="button" className="debt-item-main" onClick={() => onOpen(payable)}>
+            <span className="debt-item-heading">
+              <span className="debt-item-name">{payable.name}</span>
+              <Tag color={payableStatusColor[payable.status]}>{payableStatusLabel[payable.kind][payable.status]}</Tag>
+            </span>
+            <span className="debt-item-kind">
+              {payableVocabulary[payable.kind].icon} {payable.kind === "debt" ? "Dívida" : "A receber"}
+            </span>
+            <PayableProgress payable={payable} />
+          </button>
+          <div className="debt-item-actions">
+            <PayableActions payable={payable} onEdit={onEdit} onDelete={onDelete} />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function PayableList(props: Props) {
+  const compact = useCompactScreen();
+  return compact ? <CompactPayableList {...props} /> : <PayableTable {...props} />;
+}
+
+function PayableTable({ payables, isLoading, onOpen, onEdit, onDelete }: Props) {
   const columns: ProColumns<Payable>[] = [
     {
       title: "Tipo",
@@ -86,24 +150,7 @@ export function PayableList({
     {
       title: "Ação",
       valueType: "option",
-      render: (_, payable) => (
-        <Space onClick={(event) => event.stopPropagation()}>
-          <Button type="link" onClick={() => onEdit(payable)}>
-            Editar
-          </Button>
-          <Popconfirm
-            title={payableVocabulary[payable.kind].deleteTitle}
-            description={deleteDescription(payable)}
-            onConfirm={() => onDelete(payable)}
-            okText="Excluir"
-            cancelText="Cancelar"
-          >
-            <Button type="link" danger>
-              Excluir
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
+      render: (_, payable) => <PayableActions payable={payable} onEdit={onEdit} onDelete={onDelete} />,
     },
   ];
 
@@ -119,13 +166,7 @@ export function PayableList({
       pagination={false}
       cardBordered
       scroll={{ x: "max-content" }}
-      locale={{
-        emptyText: (
-          <div className="debt-list-empty">
-            <span>Nenhuma dívida ou conta a receber cadastrada ainda.</span>
-          </div>
-        ),
-      }}
+      locale={{ emptyText: <div className="debt-list-empty">{emptyText}</div> }}
       onRow={(payable) => ({
         onClick: () => onOpen(payable),
         style: { cursor: "pointer" },

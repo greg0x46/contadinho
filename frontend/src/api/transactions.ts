@@ -1,5 +1,5 @@
 import { apiFetch } from "./transport";
-import type { HomePeriod } from "../hooks/useHomePeriod";
+import type { Period } from "../hooks/usePeriod";
 import { requestJson } from "./client";
 import { parseCategoryBreakdown, type CategoryDirection } from "./contracts";
 import {
@@ -363,7 +363,7 @@ export async function getTransactionReconciliation(
   }
 }
 
-export function getCategoryBreakdown(timezone: string, period: HomePeriod | string, classification: CategoryDirection, signal?: AbortSignal) {
+export function getCategoryBreakdown(timezone: string, period: Period | string, classification: CategoryDirection, signal?: AbortSignal) {
   const params = new URLSearchParams({ timezone, classification });
   if (typeof period === "string") params.set("month", period);
   else if (period.from === null) params.set("period", "all");
