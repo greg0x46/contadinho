@@ -1,16 +1,3 @@
-.dashboard-period {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  min-width: 0;
-}
-
-.dashboard-period .filter-period-navigation {
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  max-width: 100%;
-}
-
 .dashboard-layout {
   display: grid;
   grid-template-columns: minmax(16rem, 0.7fr) minmax(0, 2.3fr);

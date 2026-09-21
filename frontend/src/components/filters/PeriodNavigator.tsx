@@ -1,4 +1,4 @@
-import { DownOutlined, LeftOutlined, RightOutlined } from "@ant-design/icons";
+import { CalendarOutlined, CaretDownFilled, LeftOutlined, RightOutlined } from "@ant-design/icons";
 import { Button, Input, Popover } from "antd";
 import { useState } from "react";
 
@@ -127,10 +127,11 @@ export function PeriodNavigator({ value, presets, onChange, reset, bare, id = "f
         }
       >
         <Button className="filter-period-heading" aria-label="Selecionar período" aria-expanded={open}>
+          <CalendarOutlined className="filter-period-heading-icon" aria-hidden="true" />
           <span aria-live="polite" aria-atomic="true">
             {navigation?.label ?? (from === null && to === null ? "Todo o período" : "Selecione um período")}
           </span>
-          <DownOutlined aria-hidden="true" />
+          <CaretDownFilled className="filter-period-heading-caret" aria-hidden="true" />
         </Button>
       </Popover>
       <Button

@@ -48,7 +48,10 @@ function openMenu(): HTMLElement {
 
 async function chooseOperation(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole("combobox", { name: "Movimentação de destino" }));
-  await user.click(within(openMenu()).getByText(/Aporte.*Corretora/));
+  const menu = openMenu();
+  // The row splits description and account across two lines.
+  expect(within(menu).getByText(/Corretora XP/)).toBeInTheDocument();
+  await user.click(within(menu).getByText(/^Aporte/));
 }
 
 describe("InvestmentLinkScreen", () => {

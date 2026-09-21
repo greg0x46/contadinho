@@ -7,78 +7,47 @@ import { categoryFilterOptions } from "../../presentation/categoryLabels";
 import { TransactionFilters } from "./TransactionFilters";
 
 describe("TransactionFilters", () => {
-  it("navigates months immediately while preserving other filters and pending search", async () => {
-    const user = userEvent.setup();
-    const onApply = vi.fn();
-    render(<TransactionFilters
-      applied={{ ...currentMonthFilters(new Date(2024, 0, 15)), category_id: "category", classification: "outflow" }}
-      facets={undefined} onApply={onApply} onClear={vi.fn()}
-    />);
-    await user.type(screen.getByLabelText("Descrição"), "Mercado");
-    await user.click(screen.getByRole("button", { name: "Próximo mês" }));
-    expect(onApply).toHaveBeenLastCalledWith(expect.objectContaining({
-      date_from: "2024-02-01", date_to: "2024-02-29", category_id: "category",
-      classification: "outflow", description: "Mercado",
-    }));
-    expect(screen.getByText("fevereiro de 2024")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Mês anterior" }));
-    expect(onApply).toHaveBeenLastCalledWith(expect.objectContaining({ date_from: "2024-01-01", date_to: "2024-01-31" }));
-  });
-
-  it("exposes classification directly and returns to the current month preserving it", async () => {
-    const user = userEvent.setup();
-    const onApply = vi.fn();
-    render(<TransactionFilters
-      applied={currentMonthFilters(new Date(2024, 0, 15))}
-      facets={undefined} onApply={onApply} onClear={vi.fn()}
-    />);
-    await user.click(screen.getByText("Saídas"));
-    expect(onApply).toHaveBeenLastCalledWith(expect.objectContaining({ classification: "outflow", date_from: "2024-01-01" }));
-    await user.click(screen.getByRole("button", { name: "Mês atual" }));
-    const current = currentMonthFilters();
-    expect(onApply).toHaveBeenLastCalledWith(expect.objectContaining({
-      classification: "outflow", date_from: current.date_from, date_to: current.date_to,
-    }));
-    expect(screen.queryByRole("button", { name: "Mês atual" })).not.toBeInTheDocument();
-  });
-
-  it("applies quick filters immediately and validates a custom period", async () => {
+  it("applies the search immediately, trimmed, without touching the period", async () => {
     const user = userEvent.setup();
     const onApply = vi.fn();
     render(
       <TransactionFilters
-        applied={currentMonthFilters(new Date(2026, 6, 30))}
+        applied={{ ...currentMonthFilters(new Date(2026, 6, 30)), category_id: "category" }}
         facets={undefined}
         onApply={onApply}
         onClear={vi.fn()}
       />,
     );
+    // The period is page context, not a collection control: nothing here
+    // navigates it.
+    expect(screen.queryByRole("button", { name: "Selecionar período" })).not.toBeInTheDocument();
     await user.type(screen.getByLabelText("Descrição"), "  Mercado  ");
     await waitFor(() =>
       expect(onApply).toHaveBeenLastCalledWith(
-        expect.objectContaining({ description: "Mercado" }),
+        expect.objectContaining({
+          description: "Mercado",
+          category_id: "category",
+          date_from: "2026-07-01",
+          date_to: "2026-07-31",
+        }),
       ),
     );
+  });
 
-    await user.click(screen.getByRole("button", { name: "Selecionar período" }));
-    const start = screen.getByLabelText("Data inicial");
-    const end = screen.getByLabelText("Data final");
-    await user.clear(start);
-    await user.type(start, "2026-08-10");
-    await user.clear(end);
-    await user.type(end, "2026-08-01");
-    await user.click(screen.getByRole("button", { name: "Confirmar período" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("posterior");
-    const callsAfterError = onApply.mock.calls.length;
-
-    await user.clear(end);
-    await user.type(end, "2026-08-31");
-    await user.click(screen.getByRole("button", { name: "Confirmar período" }));
-    expect(onApply.mock.calls.length).toBe(callsAfterError + 1);
-    expect(onApply).toHaveBeenLastCalledWith(
-      expect.objectContaining({ description: "Mercado", date_to: "2026-08-31" }),
+  it("renders the caller's shaping controls beside the filters", () => {
+    render(
+      <TransactionFilters
+        applied={currentMonthFilters(new Date(2026, 6, 30))}
+        facets={undefined}
+        onApply={vi.fn()}
+        onClear={vi.fn()}
+        end={<button type="button">Agrupar</button>}
+      />,
     );
-  }, 15_000);
+    const toolbar = screen.getByRole("region", { name: "Filtros de transações" });
+    expect(toolbar).toContainElement(screen.getByRole("button", { name: "Agrupar" }));
+    expect(toolbar).toContainElement(screen.getByRole("button", { name: "Filtros" }));
+  });
 
   it("counts, applies and removes advanced filters", async () => {
     const user = userEvent.setup();
@@ -162,8 +131,10 @@ describe("TransactionFilters", () => {
         onClear={vi.fn()}
       />,
     );
-    await user.click(screen.getByRole("combobox", { name: "Categoria" }));
+    await user.click(screen.getByRole("button", { name: "Filtros" }));
+    await user.click(await screen.findByRole("combobox", { name: "Categoria" }));
     await user.click(await screen.findByText("Despesa: Compras"));
+    await user.click(screen.getByRole("button", { name: "Aplicar" }));
     await waitFor(() =>
       expect(onApply).toHaveBeenLastCalledWith(
         expect.objectContaining({ category_id: "cat-expense" }),

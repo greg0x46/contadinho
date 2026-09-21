@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import type { CurrencyTotals } from "../../api/contracts";
 import { formatBRL } from "../../presentation/money";
+import { DataCardSummary } from "../layout/DataCard";
 
 function balanceSign(balance: string): "negative" | "positive" | "zero" {
   if (balance.startsWith("-")) return "negative";
@@ -10,6 +11,11 @@ function balanceSign(balance: string): "negative" | "positive" | "zero" {
   return "positive";
 }
 
+/**
+ * The summary strip of the transactions DataCard: how many rows, and the
+ * inflow / outflow / result of everything the filters matched. On a phone
+ * only the count and the result show until "Ver resumo" unfolds the rest.
+ */
 export function TransactionSummaryBar({
   totals,
   totalItems,
@@ -28,7 +34,11 @@ export function TransactionSummaryBar({
   };
 
   return (
-    <section className="transaction-summary" aria-label="Resumo financeiro" aria-busy={busy}>
+    <DataCardSummary
+      label="Resumo financeiro"
+      busy={busy}
+      note="Totais dos filtros aplicados, sem transações ignoradas."
+    >
       <div className={`transaction-summary-bar ${expanded ? "is-expanded" : ""}`}>
         <p className="transaction-summary-count">
           {totalItems.toLocaleString("pt-BR")} {totalItems === 1 ? "transação" : "transações"}
@@ -66,6 +76,6 @@ export function TransactionSummaryBar({
           <RightOutlined aria-hidden="true" />
         </button>
       </div>
-    </section>
+    </DataCardSummary>
   );
 }

@@ -8,7 +8,6 @@ import {
   Modal,
   Popconfirm,
   Radio,
-  Select,
   Tag,
   Timeline,
   Typography,
@@ -34,6 +33,7 @@ import {
   scenarioTransactionStatusDashed,
   scenarioTransactionStatusLabel,
 } from "../../presentation/scenarioLabels";
+import { TransactionPicker, type PickerTransaction } from "../shared/TransactionPicker";
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -44,11 +44,32 @@ function formatProjectedDate(value: string): string {
   return `${day}/${month}/${year}`;
 }
 
-function candidateLabel(candidate: EligibleTransaction): string {
-  const date = formatOptionalDate(candidate.occurred_at);
-  const description = candidate.description ?? "Sem descrição";
-  const value = formatBRL(candidate.effective_money.value);
-  return `${date} · ${description} · ${value}`;
+// Money leaves to pay a debt and arrives to settle a receivable; every row
+// the pickers below offer flows the payable's own way.
+function payableDirection(kind: PayableKind): "inflow" | "outflow" {
+  return kind === "debt" ? "outflow" : "inflow";
+}
+
+function candidateRow(candidate: EligibleTransaction, kind: PayableKind): PickerTransaction {
+  return {
+    id: candidate.id,
+    description: candidate.description ?? "Sem descrição",
+    amount: candidate.effective_money.value,
+    direction: payableDirection(kind),
+    date: candidate.occurred_at,
+    account: candidate.account_name,
+  };
+}
+
+function installmentRow(installment: ScenarioTransaction, kind: PayableKind): PickerTransaction {
+  return {
+    id: installment.id,
+    description: installment.description,
+    amount: installment.amount,
+    direction: payableDirection(kind),
+    date: installment.projected_at,
+    category: `Parcela · ${scenarioTransactionStatusLabel[installment.status]}`,
+  };
 }
 
 function realizationLabel(realization: Realization, links: PayableLinkedTransaction[]): string {
@@ -96,10 +117,12 @@ function AccumulatedDeviationBanner({ value, onTrackMessage }: { value: string; 
 // direction of the combined vincular+alocar form below.
 function AllocateExistingLinkControl({
   link,
+  kind,
   installments,
   onAllocate,
 }: {
   link: PayableLinkedTransaction;
+  kind: PayableKind;
   installments: ScenarioTransaction[];
   onAllocate: (installmentId: string, amount: number) => Promise<void>;
 }) {
@@ -132,17 +155,17 @@ function AllocateExistingLinkControl({
 
   return (
     <Flex gap="small" align="center" wrap>
-      <Select
-        aria-label="Parcela"
-        style={{ minWidth: 220 }}
-        placeholder="Escolha a parcela"
-        value={installmentId}
-        onChange={setInstallmentId}
-        options={installments.map((installment) => ({
-          value: installment.id,
-          label: `${formatProjectedDate(installment.projected_at)} · ${installment.description}`,
-        }))}
-      />
+      <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+        <TransactionPicker
+          id={`allocate-link-${link.id}`}
+          label="Parcela"
+          placeholder="Escolha a parcela"
+          emptyText="Nenhuma parcela disponível."
+          value={installmentId}
+          transactions={installments.map((installment) => installmentRow(installment, kind))}
+          onSelect={setInstallmentId}
+        />
+      </div>
       <Button type="primary" size="small" loading={submitting} disabled={installmentId === null} onClick={submit}>
         Alocar
       </Button>
@@ -204,7 +227,7 @@ export function PayableTimeline({
 
   const [addPaymentOpen, setAddPaymentOpen] = useState(false);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
-  const [selectedInstallmentId, setSelectedInstallmentId] = useState<string>("none");
+  const [selectedInstallmentId, setSelectedInstallmentId] = useState<string | null>(null);
   const [linkSubmitting, setLinkSubmitting] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
 
@@ -292,14 +315,14 @@ export function PayableTimeline({
     setLinkSubmitting(true);
     try {
       const link = await onLinkTransaction(selectedCandidateId);
-      if (selectedInstallmentId !== "none") {
+      if (selectedInstallmentId !== null) {
         await plan.allocateRealization({
           transactionId: selectedInstallmentId,
           write: { payable_link_id: link.id, allocated_amount: Number(link.linked_amount) },
         });
       }
       setSelectedCandidateId(null);
-      setSelectedInstallmentId("none");
+      setSelectedInstallmentId(null);
       setAddPaymentOpen(false);
     } catch (error) {
       setLinkError(errorMessage(error, "Não foi possível vincular a transação."));
@@ -311,7 +334,7 @@ export function PayableTimeline({
   const closeAddPayment = () => {
     setAddPaymentOpen(false);
     setSelectedCandidateId(null);
-    setSelectedInstallmentId("none");
+    setSelectedInstallmentId(null);
     setLinkError(null);
   };
 
@@ -462,37 +485,30 @@ export function PayableTimeline({
           {linkError && <Alert type="error" showIcon message={linkError} />}
           <div>
             <Typography.Text>Transação</Typography.Text>
-            <Select
-              aria-label="Buscar transação para vincular"
-              showSearch
+            <TransactionPicker
+              id="payable-link-transaction"
+              label="Buscar transação para vincular"
               allowClear
-              style={{ width: "100%" }}
               placeholder="Buscar por descrição"
               value={selectedCandidateId}
-              searchValue={search}
-              onSearch={onSearchChange}
-              filterOption={false}
+              search={{ value: search, onChange: onSearchChange }}
               loading={isSearching}
-              notFoundContent={isSearching ? "Buscando…" : "Nenhuma transação elegível encontrada"}
-              options={candidates.map((candidate) => ({ value: candidate.id, label: candidateLabel(candidate) }))}
-              onChange={(value: string | null) => setSelectedCandidateId(value)}
+              emptyText="Nenhuma transação elegível encontrada"
+              transactions={candidates.map((candidate) => candidateRow(candidate, kind))}
+              onSelect={setSelectedCandidateId}
             />
           </div>
           {installments.length > 0 && (
             <div>
               <Typography.Text>Parcela (opcional)</Typography.Text>
-              <Select
-                aria-label="Parcela para alocar"
-                style={{ width: "100%" }}
+              <TransactionPicker
+                id="payable-link-installment"
+                label="Parcela para alocar"
+                allowClear
+                placeholder="Sem parcela (vínculo avulso)"
                 value={selectedInstallmentId}
-                onChange={setSelectedInstallmentId}
-                options={[
-                  { value: "none", label: "Sem parcela (vínculo avulso)" },
-                  ...installments.map((installment) => ({
-                    value: installment.id,
-                    label: `${formatProjectedDate(installment.projected_at)} · ${installment.description} · ${formatBRL(installment.amount)}`,
-                  })),
-                ]}
+                transactions={installments.map((installment) => installmentRow(installment, kind))}
+                onSelect={setSelectedInstallmentId}
               />
             </div>
           )}
@@ -614,6 +630,7 @@ export function PayableTimeline({
                     {installments.length > 0 && (
                       <AllocateExistingLinkControl
                         link={link}
+                        kind={kind}
                         installments={installments}
                         onAllocate={(installmentId, amount) => allocateExistingLink(link.id, installmentId, amount)}
                       />

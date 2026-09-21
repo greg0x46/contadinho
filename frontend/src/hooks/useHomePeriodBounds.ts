@@ -1,14 +1,14 @@
 import { useMemo } from "react";
 
-import type { HomePeriod } from "./useHomePeriod";
+import type { Period } from "./usePeriod";
 import { useTimelineDataRange } from "./useTimelineDataRange";
 
 /**
- * Resolves a HomePeriod into concrete dates. "Todo o período" carries no
+ * Resolves a Period into concrete dates. "Todo o período" carries no
  * dates of its own, so its bounds come from the database instead — the
  * oldest transaction, the last planned installment.
  */
-export function useHomePeriodBounds(period: HomePeriod) {
+export function useHomePeriodBounds(period: Period) {
   const wholePeriod = period.from === null || period.to === null;
   const dataRange = useTimelineDataRange(wholePeriod);
   const bounds = useMemo(() => {

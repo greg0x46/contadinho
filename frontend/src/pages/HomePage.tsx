@@ -1,24 +1,26 @@
-import { PageContainer } from "@ant-design/pro-layout";
-
 import { ProjectionSummaryCard } from "../components/home/ProjectionSummaryCard";
 import { SpendingByCategoryCard } from "../components/home/SpendingByCategoryCard";
 import { PeriodBalanceCard } from "../components/home/PeriodBalanceCard";
 
 import { PeriodNavigator } from "../components/filters/PeriodNavigator";
 import { periodPresets } from "../components/filters/periodPresets";
-import { useHomePeriod } from "../hooks/useHomePeriod";
+import { Page } from "../components/layout";
+import { usePeriod } from "../hooks/usePeriod";
 
 export function HomePage() {
-  const { period, setPeriod } = useHomePeriod();
+  const { period, setPeriod } = usePeriod();
   return (
-    <PageContainer
+    <Page
       title="Início"
-      extra={
-        <div className="dashboard-period">
-          <PeriodNavigator id="home-period" value={[period.from, period.to]}
-            presets={periodPresets()} onChange={setPeriod}
-            reset={{ preset: "this-month", label: "Este mês" }} bare />
-        </div>
+      context={
+        <PeriodNavigator
+          id="home-period"
+          value={[period.from, period.to]}
+          presets={periodPresets()}
+          onChange={setPeriod}
+          reset={{ preset: "this-month", label: "Este mês" }}
+          bare
+        />
       }
     >
       <div className="dashboard-layout">
@@ -28,6 +30,6 @@ export function HomePage() {
         </div>
         <ProjectionSummaryCard period={period} />
       </div>
-    </PageContainer>
+    </Page>
   );
 }

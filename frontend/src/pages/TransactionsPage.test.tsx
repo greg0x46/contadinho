@@ -168,7 +168,8 @@ describe("TransactionsPage", () => {
     renderPage();
     await screen.findByText("Mercado");
     expect(screen.getByText("1 transação")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Ignorar Mercado" }));
+    await user.click(screen.getByRole("button", { name: "Ações de Mercado" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Ignorar" }));
     expect(
       await screen.findByText("Transação ignorada. Totais atualizados."),
     ).toBeInTheDocument();
@@ -199,7 +200,8 @@ describe("TransactionsPage", () => {
     });
     renderPage();
     await screen.findByText("Mercado");
-    await user.click(screen.getByRole("button", { name: "Ignorar Mercado" }));
+    await user.click(screen.getByRole("button", { name: "Ações de Mercado" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Ignorar" }));
     expect(await screen.findByText("Não foi possível salvar a decisão")).toBeVisible();
     expect(screen.getByText("Mercado")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
@@ -223,7 +225,8 @@ describe("TransactionsPage", () => {
     });
     renderPage();
     await screen.findByText("Ignorada");
-    await user.click(screen.getByRole("button", { name: "Restaurar Mercado" }));
+    await user.click(screen.getByRole("button", { name: "Ações de Mercado" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Restaurar" }));
     await screen.findByText("Transação restaurada. Totais atualizados.");
     expect(screen.queryByText("Ignorada")).not.toBeInTheDocument();
     expect(screen.getAllByText(/R\$\s*123,45/).length).toBeGreaterThan(1);

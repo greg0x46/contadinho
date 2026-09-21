@@ -1,10 +1,8 @@
-import { FilterOutlined, SearchOutlined } from "@ant-design/icons";
 import {
   Button,
   Checkbox,
   Drawer,
   Form,
-  Input,
   InputNumber,
   Segmented,
   Select,
@@ -12,15 +10,14 @@ import {
 } from "antd";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { PeriodNavigator, type DateRangePreset } from "./PeriodNavigator";
-
-export type { DateRangePreset };
+import { FilterButton } from "../layout/FilterButton";
+import { ListToolbar } from "../layout/ListToolbar";
+import { SearchField } from "../layout/SearchField";
 
 export type FilterFieldType =
   | "text"
   | "select"
   | "multiselect"
-  | "date-range"
   | "value-range"
   | "segmented"
   | "boolean";
@@ -43,24 +40,22 @@ export interface FilterConfig<Values extends object> {
   placeholder?: string;
   debounceMs?: number;
   options?: FilterOption[] | ((values: Values) => FilterOption[]);
-  presets?: DateRangePreset[];
-  navigatePeriod?: boolean;
   hideChip?: boolean;
-  /** Kept in `config` so it still shapes hasContextBar/validation, but rendered
-   * elsewhere by the caller (e.g. the transactions period control, which now
-   * lives in the page's subheader instead of the filter bar). */
-  hidden?: boolean;
   formatActive?: (value: unknown, values: Values, option?: FilterOption) => string;
   /** Optional richer rendering (e.g. icon + color) for each dropdown option. */
   optionRender?: (option: FilterOption) => ReactNode;
 }
 
 type Props<Values extends object> = {
+  /** Names the toolbar for assistive tech: "Filtros de transações". */
+  label: string;
   values: Values;
   emptyValues: Values;
   config: FilterConfig<Values>[];
   onApply: (values: Values) => void;
   onClear: () => void;
+  /** The shaping side of the toolbar (group by, sort), owned by the caller. */
+  end?: ReactNode;
 };
 
 const read = <Values extends object>(
@@ -122,11 +117,13 @@ function compareDecimalStrings(left: string, right: string): number {
 }
 
 export function ConfigurableFilters<Values extends object>({
+  label,
   values,
   emptyValues,
   config,
   onApply,
   onClear,
+  end,
 }: Props<Values>) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [quickValues, setQuickValues] = useState(values);
@@ -179,26 +176,13 @@ export function ConfigurableFilters<Values extends object>({
       const first = read(candidate, field.key);
       const second = read(candidate, field.secondaryKey);
       if (
-        field.type === "date-range" &&
-        (first === null || first === "") !== (second === null || second === "")
-      ) {
-        setError(`Preencha os dois campos de ${field.label.toLocaleLowerCase("pt-BR")}.`);
-        return false;
-      }
-      if (
         typeof first === "string" &&
         first !== "" &&
         typeof second === "string" &&
         second !== "" &&
-        (field.type === "value-range"
-          ? compareDecimalStrings(first, second) > 0
-          : first > second)
+        compareDecimalStrings(first, second) > 0
       ) {
-        setError(
-          field.type === "date-range"
-            ? "A data inicial não pode ser posterior à data final."
-            : "O valor mínimo não pode ser maior que o valor máximo.",
-        );
+        setError("O valor mínimo não pode ser maior que o valor máximo.");
         return false;
       }
     }
@@ -235,23 +219,6 @@ export function ConfigurableFilters<Values extends object>({
     };
     const options = fieldOptions(field, source);
     const id = `filter-${field.key}`;
-
-    if (field.type === "date-range") {
-      return (
-        <div className="filter-field filter-field-period" key={field.key}>
-          <PeriodNavigator
-            id={id}
-            value={[
-              typeof value === "string" ? value : null,
-              typeof secondary === "string" ? secondary : null,
-            ]}
-            presets={field.presets ?? []}
-            onChange={(from, to) => commit(from, to)}
-            bare
-          />
-        </div>
-      );
-    }
 
     if (field.type === "value-range") {
       return (
@@ -293,16 +260,6 @@ export function ConfigurableFilters<Values extends object>({
       );
     }
 
-    if (field.type === "segmented" && quick) {
-      return (
-        <div className="filter-field filter-field-classification" key={field.key}>
-          <label id={`${id}-label`}>{field.label}</label>
-          <Segmented block aria-labelledby={`${id}-label`}
-            value={typeof value === "string" && value ? value : options[0]?.value}
-            options={options} onChange={commit} />
-        </div>
-      );
-    }
     if (field.type === "segmented") {
       return (
         <Form.Item key={field.key} label={field.label}>
@@ -339,76 +296,58 @@ export function ConfigurableFilters<Values extends object>({
     }
 
     return (
-      <div className="filter-field filter-field-search" key={field.key}>
-        <label htmlFor={id}>{field.label}</label>
-        <Input
-          id={id}
-          aria-label={field.label}
-          allowClear
-          prefix={<SearchOutlined aria-hidden="true" />}
-          placeholder={field.placeholder}
-          value={typeof value === "string" ? value : ""}
-          onChange={(event) => commit(event.target.value || null)}
-        />
-      </div>
+      <SearchField
+        key={field.key}
+        id={id}
+        label={field.label}
+        placeholder={field.placeholder}
+        value={typeof value === "string" ? value : ""}
+        onChange={(next) => commit(next || null)}
+      />
     );
   };
 
-  const contextFields = mainFields.filter((field) => field.navigatePeriod || field.type === "segmented");
-  const hasContextBar = mainFields.some((field) => field.navigatePeriod);
-  const visibleContextFields = contextFields.filter((field) => !field.hidden);
-  const visibleMainFields = mainFields.filter(
-    (field) => !field.hidden && (!hasContextBar || !contextFields.includes(field)),
+  const chipList = chips.length > 0 && (
+    <div className="list-toolbar-chips" aria-label="Filtros ativos">
+      {chips.map((field) => {
+        const value = read(values, field.key);
+        const option = optionsByKey[field.key]?.find((item) => item.value === value);
+        const shown = field.formatActive
+          ? field.formatActive(value, values, option)
+          : option?.label ?? `${field.label}: ${String(value)}`;
+        return (
+          <Tag
+            key={field.key}
+            closable
+            onClose={(event) => {
+              event.preventDefault();
+              onApply(replaceField(values, field, emptyValues));
+            }}
+            closeIcon={<span aria-label={`Remover ${shown}`}>×</span>}
+          >
+            {shown}
+          </Tag>
+        );
+      })}
+      <Button type="link" size="small" onClick={onClear}>
+        Limpar filtros
+      </Button>
+    </div>
   );
 
   return (
-    <section className={`configurable-filters ${hasContextBar ? "has-context-bar" : ""}`} aria-label="Filtros de transações">
-      {hasContextBar && visibleContextFields.length > 0 && (
-        <div className="filter-context-bar">
-          {visibleContextFields.map((field) => renderField(field, quickValues, true))}
-        </div>
-      )}
-      <div className={`filter-main-bar ${visibleMainFields.length === 0 ? "filter-main-bar-compact" : ""}`}>
-        {visibleMainFields.map((field) => renderField(field, quickValues, true))}
-        <Button
-          className="advanced-filter-button"
-          aria-label={`Filtros${advancedCount ? ` ${advancedCount}` : ""}`}
-          title={`Filtros${advancedCount ? ` (${advancedCount} ativos)` : ""}`}
-          icon={<FilterOutlined aria-hidden="true" />}
-          onClick={() => setAdvancedOpen(true)}
-        >
-          Filtros{advancedCount ? ` ${advancedCount}` : ""}
-        </Button>
-      </div>
-
-      {chips.length > 0 && (
-        <div className="active-filter-list" aria-label="Filtros ativos">
-          {chips.map((field) => {
-            const value = read(values, field.key);
-            const option = optionsByKey[field.key]?.find((item) => item.value === value);
-            const shown = field.formatActive
-              ? field.formatActive(value, values, option)
-              : option?.label ?? `${field.label}: ${String(value)}`;
-            return (
-              <Tag
-                key={field.key}
-                closable
-                onClose={(event) => {
-                  event.preventDefault();
-                  onApply(replaceField(values, field, emptyValues));
-                }}
-                closeIcon={<span aria-label={`Remover ${shown}`}>×</span>}
-              >
-                {shown}
-              </Tag>
-            );
-          })}
-          <Button type="link" size="small" onClick={onClear}>
-            Limpar filtros
-          </Button>
-        </div>
-      )}
-
+    <>
+      <ListToolbar
+        label={label}
+        start={
+          <>
+            {mainFields.map((field) => renderField(field, quickValues, true))}
+            <FilterButton activeCount={advancedCount} onClick={() => setAdvancedOpen(true)} />
+          </>
+        }
+        end={end}
+        chips={chipList || undefined}
+      />
       <Drawer
         title="Filtros avançados"
         placement="right"
@@ -453,6 +392,6 @@ export function ConfigurableFilters<Values extends object>({
           {error && <p role="alert">{error}</p>}
         </Form>
       </Drawer>
-    </section>
+    </>
   );
 }
