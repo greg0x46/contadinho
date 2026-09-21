@@ -182,30 +182,28 @@
   margin-bottom: 0;
 }
 
-/* TransactionPicker: the one control for choosing a transaction. Rows are two
-   lines — description and amount, then date · account · category — so that
-   look-alike lines can be told apart without a tooltip. From `md` up it is an
-   antd Select with rich options; on a compact screen a bottom sheet. */
+/* TransactionPicker: the one control for choosing a transaction. Each row is
+   a two-column grid — a flexible left region (description, then
+   date · account · category) and a right column that holds the amount at
+   its natural width. The amount is the anchor that tells look-alike rows
+   apart, so the left region is the only thing that ever truncates. From `md`
+   up it is an antd Select with rich options; on a compact screen a bottom
+   sheet. */
 .txn-picker-row {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  width: 100%;
-  gap: 0.125rem;
-}
-
-.txn-picker-main,
-.txn-picker-meta,
-.txn-picker-value {
-  display: flex;
-  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  grid-template-areas:
+    "description amount"
+    "meta meta";
+  column-gap: 0.75rem;
+  row-gap: 0.125rem;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 0.75rem;
+  width: 100%;
+  min-width: 0;
 }
 
 .txn-picker-description {
-  flex: 1 1 auto;
+  grid-area: description;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -214,7 +212,11 @@
 }
 
 .txn-picker-amount {
+  grid-area: amount;
+  justify-self: end;
   flex: 0 0 auto;
+  /* Wide enough for "-R$ 99.999,99" so amounts line up across rows. */
+  min-width: 6.5rem;
   font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: nowrap;
@@ -234,13 +236,17 @@
 }
 
 .txn-picker-meta {
-  justify-content: flex-start;
+  grid-area: meta;
+  display: flex;
+  min-width: 0;
   align-items: center;
+  gap: 0.5rem;
   font-size: 0.8125rem;
   color: var(--color-text-secondary);
 }
 
 .txn-picker-meta-text {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -253,10 +259,14 @@
   line-height: 1.25rem;
 }
 
-/* The closed control has one 32px line: description · date · amount. */
+/* The closed control has one 32px line: description · date · amount. Only
+   the description may shrink; the amount is pinned to the right edge. */
 .txn-picker-value {
-  justify-content: flex-start;
+  display: flex;
+  align-items: baseline;
   gap: 0.5rem;
+  min-width: 0;
+  width: 100%;
 }
 
 .txn-picker-value .txn-picker-description {
@@ -267,10 +277,12 @@
   flex-shrink: 0;
   color: var(--color-text-secondary);
   font-size: 0.8125rem;
+  white-space: nowrap;
 }
 
 .txn-picker-value .txn-picker-amount {
   margin-left: auto;
+  min-width: 0;
 }
 
 .txn-picker .ant-select-selection-item {
@@ -278,7 +290,10 @@
   align-items: center;
 }
 
-/* Let an antd option grow to two lines; its default is one clipped line. */
+/* Let an antd option grow to two lines; its default is one clipped line. The
+   content box is a flex item whose automatic minimum is its content's
+   min-content width — a nowrap description would make it wider than the
+   option and push the amount out of view — so pin `min-width: 0`. */
 .txn-picker-popup .ant-select-item-option {
   min-height: 48px;
   padding: 0.375rem 0.75rem;
@@ -287,8 +302,9 @@
 
 .txn-picker-popup .ant-select-item-option-content {
   display: block;
+  min-width: 0;
   white-space: normal;
-  overflow: visible;
+  overflow: hidden;
   text-overflow: clip;
 }
 
@@ -386,17 +402,19 @@
   border-bottom: 0;
 }
 
-/* Two lines of description on a phone, where one would cut too early. */
+/* Two lines of description on a phone, where one would cut too early; the
+   amount stays on the first line at its full width either way. */
 .txn-picker-option .txn-picker-description {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   white-space: normal;
+  overflow-wrap: anywhere;
   overflow: hidden;
 }
 
-.txn-picker-option .txn-picker-main {
-  align-items: flex-start;
+.txn-picker-option .txn-picker-row {
+  align-items: start;
 }
 
 .txn-picker-option.is-active {
