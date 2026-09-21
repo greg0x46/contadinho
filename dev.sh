@@ -84,5 +84,12 @@ start_process env CONTADINHO_DEV_API_URL="$backend_url" npm --prefix "$repo_dir/
 frontend_pid="$last_pid"
 
 status=0
-wait -n "$backend_pid" "$frontend_pid" || status=$?
+while kill -0 "$backend_pid" 2>/dev/null && kill -0 "$frontend_pid" 2>/dev/null; do
+  sleep 0.2
+done
+if ! kill -0 "$backend_pid" 2>/dev/null; then
+  wait "$backend_pid" || status=$?
+else
+  wait "$frontend_pid" || status=$?
+fi
 exit "$status"

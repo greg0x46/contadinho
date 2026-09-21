@@ -17,22 +17,23 @@ export function AuthGate({ children }: { children: ReactNode }) {
     wasAuthenticated.current = false;
     client.removeQueries({ predicate: (query) => query.queryKey[0] !== "auth-session" });
     client.getMutationCache().clear();
-    client.setQueryData(["auth-session"], { authenticated: false });
+    client.setQueryData(["auth-session"], { authenticated: false, authentication_enabled: true });
   }), [client]);
   // Another browser/tab can revoke the cookie's server-side session.
   useEffect(() => {
-    if (data?.authenticated === false && wasAuthenticated.current) {
+    if (data?.authentication_enabled !== false && data?.authenticated === false && wasAuthenticated.current) {
       wasAuthenticated.current = false;
       expireSession();
     }
-    if (data?.authenticated === true) wasAuthenticated.current = true;
-    if (data?.authenticated === false) {
+    if (data?.authentication_enabled === false) wasAuthenticated.current = false;
+    if (data?.authentication_enabled !== false && data?.authenticated === true) wasAuthenticated.current = true;
+    if (data?.authentication_enabled !== false && data?.authenticated === false) {
       void client.cancelQueries({ predicate: (query) => query.queryKey[0] !== "auth-session" });
       client.removeQueries({ predicate: (query) => query.queryKey[0] !== "auth-session" });
     }
-  }, [client, data?.authenticated]);
+  }, [client, data?.authenticated, data?.authentication_enabled]);
   if (isLoading) return <LoadingState>Verificando sessão…</LoadingState>;
   if (error || !data) return <UnavailableState onRetry={() => refetch()}>Não foi possível verificar sua sessão.</UnavailableState>;
-  if (!data.authenticated) return <LoginPage onDone={() => { void client.invalidateQueries({ queryKey: ["auth-session"] }); }} />;
+  if (data.authentication_enabled && !data.authenticated) return <LoginPage onDone={() => { void client.invalidateQueries({ queryKey: ["auth-session"] }); }} />;
   return <>{children}</>;
 }
