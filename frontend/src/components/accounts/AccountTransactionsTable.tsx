@@ -87,7 +87,7 @@ export function AccountTransactionsTable({
         }}
       />
       <Typography.Paragraph style={{ marginTop: 12 }}>
-        <Link to={`/transacoes?account_id=${encodeURIComponent(accountId)}`}>
+        <Link to={`/transacoes?account_ids=${encodeURIComponent(accountId)}`}>
           Ver todas as transações
         </Link>
       </Typography.Paragraph>

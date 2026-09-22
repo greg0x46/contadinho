@@ -488,7 +488,7 @@ describe("Category breakdown navigation", () => {
     const link = screen.getByRole("link", { name: /Mercado/ });
     const params = new URL(link.getAttribute("href")!, "http://localhost").searchParams;
     expect(params.get("classification")).toBe("inflow");
-    expect(params.get("category_id")).toBe("cat-mercado");
+    expect(params.get("category_ids")).toBe("cat-mercado");
     expect(params.get("date_from")).toBe(period.from);
     const uncategorized = screen.getByRole("link", { name: /Sem categoria/ });
     expect(uncategorized.getAttribute("href")).toContain("uncategorized=true");

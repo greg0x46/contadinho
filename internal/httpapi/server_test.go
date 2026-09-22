@@ -1030,9 +1030,42 @@ func TestQueryTransactionsOverHTTP(t *testing.T) {
 		}
 	}
 
+	// The legacy singular account_id and the plural account_ids are the same
+	// filter; a set that includes the account keeps the transaction, one
+	// that does not drops it.
+	delete(body["filters"].(map[string]any), "credit_card")
+	var accountID string
+	if err := conn.QueryRow(`SELECT account_id FROM financial_transactions WHERE id = ?`, txID).Scan(&accountID); err != nil {
+		t.Fatal(err)
+	}
+	for name, filters := range map[string]map[string]any{
+		"account_id":            {"account_id": accountID},
+		"account_ids":           {"account_ids": []string{"missing", accountID}},
+		"account_ids elsewhere": {"account_ids": []string{"missing"}},
+	} {
+		for k, v := range filters {
+			body["filters"].(map[string]any)[k] = v
+		}
+		resp = doJSON(t, http.MethodPost, srv.URL+"/api/transactions/query", body)
+		if resp.StatusCode != 200 {
+			t.Fatalf("%s: status %d", name, resp.StatusCode)
+		}
+		decodeJSON(t, resp, &result)
+		items, _ = result["items"].([]any)
+		want := 1
+		if name == "account_ids elsewhere" {
+			want = 0
+		}
+		if len(items) != want {
+			t.Errorf("%s: got %d items, want %d", name, len(items), want)
+		}
+		for k := range filters {
+			body["filters"].(map[string]any)[k] = nil
+		}
+	}
+
 	// An unknown classification is rejected up front instead of matching
 	// nothing.
-	delete(body["filters"].(map[string]any), "credit_card")
 	body["filters"].(map[string]any)["classification"] = "xpto"
 	resp = doJSON(t, http.MethodPost, srv.URL+"/api/transactions/query", body)
 	resp.Body.Close()
