@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   backend:
     name: Backend (Go)
@@ -37,3 +40,56 @@ jobs:
       - run: npm run typecheck
       - run: npm test -- --run
       - run: npm run build
+
+  release:
+    name: Release (linux/amd64)
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build
+        run: |
+          ./build.sh
+          mv contadinho contadinho-linux-amd64
+          sha256sum contadinho-linux-amd64 > SHA256SUMS
+
+      - name: Attest provenance
+        id: attest
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: contadinho-linux-amd64
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          cp "$BUNDLE_PATH" contadinho-linux-amd64.sigstore.json
+          tag="v$(date -u +%Y.%m.%d).${{ github.run_number }}"
+          printf '%s\n\n%s\n' "$GITHUB_SHA" "$COMMIT_MESSAGE" > notes.md
+          gh release create "$tag" \
+            --title "$tag" \
+            --notes-file notes.md \
+            --latest \
+            contadinho-linux-amd64 \
+            contadinho-linux-amd64.sigstore.json \
+            SHA256SUMS
