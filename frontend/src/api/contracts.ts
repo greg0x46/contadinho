@@ -103,8 +103,6 @@ export type CategoryKind = (typeof categoryKinds)[number];
 export const categoryOrigins = ["manual", "automatic", "rule", "learned"] as const;
 export type CategoryOrigin = (typeof categoryOrigins)[number];
 
-export type TransactionProviderStatus = "POSTED" | "PENDING";
-
 export interface TransactionFilters {
   origin?: "manual" | "synced" | null;
   card_balance?: boolean | null;
@@ -121,7 +119,6 @@ export interface TransactionFilters {
   account_ids: string[];
   category_ids: string[];
   classification: TransactionClassification | null;
-  provider_statuses: TransactionProviderStatus[];
   amount_min: string | null;
   amount_max: string | null;
   uncategorized: boolean | null;

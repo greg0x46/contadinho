@@ -142,14 +142,14 @@ describe("TransactionsPage", () => {
   it("restores filters and grouping from the URL, including older single-value links", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(transactionJsonResponse());
     renderPage(
-      `/transacoes?description=Mercado&provider_status=PENDING&account_id=${accountId}&category_ids=${categoryId},${categoryId}&group=day`,
+      `/transacoes?description=Mercado&classification=inflow&account_id=${accountId}&category_ids=${categoryId},${categoryId}&group=day`,
     );
     await screen.findByText("Mercado");
     const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(request.group_by).toBe("day");
     expect(request.filters).toMatchObject({
       description: "Mercado",
-      provider_statuses: ["PENDING"],
+      classification: "inflow",
       account_ids: [accountId],
       category_ids: [categoryId],
     });

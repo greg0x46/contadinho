@@ -39,7 +39,6 @@ function recentTransactionsQuery(accountId: string, timezone: string): Transacti
       account_ids: [accountId],
       category_ids: [],
       classification: null,
-      provider_statuses: [],
       amount_min: null,
       amount_max: null,
       uncategorized: null,

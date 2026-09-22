@@ -8,7 +8,6 @@ import {
   type ManualTransactionWrite,
   type TransactionFilters,
   type TransactionGrouping,
-  type TransactionProviderStatus,
   type TransactionQueryResult,
 } from "../api/contracts";
 import { filtersToSearchParams, listFromSearchParams } from "../components/filters/filterUrl";
@@ -81,9 +80,6 @@ function initialState(searchParams: URLSearchParams, period: Period): {
       )
         ? (classification as TransactionFilters["classification"])
         : null,
-      provider_statuses: list("provider_statuses", "provider_status").filter(
-        (status): status is TransactionProviderStatus => status === "POSTED" || status === "PENDING",
-      ),
       amount_min: amountMin && amountPattern.test(amountMin) ? amountMin : null,
       amount_max: amountMax && amountPattern.test(amountMax) ? amountMax : null,
       uncategorized: value("uncategorized") === "true" ? true : null,
