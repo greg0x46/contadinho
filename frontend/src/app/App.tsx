@@ -41,6 +41,14 @@ export function App() {
             // to pick up the theme's accent color.
             colorTextMenuSelected: colors.primary,
             colorBgMenuItemSelected: `${colors.primary}1f`,
+            // Defaults to fully transparent, and pro-layout paints this
+            // straight onto the fixed sider's own DOM node via its
+            // CSS-in-JS, which wins the cascade over the opaque background
+            // global.css sets on .ant-pro-sider — scrolling page content
+            // then shows through the "solid" sider. Same class of bug the
+            // header comment below already works around; fix it the same
+            // way, via the token instead of CSS.
+            colorMenuBackground: colors.bgContainer,
           },
         }}
         location={location}
