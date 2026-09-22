@@ -3,7 +3,6 @@ import { useMemo, type ReactNode } from "react";
 
 import type {
   TransactionFilters as Filters,
-  TransactionProviderStatus,
   TransactionQueryResult,
 } from "../../api/contracts";
 import {
@@ -20,11 +19,6 @@ import { formatBRL } from "../../presentation/money";
 import { classificationLabel } from "../../presentation/transactionStatus";
 
 type Movement = "all" | "inflow" | "outflow";
-
-const statusOptions: { value: TransactionProviderStatus; label: string }[] = [
-  { value: "POSTED", label: "Confirmada" },
-  { value: "PENDING", label: "Pendente" },
-];
 
 /** The chip: one name, or how many were picked ("3 contas"). */
 const chipSummary =
@@ -155,15 +149,6 @@ export function TransactionFilters({
         formatActive: () => "Sem categoria",
       },
       {
-        key: "provider_statuses",
-        label: "Situação",
-        type: "multiselect",
-        placement: "advanced",
-        placeholder: "Todas as situações",
-        options: statusOptions,
-        formatActive: chipSummary("situações", "Situação"),
-      },
-      {
         key: "amount_min",
         secondaryKey: "amount_max",
         label: "Valor",
@@ -283,24 +268,6 @@ export function TransactionFilters({
                 Sem categoria
               </Checkbox>
             </div>
-          </FilterSection>
-
-          <FilterSection title="Situação">
-            <FilterField id="filter-provider_statuses" label="Situação" hideLabel>
-              <FilterCombobox
-                multiple
-                id="filter-provider_statuses"
-                label="Situações"
-                placeholder="Todas as situações"
-                searchPlaceholder="Buscar situação…"
-                countLabel={(count) =>
-                  count === 1 ? "1 situação selecionada" : `${count} situações selecionadas`
-                }
-                options={statusOptions}
-                value={draft.provider_statuses}
-                onChange={(value) => set("provider_statuses", value as TransactionProviderStatus[])}
-              />
-            </FilterField>
           </FilterSection>
 
           <FilterSection title="Valor">

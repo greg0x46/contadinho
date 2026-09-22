@@ -28,7 +28,6 @@ export function currentMonthFilters(now = new Date()): TransactionFilters {
     card_balance: null,
     category_ids: [],
     classification: null,
-    provider_statuses: [],
     amount_min: null,
     amount_max: null,
     uncategorized: null,

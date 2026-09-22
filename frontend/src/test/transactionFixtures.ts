@@ -16,7 +16,6 @@ export const transactionQuery: TransactionQuery = {
     account_ids: [],
     category_ids: [],
     classification: null,
-    provider_statuses: [],
     amount_min: null,
     amount_max: null,
     uncategorized: null,
