@@ -6,6 +6,8 @@ import { describe, expect, it, vi } from "vitest";
 import { TransactionsPage } from "./TransactionsPage";
 import { QueryTestProvider } from "../test/QueryTestProvider";
 import {
+  accountId,
+  categoryId,
   ignoredTransactionResult,
   transactionId,
   transactionJsonResponse,
@@ -137,16 +139,22 @@ describe("TransactionsPage", () => {
     });
   });
 
-  it("restores filters and grouping from the URL", async () => {
+  it("restores filters and grouping from the URL, including older single-value links", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(transactionJsonResponse());
-    renderPage("/transacoes?description=Mercado&provider_status=PENDING&group=day");
+    renderPage(
+      `/transacoes?description=Mercado&provider_status=PENDING&account_id=${accountId}&category_ids=${categoryId},${categoryId}&group=day`,
+    );
     await screen.findByText("Mercado");
     const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(request.group_by).toBe("day");
     expect(request.filters).toMatchObject({
       description: "Mercado",
-      provider_status: "PENDING",
+      provider_statuses: ["PENDING"],
+      account_ids: [accountId],
+      category_ids: [categoryId],
     });
+    // Three filter groups are active, whatever the number of values.
+    expect(screen.getByRole("button", { name: "Filtros 3" })).toBeVisible();
   });
 
   it("refreshes the complete backend snapshot after ignore without changing structural counts", async () => {

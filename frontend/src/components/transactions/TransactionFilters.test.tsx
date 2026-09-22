@@ -12,7 +12,7 @@ describe("TransactionFilters", () => {
     const onApply = vi.fn();
     render(
       <TransactionFilters
-        applied={{ ...currentMonthFilters(new Date(2026, 6, 30)), category_id: "category" }}
+        applied={{ ...currentMonthFilters(new Date(2026, 6, 30)), category_ids: ["category"] }}
         facets={undefined}
         onApply={onApply}
         onClear={vi.fn()}
@@ -26,7 +26,7 @@ describe("TransactionFilters", () => {
       expect(onApply).toHaveBeenLastCalledWith(
         expect.objectContaining({
           description: "Mercado",
-          category_id: "category",
+          category_ids: ["category"],
           date_from: "2026-07-01",
           date_to: "2026-07-31",
         }),
@@ -63,7 +63,7 @@ describe("TransactionFilters", () => {
       />,
     );
     await user.click(screen.getByRole("button", { name: "Filtros" }));
-    await user.click(screen.getByLabelText("Somente transações sem categoria"));
+    await user.click(screen.getByRole("checkbox", { name: "Sem categoria" }));
     await user.click(screen.getByRole("button", { name: "Aplicar" }));
     expect(onApply).toHaveBeenLastCalledWith(
       expect.objectContaining({ uncategorized: true }),
@@ -86,6 +86,7 @@ describe("TransactionFilters", () => {
   });
 
   it("validates value ranges numerically and accepts a single limit", async () => {
+    // The money inputs are a cents mask: "10000" reads as R$ 100,00.
     const user = userEvent.setup();
     const applied = currentMonthFilters(new Date(2026, 6, 30));
     const onApply = vi.fn();
@@ -99,8 +100,9 @@ describe("TransactionFilters", () => {
       />,
     );
     await user.click(screen.getByRole("button", { name: "Filtros" }));
-    await user.type(screen.getByLabelText("Valor mínimo"), "100");
-    await user.type(screen.getByLabelText("Valor máximo"), "20");
+    await user.type(screen.getByLabelText("Valor mínimo"), "10000");
+    expect(screen.getByLabelText("Valor mínimo")).toHaveValue("R$\u00a0100,00");
+    await user.type(screen.getByLabelText("Valor máximo"), "2000");
     await user.click(screen.getByRole("button", { name: "Aplicar" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("mínimo");
     expect(onApply).not.toHaveBeenCalled();
@@ -108,15 +110,15 @@ describe("TransactionFilters", () => {
     await user.clear(screen.getByLabelText("Valor máximo"));
     await user.click(screen.getByRole("button", { name: "Aplicar" }));
     expect(onApply).toHaveBeenCalledWith(
-      expect.objectContaining({ amount_min: "100", amount_max: null }),
+      expect.objectContaining({ amount_min: "100.00", amount_max: null }),
     );
   }, 30_000);
 
-  it("filters by category_id when a category option is selected", async () => {
+  it("filters by several categories at once, and the panel counts them as one filter", async () => {
     const user = userEvent.setup();
     const applied = currentMonthFilters(new Date(2026, 6, 30));
     const onApply = vi.fn();
-    render(
+    const view = render(
       <TransactionFilters
         applied={applied}
         emptyValues={applied}
@@ -125,6 +127,7 @@ describe("TransactionFilters", () => {
           institutions: [],
           categories: [
             { id: "cat-expense", name: "Compras", kind: "expense", is_active: true, icon: "shopping", color: "#e64980" },
+            { id: "cat-food", name: "Alimentação", kind: "expense", is_active: true, icon: "coffee", color: "#e67e22" },
           ],
         }}
         onApply={onApply}
@@ -132,14 +135,66 @@ describe("TransactionFilters", () => {
       />,
     );
     await user.click(screen.getByRole("button", { name: "Filtros" }));
-    await user.click(await screen.findByRole("combobox", { name: "Categoria" }));
-    await user.click(await screen.findByText("Despesa: Compras"));
+    await user.click(await screen.findByRole("button", { name: "Categoria" }));
+    // Picking does not close the list: both go in before leaving.
+    await user.click(await screen.findByRole("option", { name: "Despesa: Compras" }));
+    await user.click(screen.getByRole("option", { name: "Despesa: Alimentação" }));
+    expect(screen.getByRole("option", { name: "Despesa: Compras" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("2 categorias selecionadas")).toBeVisible();
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("button", { name: "Categoria" })).toHaveTextContent("Despesa: Compras +1");
     await user.click(screen.getByRole("button", { name: "Aplicar" }));
     await waitFor(() =>
       expect(onApply).toHaveBeenLastCalledWith(
-        expect.objectContaining({ category_id: "cat-expense" }),
+        expect.objectContaining({ category_ids: ["cat-expense", "cat-food"] }),
       ),
     );
+
+    view.rerender(
+      <TransactionFilters
+        applied={{ ...applied, category_ids: ["cat-expense", "cat-food"], classification: "inflow" }}
+        emptyValues={applied}
+        facets={{ accounts: [], institutions: [], categories: [] }}
+        onApply={onApply}
+        onClear={vi.fn()}
+      />,
+    );
+    // Two categories and a movement are two active filters, not three.
+    expect(screen.getByRole("button", { name: "Filtros 2" })).toBeVisible();
+  });
+
+  it("navigates the account list by keyboard and summarizes long selections", async () => {
+    const user = userEvent.setup();
+    const applied = currentMonthFilters(new Date(2026, 6, 30));
+    const accounts = ["Nubank", "Itaú", "Inter", "XP"].map((name, index) => ({
+      id: `acc-${index}`,
+      name,
+      institution: null,
+    }));
+    render(
+      <TransactionFilters
+        applied={applied}
+        emptyValues={applied}
+        facets={{ accounts, institutions: [], categories: [] }}
+        onApply={vi.fn()}
+        onClear={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Filtros" }));
+    await user.click(await screen.findByRole("button", { name: "Conta" }));
+    const search = await screen.findByRole("combobox", { name: "Buscar em Contas" });
+    await waitFor(() => expect(search).toHaveFocus());
+    await user.keyboard("{Enter}{ArrowDown}{Enter}{ArrowDown}{Enter}");
+    expect(screen.getByText("3 contas selecionadas")).toBeVisible();
+    await user.type(search, "xp");
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    await user.keyboard("{Enter}");
+    await user.clear(search);
+    expect(screen.getByRole("option", { name: "Nubank" })).toHaveAttribute("aria-selected", "true");
+    await user.keyboard("{Escape}");
+    const trigger = screen.getByRole("button", { name: "Conta" });
+    expect(trigger).toHaveFocus();
+    expect(trigger).toHaveTextContent("Nubank +3");
   });
 
   it("groups category options by kind, sorting inactive categories last within their kind", () => {

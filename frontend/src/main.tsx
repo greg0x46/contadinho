@@ -15,6 +15,7 @@ import "./styles/sync-runs.css";
 import "./styles/period.css";
 import "./styles/layout.css";
 import "./styles/transactions.css";
+import "./styles/filters.css";
 import "./styles/panel.css";
 import "./styles/categories.css";
 import "./styles/home.css";

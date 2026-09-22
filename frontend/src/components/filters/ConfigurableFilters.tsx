@@ -1,18 +1,13 @@
-import {
-  Button,
-  Checkbox,
-  Drawer,
-  Form,
-  InputNumber,
-  Segmented,
-  Select,
-  Tag,
-} from "antd";
+import { Button, Checkbox, Tag } from "antd";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { FilterButton } from "../layout/FilterButton";
 import { ListToolbar } from "../layout/ListToolbar";
 import { SearchField } from "../layout/SearchField";
+import { FilterCombobox } from "./FilterCombobox";
+import { FilterField, FilterPanel } from "./FilterPanel";
+import { MoneyRangeFilter } from "./MoneyRangeFilter";
+import { SegmentedControl } from "./SegmentedControl";
 
 export type FilterFieldType =
   | "text"
@@ -41,9 +36,22 @@ export interface FilterConfig<Values extends object> {
   debounceMs?: number;
   options?: FilterOption[] | ((values: Values) => FilterOption[]);
   hideChip?: boolean;
-  formatActive?: (value: unknown, values: Values, option?: FilterOption) => string;
+  /**
+   * The chip's text. `selected` holds the option(s) the value names — one
+   * for a select, several for a multiselect, none for the other types.
+   */
+  formatActive?: (value: unknown, values: Values, selected: FilterOption[]) => string;
   /** Optional richer rendering (e.g. icon + color) for each dropdown option. */
   optionRender?: (option: FilterOption) => ReactNode;
+}
+
+/** What a custom advanced layout gets to work with. */
+export interface AdvancedFilterProps<Values extends object> {
+  draft: Values;
+  /** Sets one field of the draft; the panel applies the whole draft at once. */
+  set: <Key extends Extract<keyof Values, string>>(key: Key, value: Values[Key]) => void;
+  /** The range validation message, if the draft currently fails it. */
+  error: string | null;
 }
 
 type Props<Values extends object> = {
@@ -56,6 +64,12 @@ type Props<Values extends object> = {
   onClear: () => void;
   /** The shaping side of the toolbar (group by, sort), owned by the caller. */
   end?: ReactNode;
+  /**
+   * The advanced panel's layout. Without it every advanced field is
+   * rendered in config order; with it the caller groups them as it likes,
+   * while the counting, chips, draft and validation stay here.
+   */
+  renderAdvanced?: (props: AdvancedFilterProps<Values>) => ReactNode;
 };
 
 const read = <Values extends object>(
@@ -77,16 +91,25 @@ function fieldOptions<Values extends object>(
   return field.options ?? [];
 }
 
+function isPresent(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "boolean") return value;
+  return value !== null && value !== undefined && value !== "";
+}
+
+/**
+ * One field is one filter, however many values it holds: three accounts
+ * picked in the account filter count once, and a range counts once even
+ * when both ends are set.
+ */
 function fieldIsActive<Values extends object>(
   field: FilterConfig<Values>,
   values: Values,
 ): boolean {
-  const value = read(values, field.key);
-  const secondary = field.secondaryKey ? read(values, field.secondaryKey) : null;
-  if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === "boolean") return value;
-  return value !== null && value !== undefined && value !== "" ||
-    secondary !== null && secondary !== undefined && secondary !== "";
+  return (
+    isPresent(read(values, field.key)) ||
+    (field.secondaryKey !== undefined && isPresent(read(values, field.secondaryKey)))
+  );
 }
 
 function replaceField<Values extends object>(
@@ -124,6 +147,7 @@ export function ConfigurableFilters<Values extends object>({
   onApply,
   onClear,
   end,
+  renderAdvanced,
 }: Props<Values>) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [quickValues, setQuickValues] = useState(values);
@@ -144,7 +168,9 @@ export function ConfigurableFilters<Values extends object>({
 
   const mainFields = config.filter((field) => field.placement === "main");
   const advancedFields = config.filter((field) => field.placement === "advanced");
+  // One source for the toolbar button and the panel header alike.
   const advancedCount = advancedFields.filter((field) => fieldIsActive(field, values)).length;
+  const draftHasAdvanced = advancedFields.some((field) => fieldIsActive(field, draft));
   const chips = config.filter(
     (field) => !field.hideChip && fieldIsActive(field, values),
   );
@@ -170,7 +196,7 @@ export function ConfigurableFilters<Values extends object>({
     return next;
   };
 
-  const validate = (candidate: Values): boolean => {
+  const rangeError = (candidate: Values): string | null => {
     for (const field of config) {
       if (!field.secondaryKey) continue;
       const first = read(candidate, field.key);
@@ -182,12 +208,15 @@ export function ConfigurableFilters<Values extends object>({
         second !== "" &&
         compareDecimalStrings(first, second) > 0
       ) {
-        setError("O valor mínimo não pode ser maior que o valor máximo.");
-        return false;
+        return "O valor mínimo não pode ser maior que o valor máximo.";
       }
     }
-    setError(null);
-    return true;
+    return null;
+  };
+  const validate = (candidate: Values): boolean => {
+    const message = rangeError(candidate);
+    setError(message);
+    return message === null;
   };
 
   const applyQuick = (
@@ -206,6 +235,35 @@ export function ConfigurableFilters<Values extends object>({
     }
   };
 
+  const setDraftField: AdvancedFilterProps<Values>["set"] = (key, value) => {
+    setDraft((current) => {
+      const next = write(current, key, value);
+      // A range that stops being inconsistent clears its message as you type;
+      // becoming inconsistent only reports on Aplicar.
+      if (error && rangeError(next) === null) setError(null);
+      return next;
+    });
+  };
+
+  const closeAdvanced = () => {
+    setDraft(values);
+    setError(null);
+    setAdvancedOpen(false);
+  };
+  const clearAdvanced = () => {
+    let next = draft;
+    for (const field of advancedFields) {
+      next = replaceField(next, field, emptyValues);
+    }
+    setDraft(next);
+    setError(null);
+  };
+  const applyAdvanced = () => {
+    if (!validate(draft)) return;
+    onApply(draft);
+    setAdvancedOpen(false);
+  };
+
   const renderField = (
     field: FilterConfig<Values>,
     source: Values,
@@ -222,76 +280,75 @@ export function ConfigurableFilters<Values extends object>({
 
     if (field.type === "value-range") {
       return (
-        <Form.Item key={field.key} label={field.label}>
-          <div className="filter-value-range">
-            <InputNumber
-              id={`${id}-min`}
-              aria-label="Valor mínimo"
-              stringMode
-              min="0"
-              controls={false}
-              placeholder="Mínimo"
-              value={typeof value === "string" ? value : null}
-              onChange={(next) => commit(next, secondary)}
-            />
-            <span aria-hidden="true">até</span>
-            <InputNumber
-              id={`${id}-max`}
-              aria-label="Valor máximo"
-              stringMode
-              min="0"
-              controls={false}
-              placeholder="Máximo"
-              value={typeof secondary === "string" ? secondary : null}
-              onChange={(next) => commit(value, next)}
-            />
-          </div>
-        </Form.Item>
+        <FilterField key={field.key} id={`${id}-min`} label={field.label}>
+          <MoneyRangeFilter
+            id={id}
+            min={typeof value === "string" ? value : null}
+            max={typeof secondary === "string" ? secondary : null}
+            onChange={(min, max) => commit(min, max)}
+            error={error}
+          />
+        </FilterField>
       );
     }
 
     if (field.type === "boolean") {
       return (
-        <Form.Item key={field.key}>
-          <Checkbox checked={value === true} onChange={(event) => commit(event.target.checked)}>
-            {field.label}
-          </Checkbox>
-        </Form.Item>
+        <Checkbox
+          key={field.key}
+          className="filter-checkbox"
+          checked={value === true}
+          onChange={(event) => commit(event.target.checked)}
+        >
+          {field.label}
+        </Checkbox>
       );
     }
 
     if (field.type === "segmented") {
       return (
-        <Form.Item key={field.key} label={field.label}>
-          <Segmented
-            block
-            value={typeof value === "string" && value ? value : options[0]?.value}
+        <FilterField key={field.key} id={id} label={field.label}>
+          <SegmentedControl
+            id={id}
+            label={field.label}
+            value={typeof value === "string" && value ? value : options[0]?.value ?? ""}
             options={options}
             onChange={commit}
           />
-        </Form.Item>
+        </FilterField>
       );
     }
 
-    if (field.type === "select" || field.type === "multiselect") {
+    if (field.type === "multiselect") {
       return (
-        <div className="filter-field" key={field.key}>
-          <label htmlFor={id}>{field.label}</label>
-          <Select
+        <FilterField key={field.key} id={id} label={field.label}>
+          <FilterCombobox
+            multiple
             id={id}
-            aria-label={field.label}
-            mode={field.type === "multiselect" ? "multiple" : undefined}
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            placeholder={field.placeholder}
-            value={value === null ? undefined : value as string | string[]}
+            label={field.label}
+            placeholder={field.placeholder ?? field.label}
             options={options}
-            optionRender={field.optionRender ? (option) => field.optionRender!(option.data as FilterOption) : undefined}
-            notFoundContent="Nenhuma opção disponível"
-            onChange={(next) => commit(next ?? null)}
+            optionRender={field.optionRender}
+            value={Array.isArray(value) ? (value as string[]) : []}
+            onChange={commit}
           />
-        </div>
+        </FilterField>
+      );
+    }
+
+    if (field.type === "select") {
+      return (
+        <FilterField key={field.key} id={id} label={field.label}>
+          <FilterCombobox
+            id={id}
+            label={field.label}
+            placeholder={field.placeholder ?? field.label}
+            options={options}
+            optionRender={field.optionRender}
+            value={typeof value === "string" ? value : null}
+            onChange={commit}
+          />
+        </FilterField>
       );
     }
 
@@ -311,10 +368,11 @@ export function ConfigurableFilters<Values extends object>({
     <div className="list-toolbar-chips" aria-label="Filtros ativos">
       {chips.map((field) => {
         const value = read(values, field.key);
-        const option = optionsByKey[field.key]?.find((item) => item.value === value);
+        const wanted = Array.isArray(value) ? (value as unknown[]) : [value];
+        const selected = optionsByKey[field.key]?.filter((item) => wanted.includes(item.value)) ?? [];
         const shown = field.formatActive
-          ? field.formatActive(value, values, option)
-          : option?.label ?? `${field.label}: ${String(value)}`;
+          ? field.formatActive(value, values, selected)
+          : selected.map((item) => item.label).join(", ") || `${field.label}: ${String(value)}`;
         return (
           <Tag
             key={field.key}
@@ -348,50 +406,22 @@ export function ConfigurableFilters<Values extends object>({
         end={end}
         chips={chipList || undefined}
       />
-      <Drawer
-        title="Filtros avançados"
-        placement="right"
-        width={400}
+      <FilterPanel
         open={advancedOpen}
-        onClose={() => {
-          setDraft(values);
-          setError(null);
-          setAdvancedOpen(false);
-        }}
-        footer={
-          <div className="advanced-filter-actions">
-            <Button
-              onClick={() => {
-                let next = draft;
-                for (const field of advancedFields) {
-                  next = replaceField(next, field, emptyValues);
-                }
-                setDraft(next);
-                setError(null);
-              }}
-            >
-              Limpar filtros
-            </Button>
-            <Button
-              type="primary"
-              onClick={() => {
-                if (!validate(draft)) return;
-                onApply(draft);
-                setAdvancedOpen(false);
-              }}
-            >
-              Aplicar
-            </Button>
-          </div>
-        }
+        onClose={closeAdvanced}
+        activeCount={advancedCount}
+        onClear={clearAdvanced}
+        clearDisabled={!draftHasAdvanced}
+        onApply={applyAdvanced}
       >
-        <Form layout="vertical">
-          <div className="advanced-filter-fields">
+        {renderAdvanced ? (
+          renderAdvanced({ draft, set: setDraftField, error })
+        ) : (
+          <div className="filter-section-body">
             {advancedFields.map((field) => renderField(field, draft, false))}
           </div>
-          {error && <p role="alert">{error}</p>}
-        </Form>
-      </Drawer>
+        )}
+      </FilterPanel>
     </>
   );
 }

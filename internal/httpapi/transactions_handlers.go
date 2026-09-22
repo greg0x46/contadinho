@@ -27,14 +27,43 @@ type transactionFiltersRequest struct {
 	DateFrom       *string `json:"date_from"`
 	DateTo         *string `json:"date_to"`
 	Description    *string `json:"description"`
-	AccountID      *string `json:"account_id"`
-	Institution    *string `json:"institution"`
-	CategoryID     *string `json:"category_id"`
-	Classification *string `json:"classification"`
-	ProviderStatus *string `json:"provider_status"`
-	AmountMin      *string `json:"amount_min"`
-	AmountMax      *string `json:"amount_max"`
-	Uncategorized  *bool   `json:"uncategorized"`
+	// The singular fields are the original contract and still work; the
+	// plural ones are "any of" sets (see transactions.Filters). Both spellings
+	// of one field are merged, so a client sending only account_id gets the
+	// same result as before.
+	AccountID        *string  `json:"account_id"`
+	AccountIDs       []string `json:"account_ids"`
+	Institution      *string  `json:"institution"`
+	Institutions     []string `json:"institutions"`
+	CategoryID       *string  `json:"category_id"`
+	CategoryIDs      []string `json:"category_ids"`
+	Classification   *string  `json:"classification"`
+	ProviderStatus   *string  `json:"provider_status"`
+	ProviderStatuses []string `json:"provider_statuses"`
+	AmountMin        *string  `json:"amount_min"`
+	AmountMax        *string  `json:"amount_max"`
+	Uncategorized    *bool    `json:"uncategorized"`
+}
+
+// anyOfSet merges a legacy single value with its plural form into one
+// de-duplicated set, dropping blanks so `""` never filters everything out.
+func anyOfSet(single *string, many []string) []string {
+	var set []string
+	seen := make(map[string]bool)
+	add := func(v string) {
+		if v == "" || seen[v] {
+			return
+		}
+		seen[v] = true
+		set = append(set, v)
+	}
+	if single != nil {
+		add(*single)
+	}
+	for _, v := range many {
+		add(v)
+	}
+	return set
 }
 
 type transactionQueryRequest struct {
@@ -90,9 +119,9 @@ func toFilters(req transactionFiltersRequest) (transactions.Filters, *Problem) {
 		f.DateFrom, f.DateTo = &from, &to
 	}
 	f.Description = req.Description
-	f.AccountID = req.AccountID
-	f.Institution = req.Institution
-	f.CategoryID = req.CategoryID
+	f.AccountIDs = anyOfSet(req.AccountID, req.AccountIDs)
+	f.Institutions = anyOfSet(req.Institution, req.Institutions)
+	f.CategoryIDs = anyOfSet(req.CategoryID, req.CategoryIDs)
 	if req.Classification != nil {
 		switch c := money.Classification(*req.Classification); c {
 		case money.Inflow, money.Outflow, money.Unclassified:
@@ -101,7 +130,7 @@ func toFilters(req transactionFiltersRequest) (transactions.Filters, *Problem) {
 			return f, invalid("invalid-classification", "Classificação inválida", "Use inflow, outflow ou unclassified.")
 		}
 	}
-	f.ProviderStatus = req.ProviderStatus
+	f.ProviderStatuses = anyOfSet(req.ProviderStatus, req.ProviderStatuses)
 	if req.AmountMin != nil {
 		v, err := decimal.NewFromString(*req.AmountMin)
 		if err != nil {

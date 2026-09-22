@@ -398,26 +398,20 @@ func matches(v view, f Filters, bounds *dateBounds) bool {
 			return false
 		}
 	}
-	if f.AccountID != nil && v.row.accountID != *f.AccountID {
+	if len(f.AccountIDs) > 0 && !anyOf(f.AccountIDs, &v.row.accountID) {
 		return false
 	}
-	if f.Institution != nil {
-		if v.row.accountInstitution == nil || *v.row.accountInstitution != *f.Institution {
-			return false
-		}
+	if len(f.Institutions) > 0 && !anyOf(f.Institutions, v.row.accountInstitution) {
+		return false
 	}
-	if f.CategoryID != nil {
-		if v.row.categoryDecisionCategoryID == nil || *v.row.categoryDecisionCategoryID != *f.CategoryID {
-			return false
-		}
+	if len(f.CategoryIDs) > 0 && !anyOf(f.CategoryIDs, v.row.categoryDecisionCategoryID) {
+		return false
 	}
 	if f.Uncategorized && v.row.categoryDecisionCategoryID != nil {
 		return false
 	}
-	if f.ProviderStatus != nil {
-		if v.row.providerStatus == nil || *v.row.providerStatus != *f.ProviderStatus {
-			return false
-		}
+	if len(f.ProviderStatuses) > 0 && !anyOf(f.ProviderStatuses, v.row.providerStatus) {
+		return false
 	}
 	if f.AmountMin != nil || f.AmountMax != nil {
 		if v.effective == nil {
@@ -435,6 +429,20 @@ func matches(v view, f Filters, bounds *dateBounds) bool {
 		return false
 	}
 	return true
+}
+
+// anyOf reports whether value is one of wanted. A nil value (the row has no
+// institution, category or status) never matches a non-empty set.
+func anyOf(wanted []string, value *string) bool {
+	if value == nil {
+		return false
+	}
+	for _, w := range wanted {
+		if w == *value {
+			return true
+		}
+	}
+	return false
 }
 
 type dateBounds struct {

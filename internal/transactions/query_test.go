@@ -86,13 +86,65 @@ func TestQueryFilterByAccount(t *testing.T) {
 
 	result, err := transactions.Query(context.Background(), f.conn, transactions.QueryRequest{
 		Timezone: "UTC", GroupBy: money.GroupNone, Page: 1, PageSize: 50,
-		Filters: transactions.Filters{AccountID: &accA},
+		Filters: transactions.Filters{AccountIDs: []string{accA}},
 	})
 	if err != nil {
 		t.Fatalf("Query: %v", err)
 	}
 	if len(result.Items) != 1 || result.Items[0].ID != idA {
 		t.Errorf("expected only transaction %s, got %+v", idA, result.Items)
+	}
+
+	// Several accounts are an OR: a transaction from any of them stays.
+	result, err = transactions.Query(context.Background(), f.conn, transactions.QueryRequest{
+		Timezone: "UTC", GroupBy: money.GroupNone, Page: 1, PageSize: 50,
+		Filters: transactions.Filters{AccountIDs: []string{accA, accB}},
+	})
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(result.Items) != 2 {
+		t.Errorf("expected both accounts' transactions, got %+v", result.Items)
+	}
+}
+
+func TestQueryFilterByCategoriesAndStatuses(t *testing.T) {
+	f := newFixture(t)
+	acc := f.addAccount(account{CurrencyCode: strp("BRL")})
+	occurred := time.Now().UTC()
+
+	market := f.addTransaction(txn{AccountID: acc, Amount: strp("-30.00"), AmountInAccountCurrency: strp("-30.00"), CurrencyCode: strp("BRL"), OccurredAt: &occurred, ProviderStatus: strp("POSTED"), MovementType: strp("DEBIT")})
+	f.setCategory(market, categorySupermercado)
+	salary := f.addTransaction(txn{AccountID: acc, Amount: strp("1000.00"), AmountInAccountCurrency: strp("1000.00"), CurrencyCode: strp("BRL"), OccurredAt: &occurred, ProviderStatus: strp("PENDING"), MovementType: strp("CREDIT")})
+	f.setCategory(salary, categorySalario)
+	// Uncategorized, so it never matches a category set.
+	f.addTransaction(txn{AccountID: acc, Amount: strp("-15.00"), AmountInAccountCurrency: strp("-15.00"), CurrencyCode: strp("BRL"), OccurredAt: &occurred, ProviderStatus: strp("POSTED"), MovementType: strp("DEBIT")})
+
+	query := func(filters transactions.Filters) []string {
+		t.Helper()
+		result, err := transactions.Query(context.Background(), f.conn, transactions.QueryRequest{
+			Timezone: "UTC", GroupBy: money.GroupNone, Page: 1, PageSize: 50, Filters: filters,
+		})
+		if err != nil {
+			t.Fatalf("Query: %v", err)
+		}
+		ids := make([]string, 0, len(result.Items))
+		for _, item := range result.Items {
+			ids = append(ids, item.ID)
+		}
+		return ids
+	}
+
+	if got := query(transactions.Filters{CategoryIDs: []string{categorySupermercado, categorySalario}}); len(got) != 2 {
+		t.Errorf("two categories: got %v, want both categorized transactions", got)
+	}
+	if got := query(transactions.Filters{ProviderStatuses: []string{"POSTED", "PENDING"}}); len(got) != 3 {
+		t.Errorf("both statuses: got %v, want all three", got)
+	}
+	// Across fields the filter is still an AND.
+	got := query(transactions.Filters{CategoryIDs: []string{categorySupermercado, categorySalario}, ProviderStatuses: []string{"PENDING"}})
+	if len(got) != 1 || got[0] != salary {
+		t.Errorf("categories AND status: got %v, want only %s", got, salary)
 	}
 }
 
@@ -506,7 +558,7 @@ func TestQueryCreditCardFilter(t *testing.T) {
 			t.Fatalf("unexpected filtered totals: %+v", result.Totals)
 		}
 	}
-	result, err := transactions.Query(context.Background(), f.conn, transactions.QueryRequest{Timezone: "UTC", GroupBy: money.GroupNone, Page: 1, PageSize: 50, Filters: transactions.Filters{CreditCard: true, AccountID: &cardAccount}})
+	result, err := transactions.Query(context.Background(), f.conn, transactions.QueryRequest{Timezone: "UTC", GroupBy: money.GroupNone, Page: 1, PageSize: 50, Filters: transactions.Filters{CreditCard: true, AccountIDs: []string{cardAccount}}})
 	if err != nil || len(result.Items) != 1 {
 		t.Fatalf("combined account filter: %+v, %v", result, err)
 	}

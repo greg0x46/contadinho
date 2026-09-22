@@ -30,7 +30,7 @@ function transactionLink(period: Period, classification: CategoryDirection, item
   const params = filtersToSearchParams({
     ...(period.from === null ? { period: "all" } : { date_from: period.from, date_to: period.to }),
     classification,
-    category_id: item?.category_id ?? null,
+    category_ids: item?.category_id ? [item.category_id] : [],
     uncategorized: item ? item.category_id === null : null,
   });
   return `/transacoes?${params}`;

@@ -8,9 +8,10 @@ import {
   type ManualTransactionWrite,
   type TransactionFilters,
   type TransactionGrouping,
+  type TransactionProviderStatus,
   type TransactionQueryResult,
 } from "../api/contracts";
-import { filtersToSearchParams } from "../components/filters/filterUrl";
+import { filtersToSearchParams, listFromSearchParams } from "../components/filters/filterUrl";
 import { PeriodNavigator } from "../components/filters/PeriodNavigator";
 import { periodPresets } from "../components/filters/periodPresets";
 import { DataCard, GroupBySelect, Page } from "../components/layout";
@@ -55,10 +56,11 @@ function initialState(searchParams: URLSearchParams, period: Period): {
 } {
   const defaults = currentMonthFilters();
   const value = (key: keyof TransactionFilters) => searchParams.get(key);
-  const accountId = value("account_id");
-  const categoryId = value("category_id");
+  // The plural keys are what the page writes; the singular ones keep links
+  // minted before filters accepted several values working.
+  const list = (plural: keyof TransactionFilters, singular: string) =>
+    listFromSearchParams(searchParams, plural, singular);
   const classification = value("classification");
-  const status = value("provider_status");
   const amountPattern = /^(0|[1-9]\d*)(\.\d+)?$/;
   const amountMin = value("amount_min");
   const amountMax = value("amount_max");
@@ -72,16 +74,16 @@ function initialState(searchParams: URLSearchParams, period: Period): {
       date_from: period.from,
       date_to: period.to,
       description: value("description"),
-      account_id: accountId && isUuid(accountId) ? accountId : null,
-      institution: value("institution"),
-      category_id: categoryId && isUuid(categoryId) ? categoryId : null,
+      account_ids: list("account_ids", "account_id").filter(isUuid),
+      category_ids: list("category_ids", "category_id").filter(isUuid),
       classification: classifications.includes(
         classification as (typeof classifications)[number],
       )
         ? (classification as TransactionFilters["classification"])
         : null,
-      provider_status:
-        status === "POSTED" || status === "PENDING" ? status : null,
+      provider_statuses: list("provider_statuses", "provider_status").filter(
+        (status): status is TransactionProviderStatus => status === "POSTED" || status === "PENDING",
+      ),
       amount_min: amountMin && amountPattern.test(amountMin) ? amountMin : null,
       amount_max: amountMax && amountPattern.test(amountMax) ? amountMax : null,
       uncategorized: value("uncategorized") === "true" ? true : null,
@@ -187,7 +189,9 @@ export function TransactionsPage() {
     apply({ ...filters, date_from: from, date_to: to });
   };
   const clear = () => apply({ ...initialFilters, date_from: filters.date_from, date_to: filters.date_to });
-  const hasExtraFilters = Object.entries(filters).some(([key, value]) => !key.startsWith("date_") && value !== null);
+  const hasExtraFilters = Object.entries(filters).some(
+    ([key, value]) => !key.startsWith("date_") && value !== null && !(Array.isArray(value) && value.length === 0),
+  );
   const isInitialMonth =
     filters.date_from === initialFilters.date_from &&
     filters.date_to === initialFilters.date_to &&
@@ -222,6 +226,9 @@ export function TransactionsPage() {
         applied={filters}
         emptyValues={initialFilters}
         facets={data?.available_filters ?? facets}
+        facetsLoading={query.isPending && query.timezoneValid}
+        facetsError={query.isError && !data && !facets ? "Não foi possível carregar as opções." : null}
+        onRetryFacets={() => query.refetch()}
         onApply={apply}
         onClear={clear}
         end={

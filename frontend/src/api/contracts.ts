@@ -103,6 +103,8 @@ export type CategoryKind = (typeof categoryKinds)[number];
 export const categoryOrigins = ["manual", "automatic", "rule", "learned"] as const;
 export type CategoryOrigin = (typeof categoryOrigins)[number];
 
+export type TransactionProviderStatus = "POSTED" | "PENDING";
+
 export interface TransactionFilters {
   origin?: "manual" | "synced" | null;
   card_balance?: boolean | null;
@@ -110,11 +112,16 @@ export interface TransactionFilters {
   date_from: string | null;
   date_to: string | null;
   description: string | null;
-  account_id: string | null;
-  institution: string | null;
-  category_id: string | null;
+  /**
+   * Each of these is an "any of" set: empty means no filter, several values
+   * are an OR. Across fields the query is still an AND. The wire field names
+   * are the API's plural forms; the singular ones remain accepted server-side
+   * for older links.
+   */
+  account_ids: string[];
+  category_ids: string[];
   classification: TransactionClassification | null;
-  provider_status: "POSTED" | "PENDING" | null;
+  provider_statuses: TransactionProviderStatus[];
   amount_min: string | null;
   amount_max: string | null;
   uncategorized: boolean | null;

@@ -31,11 +31,15 @@ type Filters struct {
 	DateFrom       *money.Date
 	DateTo         *money.Date
 	Description    *string
-	AccountID      *string
-	Institution    *string
-	CategoryID     *string
-	Classification *money.Classification
-	ProviderStatus *string
+	// AccountIDs, Institutions, CategoryIDs and ProviderStatuses are each
+	// "any of" sets: an empty slice means "no filter", a non-empty one keeps
+	// a transaction that matches any of its values. Across fields the
+	// filter is still an AND.
+	AccountIDs       []string
+	Institutions     []string
+	CategoryIDs      []string
+	Classification   *money.Classification
+	ProviderStatuses []string
 	AmountMin      *decimal.Decimal
 	AmountMax      *decimal.Decimal
 	Uncategorized  bool

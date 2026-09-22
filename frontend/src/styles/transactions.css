@@ -4,48 +4,6 @@
   overflow-x: clip;
 }
 
-.filter-field {
-  display: grid;
-  min-width: 0;
-  gap: 0.25rem;
-}
-
-.filter-field > label {
-  color: #44546f;
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
-.filter-field .ant-select {
-  width: 100%;
-}
-
-.advanced-filter-fields {
-  display: grid;
-  gap: 0.25rem;
-}
-
-.advanced-filter-fields .filter-field {
-  margin-bottom: 1rem;
-}
-
-.filter-value-range {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.filter-value-range .ant-input-number {
-  width: 100%;
-}
-
-.advanced-filter-actions {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
 /* The summary strip of the transactions DataCard — see TransactionSummaryBar.
    Phone first: count on top, the result beside its toggle, and the inflow /
    outflow figures folded away until "Ver resumo" unfolds them. */
