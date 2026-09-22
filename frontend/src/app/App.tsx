@@ -72,13 +72,13 @@ export function App() {
         // all — pro-layout renders it via this separate prop instead — so
         // the title+subtitle stack needs its own override here.
         headerTitleRender={(logoDom, titleDom) => (
-          <a>
+          <Link to="/">
             {logoDom}
             <span className="app-brand-text">
               {titleDom}
               <span className="app-brand-subtitle">{subtitle}</span>
             </span>
-          </a>
+          </Link>
         )}
         menuHeaderRender={(logoDom, _title, siderProps) =>
           // Desktop keeps the brand only in the global header (mix layout's
@@ -89,13 +89,13 @@ export function App() {
           siderProps && !siderProps.isMobile ? (
             false
           ) : (
-            <span className="app-mobile-brand">
+            <Link to="/" className="app-mobile-brand">
               {logoDom}
               <span className="app-brand-text">
                 <span className="app-brand-title">Julius</span>
                 <span className="app-brand-subtitle">{subtitle}</span>
               </span>
-            </span>
+            </Link>
           )
         }
         layout="mix"
