@@ -303,3 +303,144 @@
     padding-inline: 0.875rem;
   }
 }
+
+/* ---- Account detail: cards and bills, same "identity left, figure right"
+   row as the bank account list, just not clickable. ---------------------- */
+
+.accounts-section-note {
+  margin: 0;
+  padding: 0.625rem 1.25rem 0;
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+}
+
+.detail-list-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--color-border-secondary);
+}
+
+.accounts-list > .detail-list-row:last-child {
+  border-bottom: 0;
+}
+
+.detail-list-row-identity {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.detail-list-row-name {
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-list-row-meta {
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-list-row-figure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.detail-list-row-figure-label {
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.detail-list-row-figure-value {
+  color: var(--color-text-primary);
+  font-size: 0.9375rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.detail-list-row-figure-hint {
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+/* ---- Account detail: recent transactions, same scan order as Transações
+   (date, description+meta, category, amount) with no actions column and no
+   click-to-open panel — deep interaction lives on the linked full list. --- */
+
+.account-recent-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "identity amount"
+    "category amount";
+  column-gap: 0.75rem;
+  row-gap: 0.25rem;
+  align-items: start;
+  padding: 0.625rem 1.25rem;
+  border-bottom: 1px solid var(--color-border-secondary);
+}
+
+.accounts-list > .account-recent-row:last-child {
+  border-bottom: 0;
+}
+
+.account-recent-row-identity {
+  grid-area: identity;
+  display: grid;
+  min-width: 0;
+  gap: 0.125rem;
+}
+
+.account-recent-row-description {
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-recent-row .transaction-category {
+  grid-area: category;
+}
+
+.account-recent-row .transaction-amount {
+  grid-area: amount;
+  align-self: start;
+  padding-top: 0.05rem;
+  font-weight: 600;
+}
+
+.account-recent-row-date {
+  display: none;
+  grid-area: date;
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (min-width: 48rem) {
+  .account-recent-row {
+    grid-template-columns: 5.5rem minmax(0, 1fr) auto auto;
+    grid-template-areas: "date identity category amount";
+    align-items: center;
+  }
+
+  .account-recent-row-date {
+    display: block;
+  }
+}
