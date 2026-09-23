@@ -377,70 +377,75 @@
   white-space: nowrap;
 }
 
-/* ---- Account detail: recent transactions, same scan order as Transações
-   (date, description+meta, category, amount) with no actions column and no
-   click-to-open panel — deep interaction lives on the linked full list. --- */
+/* ---- Account detail: identity + balance, flat — typography and spacing
+   carry the hierarchy instead of a card wrapping the whole block. The
+   balance is the page's one hero figure: it never truncates, wrapping
+   instead if it ever has to. ------------------------------------------- */
 
-.account-recent-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas:
-    "identity amount"
-    "category amount";
-  column-gap: 0.75rem;
-  row-gap: 0.25rem;
-  align-items: start;
-  padding: 0.625rem 1.25rem;
-  border-bottom: 1px solid var(--color-border-secondary);
+.account-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 1.125rem;
 }
 
-.accounts-list > .account-recent-row:last-child {
-  border-bottom: 0;
-}
-
-.account-recent-row-identity {
-  grid-area: identity;
-  display: grid;
+.account-identity-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
   min-width: 0;
-  gap: 0.125rem;
 }
 
-.account-recent-row-description {
+.account-identity-name {
+  margin: 0;
   overflow: hidden;
   color: var(--color-text-primary);
-  font-weight: 600;
+  font-size: 1.375rem;
+  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.account-recent-row .transaction-category {
-  grid-area: category;
+.account-identity-meta {
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
 }
 
-.account-recent-row .transaction-amount {
-  grid-area: amount;
-  align-self: start;
-  padding-top: 0.05rem;
-  font-weight: 600;
+.account-balance {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
-.account-recent-row-date {
-  display: none;
-  grid-area: date;
+.account-balance-label {
   color: var(--color-text-secondary);
   font-size: 0.8125rem;
+}
+
+/* No nowrap/ellipsis here on purpose — this figure must never truncate. A
+   vw-based clamp keeps it large without a container query pushing it past
+   the smallest phones the way .dashboard-hero-figure's 13cqi does. */
+.account-balance-value {
+  margin: 0;
+  overflow-wrap: break-word;
+  color: var(--color-text-primary);
+  font-size: clamp(1.75rem, 7vw, 2.5rem);
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  line-height: 1.15;
+}
+
+.account-updated-at {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
 }
 
 @media (min-width: 48rem) {
-  .account-recent-row {
-    grid-template-columns: 5.5rem minmax(0, 1fr) auto auto;
-    grid-template-areas: "date identity category amount";
-    align-items: center;
-  }
-
-  .account-recent-row-date {
-    display: block;
+  .account-identity-name {
+    font-size: 1.625rem;
   }
 }
+
+/* Account detail's "Últimas transações" now reuses transactions.css's
+   .transaction-list/.transaction-row directly (see AccountRecentTransactions)
+   instead of a page-specific row, so there is no row styling here anymore. */

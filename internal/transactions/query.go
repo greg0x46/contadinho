@@ -629,7 +629,7 @@ func toItem(v view) Item {
 		Account: AccountSummary{
 			ID:           r.accountID,
 			Name:         r.accountName,
-			Institution:  r.accountInstitution,
+			Institution:  SanitizeInstitution(r.accountInstitution),
 			CurrencyCode: r.accountCurrencyCode,
 		},
 		Inclusion: Inclusion{
@@ -897,11 +897,12 @@ func buildAvailableFilters(ctx context.Context, q Querier, allViews []view) (Ava
 	institutionSet := make(map[string]bool)
 	for _, v := range allViews {
 		r := v.row
+		institution := SanitizeInstitution(r.accountInstitution)
 		if _, ok := seen[r.accountID]; !ok {
-			seen[r.accountID] = accountInfo{name: r.accountName, institution: r.accountInstitution}
+			seen[r.accountID] = accountInfo{name: r.accountName, institution: institution}
 		}
-		if r.accountInstitution != nil {
-			institutionSet[*r.accountInstitution] = true
+		if institution != nil {
+			institutionSet[*institution] = true
 		}
 	}
 	accountIDs := make([]string, 0, len(seen))

@@ -5,6 +5,7 @@ import {
   formatDay,
   formatLocalDay,
   formatOptionalDate,
+  formatOptionalDateTime,
   formatOptionalDay,
   formatOptionalLocalDay,
 } from "./dates";
@@ -39,5 +40,13 @@ describe("date presentation", () => {
   it("reads an instant in the reader's own timezone", () => {
     const instant = "2026-04-02T00:30:00Z";
     expect(formatLocalDay(instant)).toBe(new Date(instant).toLocaleDateString("pt-BR"));
+  });
+
+  it("formats an updated-at instant as a sentence, without seconds", () => {
+    expect(formatOptionalDateTime("2026-09-22T09:00:00Z")).toMatch(
+      /^\d{2}\/\d{2}\/2026 às \d{2}:\d{2}$/,
+    );
+    expect(formatOptionalDateTime(null)).toBe("Ainda não disponível");
+    expect(formatOptionalDateTime("invalid")).toBe("Data inválida");
   });
 });

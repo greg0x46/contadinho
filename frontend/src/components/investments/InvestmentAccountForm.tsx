@@ -47,7 +47,7 @@ export function InvestmentAccountForm({
 
   const accountOptions = financialAccounts.filter((account) => account.currency_code === "BRL" && account.account_type !== "CREDIT").map((account) => ({
     value: account.id,
-    label: [account.name, account.institution].filter(Boolean).join(" · ") || account.id,
+    label: [account.name, account.institution_name].filter(Boolean).join(" · ") || account.id,
   }));
 
   return (

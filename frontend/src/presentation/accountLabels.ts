@@ -72,7 +72,34 @@ export function isCreditAccount(account: Account): boolean {
 }
 
 export function accountDisplayName(account: Account): string {
-  return account.name ?? account.institution ?? "Conta sem nome";
+  return account.name ?? account.institution_name ?? "Conta sem nome";
+}
+
+// A registered institution name often carries a corporate suffix and a
+// trailing descriptor ("Nu Pagamentos S.A. - Instituição de Pagamento") that
+// nobody needs to recognize the bank — the part before the first " - " is
+// already the brand, and the suffix on it is noise.
+const institutionSuffixPattern = /\s+(s\.?\s?a\.?|s\/a|ltda\.?|eireli\.?)$/i;
+
+export function shortInstitutionName(name: string): string {
+  const brand = name.split(" - ")[0].trim();
+  const short = brand.replace(institutionSuffixPattern, "").trim();
+  return short || brand;
+}
+
+/** The account detail page's heading: the institution first, since that's
+ *  how a user recognizes the account, falling back to whatever name the
+ *  account itself carries. */
+export function accountHeaderTitle(account: Account): string {
+  if (account.institution_name !== null) return shortInstitutionName(account.institution_name);
+  return account.name ?? "Conta sem nome";
+}
+
+/** "Conta corrente · •••• 0966" — the compact identity line under a name,
+ *  shared by the account list rows and the detail page header. */
+export function accountIdentityLine(account: Account): string {
+  const parts = [accountSubtypeLabel(account.account_subtype), maskedAccountNumber(account.number)];
+  return parts.filter((part): part is string => part !== null).join(" · ");
 }
 
 /** Accounts carry their own currency, unlike the rest of the app, which is

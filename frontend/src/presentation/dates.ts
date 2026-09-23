@@ -12,6 +12,19 @@ export function formatOptionalDate(value: string | null): string {
   return value === null ? "Ainda não disponível" : formatDate(value);
 }
 
+const shortDateFormatter = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" });
+const shortTimeFormatter = new Intl.DateTimeFormat("pt-BR", { timeStyle: "short" });
+
+/** "22/09/2026 às 06:00" — the same instant as formatDate, without seconds
+ *  and read as a sentence, for a place like "Atualizado em ..." rather than
+ *  a data table. */
+export function formatOptionalDateTime(value: string | null): string {
+  if (value === null) return "Ainda não disponível";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Data inválida";
+  return `${shortDateFormatter.format(date)} às ${shortTimeFormatter.format(date)}`;
+}
+
 // Bill and card-limit dates are calendar days anchored at midnight UTC, so
 // rendering them with formatDate would tack on a meaningless "00:00:00" — and
 // reading them in the local timezone would slide them a day backwards.
