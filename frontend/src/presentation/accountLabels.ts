@@ -1,4 +1,5 @@
 import type { Account, AccountClosingDaySource, AccountType } from "../api/contracts";
+import { formatOptionalDayMonth } from "./dates";
 import { formatBRL, formatMoney } from "./money";
 
 const accountTypeLabels: Record<AccountType, string> = {
@@ -41,6 +42,12 @@ export function closingDaySourceHint(source: AccountClosingDaySource | null): st
     : closingDaySourceHints[source];
 }
 
+/** Compact form for a row caption ("Fecha dia 2"), as opposed to
+ *  closingDayLabel's "Todo dia 2" used in the account's own detail page. */
+export function closingDayShortLabel(day: number | null): string | null {
+  return day === null ? null : `Fecha dia ${day}`;
+}
+
 export function maskedCardNumber(number: string): string {
   return `•••• ${number}`;
 }
@@ -63,6 +70,33 @@ export function isCreditAccount(account: Account): boolean {
 
 export function accountDisplayName(account: Account): string {
   return account.name ?? account.institution ?? "Conta sem nome";
+}
+
+/** Secondary, low-weight facts about an account row: the real institution
+ *  (Pluggy's connector name, e.g. "Itaú" — omitted when it's already the
+ *  displayed name, which happens whenever the account has no name of its
+ *  own), its subtype, and its masked number. */
+export function accountMetaParts(account: Account): string[] {
+  const parts: string[] = [];
+  if (account.institution !== null && account.institution !== accountDisplayName(account)) {
+    parts.push(account.institution);
+  }
+  const subtype = accountSubtypeLabel(account.account_subtype);
+  if (subtype !== null) parts.push(subtype);
+  if (account.number !== null) parts.push(maskedCardNumber(account.number));
+  return parts;
+}
+
+/** The credit card row's schedule caption: "Vence DD/MM · Fecha dia D",
+ *  each half dropped when the underlying date isn't known. */
+export function creditCardScheduleParts(account: Account): string[] {
+  const parts: string[] = [];
+  if (account.balance_due_date !== null) {
+    parts.push(`Vence ${formatOptionalDayMonth(account.balance_due_date)}`);
+  }
+  const closing = closingDayShortLabel(account.closing_day);
+  if (closing !== null) parts.push(closing);
+  return parts;
 }
 
 /** Accounts carry their own currency, unlike the rest of the app, which is

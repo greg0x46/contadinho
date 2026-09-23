@@ -21,6 +21,7 @@ import "./styles/categories.css";
 import "./styles/home.css";
 import "./styles/payables.css";
 import "./styles/timeline.css";
+import "./styles/accounts.css";
 
 dayjs.locale("pt-br");
 
