@@ -68,27 +68,29 @@ function ValidAccountDetail({ id }: { id: string }) {
               savingClosingDay={account.savingClosingDay}
             />
 
-            {isCredit && (
-              <>
-                <AccountCardsTable
-                  cards={account.cards}
-                  isLoading={account.cardsLoading}
-                  error={account.cardsError}
-                />
-                <AccountBillsTable
-                  bills={account.bills}
-                  isLoading={account.billsLoading}
-                  error={account.billsError}
-                />
-              </>
-            )}
+            <div className="accounts-page-sections">
+              {isCredit && (
+                <>
+                  <AccountCardsTable
+                    cards={account.cards}
+                    isLoading={account.cardsLoading}
+                    error={account.cardsError}
+                  />
+                  <AccountBillsTable
+                    bills={account.bills}
+                    isLoading={account.billsLoading}
+                    error={account.billsError}
+                  />
+                </>
+              )}
 
-            <AccountTransactionsTable
-              transactions={account.transactions}
-              isLoading={account.transactionsLoading}
-              error={account.transactionsError}
-              accountId={id}
-            />
+              <AccountTransactionsTable
+                transactions={account.transactions}
+                isLoading={account.transactionsLoading}
+                error={account.transactionsError}
+                accountId={id}
+              />
+            </div>
           </>
         )}
       </Flex>
