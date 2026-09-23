@@ -84,7 +84,13 @@ jobs:
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           cp "$BUNDLE_PATH" contadinho-linux-amd64.sigstore.json
-          tag="v$(date -u +%Y.%m.%d).${{ github.run_number }}"
+          base=$(cat VERSION)
+          patch=$(gh api "repos/${{ github.repository }}/tags" --paginate --jq '.[].name' \
+            | grep -E "^v${base//./\\.}\.[0-9]+$" \
+            | sed -E "s/^v${base//./\\.}\.//" \
+            | sort -n | tail -1)
+          patch=$(( ${patch:--1} + 1 ))
+          tag="v$base.$patch"
           printf '%s\n\n%s\n' "$GITHUB_SHA" "$COMMIT_MESSAGE" > notes.md
           gh release create "$tag" \
             --title "$tag" \
