@@ -93,7 +93,7 @@ export function ManualTransactionFields({
 
   const accountOptions = accounts.map((account) => ({
     value: account.id,
-    label: [account.name, account.institution].filter(Boolean).join(" · ") || account.id,
+    label: [account.name, account.institution_name].filter(Boolean).join(" · ") || account.id,
   }));
 
   const submit = () => {

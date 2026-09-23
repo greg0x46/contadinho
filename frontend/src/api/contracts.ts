@@ -2921,6 +2921,11 @@ export interface Account {
   external_id: string;
   source_display_name: string | null;
   institution: string | null;
+  /** Display-safe institution: the user's connection label when set,
+   *  otherwise the provider's institution with Pluggy's own proxy connector
+   *  name filtered out. Null when neither is available — never render
+   *  `institution` in that case, it may be integration plumbing. */
+  institution_name: string | null;
   name: string | null;
   number: string | null;
   account_type: AccountType | null;
@@ -2944,6 +2949,7 @@ const accountKeys = [
   "external_id",
   "source_display_name",
   "institution",
+  "institution_name",
   "name",
   "number",
   "account_type",
@@ -2980,6 +2986,7 @@ export function parseAccount(value: unknown): Account {
     external_id: item.external_id,
     source_display_name: nullableText(item.source_display_name),
     institution: nullableText(item.institution),
+    institution_name: nullableText(item.institution_name),
     name: nullableText(item.name),
     number: nullableText(item.number),
     account_type: item.account_type as AccountType | null,

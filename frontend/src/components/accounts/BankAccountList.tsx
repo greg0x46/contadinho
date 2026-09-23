@@ -2,17 +2,7 @@ import { BankOutlined } from "@ant-design/icons";
 import { Skeleton } from "antd";
 
 import type { Account } from "../../api/contracts";
-import {
-  accountDisplayName,
-  accountSubtypeLabel,
-  formatAccountMoney,
-  maskedAccountNumber,
-} from "../../presentation/accountLabels";
-
-function accountMeta(account: Account): string {
-  const parts = [accountSubtypeLabel(account.account_subtype), maskedAccountNumber(account.number)];
-  return parts.filter((part): part is string => part !== null).join(" · ");
-}
+import { accountDisplayName, accountIdentityLine, formatAccountMoney } from "../../presentation/accountLabels";
 
 /**
  * Bank accounts as flat rows: name + type/number on the left, the balance —
@@ -53,7 +43,7 @@ export function BankAccountList({
             <button key={account.id} type="button" className="account-row" onClick={() => onOpen(account)}>
               <span className="account-row-identity">
                 <span className="account-row-name">{accountDisplayName(account)}</span>
-                <span className="account-row-meta">{accountMeta(account) || "—"}</span>
+                <span className="account-row-meta">{accountIdentityLine(account) || "—"}</span>
               </span>
               <span className="account-row-balance">{formatAccountMoney(account.balance, account.currency_code)}</span>
             </button>

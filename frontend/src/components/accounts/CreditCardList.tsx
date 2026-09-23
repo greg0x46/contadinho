@@ -66,7 +66,7 @@ export function CreditCardList({
                 <span className="card-row-figures">
                   <span className="card-row-figure">
                     <span className="card-row-figure-head">
-                      <span className="card-row-figure-label">Fatura atual</span>
+                      <span className="card-row-figure-label">Total em aberto</span>
                       <span className="card-row-figure-value">
                         {formatAccountMoney(account.balance, account.currency_code)}
                       </span>

@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
 
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/money"
+	"contadinho-go/internal/transactions"
 )
 
 // accountDTO exposes a financial_accounts row — a bank account or, when
@@ -21,10 +23,16 @@ import (
 // individual card numbers live only in transaction metadata and are served
 // separately by handleListAccountCards.
 type accountDTO struct {
-	ID                   string     `json:"id"`
-	ExternalID           string     `json:"external_id"`
-	SourceDisplayName    *string    `json:"source_display_name"`
-	Institution          *string    `json:"institution"`
+	ID                string  `json:"id"`
+	ExternalID        string  `json:"external_id"`
+	SourceDisplayName *string `json:"source_display_name"`
+	Institution       *string `json:"institution"`
+	// InstitutionName is the display-safe institution: the user's own label
+	// for the connection when set, otherwise the provider's reported
+	// institution with Pluggy's own proxy connector name (never a real bank)
+	// filtered out. Institution stays as the raw provider value for anything
+	// that still needs it; new UI should read this field instead.
+	InstitutionName      *string    `json:"institution_name"`
 	Name                 *string    `json:"name"`
 	Number               *string    `json:"number"`
 	AccountType          *string    `json:"account_type"`
@@ -46,13 +54,18 @@ type accountDTO struct {
 	// applyClosingDay ranks it against the provider's sources and publishes
 	// the winner as ClosingDay/ClosingDaySource.
 	manualClosingDay *int
+	// connectionLabel is the user's own name for this connection
+	// (data_sources.label), which wins over the provider-reported
+	// institution — see applyInstitutionName.
+	connectionLabel *string
 }
 
 const accountSelectColumns = `
 	fa.id, fa.external_id, ` + connectionNameColumn + `, fa.institution, fa.name, fa.number,
 	fa.account_type, fa.account_subtype, fa.balance, fa.credit_limit,
 	fa.available_credit_limit, fa.currency_code, fa.balance_close_date,
-	fa.balance_due_date, fa.manual_closing_day, fa.provider_updated_at, fa.updated_at`
+	fa.balance_due_date, fa.manual_closing_day, fa.provider_updated_at, fa.updated_at,
+	NULLIF(ds.label, '')`
 
 const accountSelectFrom = `
 	FROM financial_accounts fa
@@ -74,17 +87,22 @@ func scanAccount(row interface{ Scan(...any) error }) (accountDTO, error) {
 		manualClosing  sql.NullInt64
 		providerUpdRaw sql.NullString
 		updatedRaw     sql.NullString
+		connectionLbl  sql.NullString
 	)
 	if err := row.Scan(&d.ID, &d.ExternalID, &d.SourceDisplayName, &d.Institution, &d.Name, &d.Number,
 		&d.AccountType, &d.AccountSubtype, &d.Balance, &d.CreditLimit,
 		&d.AvailableCreditLimit, &d.CurrencyCode, &closeRaw,
-		&dueRaw, &manualClosing, &providerUpdRaw, &updatedRaw); err != nil {
+		&dueRaw, &manualClosing, &providerUpdRaw, &updatedRaw, &connectionLbl); err != nil {
 		return accountDTO{}, err
 	}
 	if manualClosing.Valid {
 		day := int(manualClosing.Int64)
 		d.manualClosingDay = &day
 	}
+	if connectionLbl.Valid {
+		d.connectionLabel = &connectionLbl.String
+	}
+	applyInstitutionName(&d)
 	var err error
 	if d.BalanceCloseDate, err = db.ParseNullTime(closeRaw); err != nil {
 		return accountDTO{}, err
@@ -107,6 +125,24 @@ func scanAccount(row interface{ Scan(...any) error }) (accountDTO, error) {
 // gates on it, so the spelling lives in one place.
 func isCreditAccount(d *accountDTO) bool {
 	return d.AccountType != nil && *d.AccountType == "CREDIT"
+}
+
+// applyInstitutionName fills InstitutionName, the display-safe institution:
+// the user's own connection label always wins (it exists precisely to
+// override a provider-reported name that isn't trustworthy — see
+// 00031_data_source_connections.sql), otherwise the provider's institution
+// with Pluggy's own proxy connector name filtered out by
+// transactions.SanitizeInstitution. Left nil rather than falling back to
+// something that isn't actually a bank name.
+func applyInstitutionName(d *accountDTO) {
+	if d.connectionLabel != nil {
+		label := strings.TrimSpace(*d.connectionLabel)
+		if label != "" {
+			d.InstitutionName = &label
+			return
+		}
+	}
+	d.InstitutionName = transactions.SanitizeInstitution(d.Institution)
 }
 
 // applyCreditUsage fills CreditUsageRatio as balance / credit_limit for
