@@ -8,7 +8,7 @@ import {
   accountTypeLabel,
   formatAccountMoney,
 } from "../../presentation/accountLabels";
-import { CreditUsageMeter } from "./CreditUsageMeter";
+import { LimitUsage } from "./LimitUsage";
 import { ClosingDayField } from "./ClosingDayField";
 
 export function AccountHeaderCard({
@@ -50,7 +50,7 @@ export function AccountHeaderCard({
           </p>
         </Tooltip>
 
-        {isCredit && <CreditUsageMeter ratio={account.credit_usage_ratio} />}
+        {isCredit && <LimitUsage ratio={account.credit_usage_ratio} />}
 
         <ul className="debt-header-legend-inline">
           {isCredit && (

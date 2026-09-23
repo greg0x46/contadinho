@@ -26,6 +26,24 @@ export function formatOptionalDay(value: string | null): string {
   return value === null ? "—" : formatDay(value);
 }
 
+// Same UTC anchoring as formatDay, without the year — for compact "vence
+// DD/MM" captions where the row has no room for a full date and the year is
+// implied.
+const dayMonthFormatter = new Intl.DateTimeFormat("pt-BR", {
+  day: "2-digit",
+  month: "2-digit",
+  timeZone: "UTC",
+});
+
+export function formatDayMonth(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Data inválida" : dayMonthFormatter.format(date);
+}
+
+export function formatOptionalDayMonth(value: string | null): string {
+  return value === null ? "—" : formatDayMonth(value);
+}
+
 // An instant — a transaction's occurred_at, a card's last use — is a point in
 // time, not a calendar day, and belongs in the reader's own timezone: that's
 // how the transactions screen renders it, and the two screens show the same
