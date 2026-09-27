@@ -10,6 +10,7 @@ import {
   AutomationEntrySubmitPayload,
 } from "../components/automationRules/AutomationEntryForm";
 import { AutomationEntryList } from "../components/automationRules/AutomationEntryList";
+import { DataCard } from "../components/layout";
 import { useAutomationRules } from "../hooks/useAutomationRules";
 import { useCategories } from "../hooks/useCategories";
 import { useRecurringCommitments } from "../hooks/useRecurringCommitments";
@@ -180,16 +181,18 @@ export function AutomationRulesPage() {
           style={{ marginBottom: 16 }}
         />
       )}
-      <AutomationEntryList
-        rules={automationRules.rules}
-        commitments={commitments.commitments}
-        categories={categories.categories}
-        isLoading={automationRules.isLoading || commitments.isLoading}
-        togglingRuleId={togglingRuleId}
-        onEditRule={openEditRule}
-        onToggleRule={toggleRule}
-        onDeleteRule={removeRule}
-      />
+      <DataCard flush>
+        <AutomationEntryList
+          rules={automationRules.rules}
+          commitments={commitments.commitments}
+          categories={categories.categories}
+          isLoading={automationRules.isLoading || commitments.isLoading}
+          togglingRuleId={togglingRuleId}
+          onEditRule={openEditRule}
+          onToggleRule={toggleRule}
+          onDeleteRule={removeRule}
+        />
+      </DataCard>
       <AutomationEntryForm
         open={formOpen}
         entry={editingEntry}
