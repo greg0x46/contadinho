@@ -1,4 +1,4 @@
-import { Button, Card, Popconfirm, Progress, Space, Tag, Typography } from "antd";
+import { Button, Popconfirm, Progress, Tag } from "antd";
 
 import type {
   InvestmentOperation,
@@ -48,17 +48,14 @@ export function InvestmentGoalCard({
   const progress = summary?.progress ?? portfolio?.progress ?? null;
 
   return (
-    <Card
-      title={
-        <Space>
-          <span>{portfolio?.name ?? "Sem objetivo"}</span>
+    <section className="investment-card" aria-label={portfolio?.name ?? "Sem objetivo"}>
+      <header className="investment-card-header">
+        <div className="investment-card-identity">
+          <h2 className="investment-card-name">{portfolio?.name ?? "Sem objetivo"}</h2>
           <Tag>Agrupamento</Tag>
-        </Space>
-      }
-      style={{ marginBottom: 16 }}
-      extra={
-        portfolio ? (
-          <Space>
+        </div>
+        {portfolio && (
+          <div className="investment-card-actions">
             <Button size="small" onClick={() => onEdit(portfolio)}>
               Editar objetivo
             </Button>
@@ -74,52 +71,54 @@ export function InvestmentGoalCard({
                 Remover objetivo
               </Button>
             </Popconfirm>
-          </Space>
-        ) : null
-      }
-    >
-      <InvestmentFigures
-        figures={[
-          { label: "Valor atual", value: formatBRL(currentValue) },
-          {
-            label: "Compras e saldo inicial",
-            value: formatBRL(movements.deposits),
-            hint: "Compras e saldos iniciais registrados nas posições deste objetivo.",
-          },
-          {
-            label: "Vendas",
-            value: formatBRL(movements.withdrawals),
-            hint: "Vendas registradas nas posições deste objetivo.",
-          },
-          {
-            label: "Caixa disponível para investir",
-            value: formatBRL(cashBalance),
-            hint: "O caixa fica na conta de custódia e não pertence a nenhum objetivo; este é o total de todas as contas.",
-          },
-          { label: "Última atualização", value: formatDate(updatedOn) },
-        ]}
-      />
+          </div>
+        )}
+      </header>
 
-      {target !== null && (
-        <Space direction="vertical" size={0} style={{ marginBottom: 12, width: "100%" }}>
-          <Typography.Text type="secondary">Meta de {formatBRL(target)}</Typography.Text>
-          {progress !== null && <Progress percent={Math.min(100, Math.round(Number(progress) * 100))} />}
-        </Space>
-      )}
+      <div className="investment-card-body">
+        <InvestmentFigures
+          figures={[
+            { label: "Valor atual", value: formatBRL(currentValue) },
+            {
+              label: "Compras e saldo inicial",
+              value: formatBRL(movements.deposits),
+              hint: "Compras e saldos iniciais registrados nas posições deste objetivo.",
+            },
+            {
+              label: "Vendas",
+              value: formatBRL(movements.withdrawals),
+              hint: "Vendas registradas nas posições deste objetivo.",
+            },
+            {
+              label: "Caixa disponível para investir",
+              value: formatBRL(cashBalance),
+              hint: "O caixa fica na conta de custódia e não pertence a nenhum objetivo; este é o total de todas as contas.",
+            },
+            { label: "Última atualização", value: formatDate(updatedOn) },
+          ]}
+        />
 
-      <InvestmentPositionsTable
-        positions={positions}
-        portfolios={portfolios}
-        accountNameOf={accountNameOf}
-        showAccount
-        onAssignGoal={onAssignGoal}
-        busy={busy}
-        emptyText={
-          portfolio
-            ? "Nenhuma posição neste objetivo ainda. Escolha o objetivo na coluna “Objetivo” de qualquer posição."
-            : "Todas as posições já têm um objetivo."
-        }
-      />
-    </Card>
+        {target !== null && (
+          <div className="investment-card-goal">
+            <span>Meta de {formatBRL(target)}</span>
+            {progress !== null && <Progress percent={Math.min(100, Math.round(Number(progress) * 100))} />}
+          </div>
+        )}
+
+        <InvestmentPositionsTable
+          positions={positions}
+          portfolios={portfolios}
+          accountNameOf={accountNameOf}
+          showAccount
+          onAssignGoal={onAssignGoal}
+          busy={busy}
+          emptyText={
+            portfolio
+              ? "Nenhuma posição neste objetivo ainda. Escolha o objetivo na coluna “Objetivo” de qualquer posição."
+              : "Todas as posições já têm um objetivo."
+          }
+        />
+      </div>
+    </section>
   );
 }

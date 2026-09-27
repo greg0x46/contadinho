@@ -1,4 +1,4 @@
-import { Flex, Tooltip, Typography } from "antd";
+import { Tooltip } from "antd";
 import type { ReactNode } from "react";
 
 export type InvestmentFigure = { label: string; value: ReactNode; hint?: string };
@@ -9,10 +9,10 @@ export type InvestmentFigure = { label: string; value: ReactNode; hint?: string 
  */
 export function InvestmentFigures({ figures }: { figures: InvestmentFigure[] }) {
   return (
-    <Flex gap="large" wrap style={{ marginBottom: 12 }}>
+    <div className="investment-figures">
       {figures.map((figure) => (
-        <Flex key={figure.label} vertical gap={0} style={{ minWidth: 150 }}>
-          <Typography.Text type="secondary">
+        <div key={figure.label} className="investment-figure">
+          <span className="investment-figure-label">
             {figure.hint ? (
               <Tooltip title={figure.hint}>
                 <span>{figure.label}</span>
@@ -20,10 +20,10 @@ export function InvestmentFigures({ figures }: { figures: InvestmentFigure[] }) 
             ) : (
               figure.label
             )}
-          </Typography.Text>
-          <strong style={{ fontVariantNumeric: "tabular-nums" }}>{figure.value}</strong>
-        </Flex>
+          </span>
+          <span className="investment-figure-value">{figure.value}</span>
+        </div>
       ))}
-    </Flex>
+    </div>
   );
 }
