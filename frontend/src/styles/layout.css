@@ -157,8 +157,35 @@
   font-size: 0.8125rem;
 }
 
+/* Rounded top edge, its own header (no default antd padding fighting ours)
+   and a discreet drag handle. Every other sheet in the app is deliberately
+   handle-free (see filters.css) because a rounded top edge already reads as
+   "sheet" once there's a list to scroll; this is the one sheet whose whole
+   job is a single decision, not a list, so the handle earns its keep as an
+   immediate, wordless "this is a sheet, pick one" cue. */
+/* The className prop lands on .ant-drawer-content itself (antd puts it
+   there, not on a wrapper), so this owns the radius directly rather than
+   through a descendant selector. */
+.create-action-sheet.ant-drawer-content {
+  border-radius: 16px 16px 0 0;
+  overflow: hidden;
+}
+
+.create-action-sheet .ant-drawer-header {
+  padding: 0;
+  border-bottom: 0;
+}
+
 .create-action-sheet .ant-drawer-body {
-  padding: 0.5rem 0 1rem;
+  padding: 0 0.75rem calc(1rem + env(safe-area-inset-bottom));
+}
+
+.create-action-sheet-handle {
+  width: 2.25rem;
+  height: 4px;
+  margin: 0.5rem auto 0;
+  border-radius: 999px;
+  background: var(--color-border);
 }
 
 .create-action-sheet-header {
@@ -166,54 +193,119 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.75rem 1.25rem 0.5rem;
+  padding: 0.5rem 1.25rem 0.625rem;
+  border-bottom: 1px solid var(--color-border-secondary);
 }
 
 .create-action-sheet-title {
   margin: 0;
-  font-size: 1rem;
-}
-
-.create-action-sheet-list {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.create-action-sheet-option {
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-  width: 100%;
-  padding: 0.75rem 1.25rem;
-  border: 0;
-  border-top: 1px solid var(--color-border-secondary);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.create-action-sheet-option:hover {
-  background: rgba(23, 43, 77, 0.035);
-}
-
-.create-action-sheet-option:focus-visible {
-  outline: 3px solid var(--color-warning);
-  outline-offset: -3px;
-}
-
-.create-action-sheet-option-label {
   color: var(--color-text-primary);
+  font-size: 1rem;
   font-weight: 600;
 }
 
-.create-action-sheet-option-description {
+.create-action-sheet-close.ant-btn {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
   color: var(--color-text-secondary);
-  font-size: 0.8125rem;
+}
+
+/* Options: PanelNavRow (see PanelStack) gives each one an icon, a title, a
+   hint and a chevron, full-bleed hover/press feedback and a comfortable
+   touch target — the "selectable decision" the sheet's for, not another
+   divider-separated list. The 0.75rem body padding above cancels its
+   negative-margin bleed exactly, so the row's own inset (not the body's)
+   is what keeps its text off the edges. */
+.create-action-sheet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0.5rem 0 0;
+  list-style: none;
+}
+
+/* ---- Compact mobile header: Page's `compactMobileHeader` swaps the hero
+   header for one quiet orientation line on a phone, so the list starts
+   almost immediately. Ignored from `md` up — see the plain
+   .page-heading/.page-title rules above, which still apply there. ------- */
+
+.page-heading-collapsed {
+  gap: 0;
+}
+
+.page-title-collapsed {
+  color: var(--color-text-secondary);
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+/* PageContainer's header keeps its own (much wider) horizontal padding
+   regardless of what's inside it — fine for a hero title, but a one-line
+   quiet label under it then sits well to the right of the tabs/list right
+   underneath, reading as indented/nested instead of as their heading. Pull
+   it back to the same padding the content column already uses. */
+.app-page-collapsed-header .ant-pro-page-container-warp-page-header {
+  padding-inline: 0.75rem;
+  padding-block: 0.5rem;
+}
+
+/* The collapsed title becomes a real back link when the page has a `backTo`
+   (see Page) — a comfortable touch target, coloured like plain text since
+   the chevron already says "this navigates". */
+.page-title-collapsed-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0;
+  color: inherit;
+}
+
+.page-title-collapsed-link:hover,
+.page-title-collapsed-link:focus {
+  color: inherit;
+}
+
+/* ---- Bottom action bar: the mobile home for a page's own actions once
+   compactMobileHeader drops them from the header (see BottomActionBar).
+   Fixed to the viewport, never forced on desktop — a page renders it only
+   on a phone, so there is no min-width query undoing it here. ----------- */
+
+.bottom-action-bar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 900;
+  padding: 0.5rem 0.75rem calc(0.5rem + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--color-border-secondary);
+  background: var(--color-bg-container);
+  box-shadow: 0 -1px 4px rgba(23, 43, 77, 0.06);
+}
+
+.bottom-action-bar-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.bottom-action-bar-row > .ant-btn {
+  min-height: 44px;
+}
+
+.bottom-action-bar-row > .ant-btn:only-child {
+  width: 100%;
+}
+
+/* Reserve room under a page's scroll area for the fixed BottomActionBar
+   above, shared by every page that opts in via Page's `hasBottomActionBar`
+   instead of each page repeating its own padding-bottom rule. */
+@media (max-width: 48rem) {
+  .app-page-has-bottom-bar .ant-pro-page-container-children-container {
+    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom));
+  }
 }
 
 /* ---- Tabs ------------------------------------------------------------- */

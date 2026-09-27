@@ -1,4 +1,5 @@
 export { Page } from "./Page";
+export { BottomActionBar } from "./BottomActionBar";
 export { DetailPage, InvalidDetailPage } from "./DetailPage";
 export type { DetailPageQueryState, DetailFreshness } from "./DetailPage";
 export { CreateActionMenu } from "./CreateActionMenu";
