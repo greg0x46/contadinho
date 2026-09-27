@@ -1,7 +1,8 @@
 import { ApiOutlined, BulbOutlined, ControlOutlined, LockOutlined, RiseOutlined, TagsOutlined, ThunderboltOutlined } from "@ant-design/icons";
-import { PageContainer } from "@ant-design/pro-layout";
-import { Card, Col, Row, Typography } from "antd";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+
+import { DataCard, Page } from "../components/layout";
+import { PanelNavRow, PanelSection } from "../components/shared/PanelStack";
 
 const sections = [
   { path: "geral", title: "Geral", description: "Escolha como as compras no cartão entram no mês.", icon: <ControlOutlined /> },
@@ -14,22 +15,23 @@ const sections = [
 ];
 
 export function SettingsPage() {
+  const navigate = useNavigate();
+
   return (
-    <PageContainer title="Configurações" subTitle="Organize suas preferências e os recursos da sua conta">
-      <Row gutter={[16, 16]}>
-        {sections.map((section) => (
-          <Col key={section.path} xs={24} md={12} xl={8}>
-            <Link className="settings-section-link" to={`/configuracoes/${section.path}`} aria-label={section.title}>
-              <Card hoverable style={{ height: "100%" }}>
-                <Typography.Title level={2} style={{ fontSize: 18, marginTop: 0 }}>
-                  <span aria-hidden="true">{section.icon}</span> {section.title}
-                </Typography.Title>
-                <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>{section.description}</Typography.Paragraph>
-              </Card>
-            </Link>
-          </Col>
-        ))}
-      </Row>
-    </PageContainer>
+    <Page title="Configurações" description="Organize suas preferências e os recursos da sua conta">
+      <DataCard>
+        <PanelSection className="panel-section-rows">
+          {sections.map((section) => (
+            <PanelNavRow
+              key={section.path}
+              icon={section.icon}
+              label={section.title}
+              hint={section.description}
+              onClick={() => navigate(`/configuracoes/${section.path}`)}
+            />
+          ))}
+        </PanelSection>
+      </DataCard>
+    </Page>
   );
 }
