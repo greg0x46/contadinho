@@ -69,6 +69,7 @@ export function ScenariosPage() {
       title="Cenários"
       subTitle="Simule decisões hipotéticas"
       content="Crie cenários como uma viagem ou uma troca de emprego, com transações hipotéticas, sem vincular a nenhuma dívida ou conta a receber."
+      compactMobileHeader
       extra={[
         <Button key="new-scenario" type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={() => setFormOpen(true)}>
           Novo cenário

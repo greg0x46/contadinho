@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Typography } from "antd";
 
-import { Page } from "./layout";
+import { BottomActionBar, Page } from "./layout";
+import { useCompactScreen } from "./shared/useCompactScreen";
 
 interface SettingsPageContainerProps {
   title: string;
@@ -12,6 +13,8 @@ interface SettingsPageContainerProps {
   content?: ReactNode;
   /** Page-wide actions (e.g. "Nova categoria"). Rendered in Page's actions slot. */
   extra?: ReactNode;
+  /** Forwarded to Page — see its own doc comment. */
+  compactMobileHeader?: boolean;
   children: ReactNode;
 }
 
@@ -22,25 +25,45 @@ interface SettingsPageContainerProps {
  * a longer explanatory paragraph above its own content.
  *
  * This keeps the prop surface the callers outside this workstream already
- * use (title/subTitle/content/extra/children) so they need no changes.
+ * use (title/subTitle/content/extra/children) so they need no changes beyond
+ * opting into `compactMobileHeader`.
  */
-export function SettingsPageContainer({ title, subTitle, content, extra, children }: SettingsPageContainerProps) {
+export function SettingsPageContainer({
+  title,
+  subTitle,
+  content,
+  extra,
+  compactMobileHeader,
+  children,
+}: SettingsPageContainerProps) {
+  const compact = useCompactScreen();
   const { pathname } = useLocation();
   const isSyncDetail = pathname.includes("/sync-runs/");
-  const back = isSyncDetail ? (
-    <Link to="/configuracoes/open-banking">Voltar para Open Banking</Link>
-  ) : (
-    <Link to="/configuracoes">Voltar para configurações</Link>
-  );
+  const backTo = isSyncDetail ? "/configuracoes/open-banking" : "/configuracoes";
+  const backLabel = isSyncDetail ? "Voltar para Open Banking" : "Voltar para configurações";
+  const back = <Link to={backTo}>{backLabel}</Link>;
+  // Every consumer that opts into compactMobileHeader also already renders
+  // its extra as a page action, so its bottom bar is inferred rather than a
+  // separate prop that could drift out of sync with it.
+  const hasBottomActionBar = compactMobileHeader === true && extra !== undefined;
 
   return (
-    <Page title={title} description={subTitle} back={back} actions={extra}>
+    <Page
+      title={title}
+      description={subTitle}
+      back={back}
+      backTo={backTo}
+      compactMobileHeader={compactMobileHeader}
+      hasBottomActionBar={hasBottomActionBar}
+      actions={extra}
+    >
       {content !== undefined && (
         <Typography.Paragraph type="secondary" className="settings-page-content">
           {content}
         </Typography.Paragraph>
       )}
       {children}
+      {hasBottomActionBar && compact && <BottomActionBar>{extra}</BottomActionBar>}
     </Page>
   );
 }

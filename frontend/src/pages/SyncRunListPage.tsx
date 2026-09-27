@@ -21,6 +21,7 @@ export function SyncRunListPage() {
       title="Open Banking"
       subTitle="Sincronizações confirmadas pelo Contadinho"
       content="Atualize os dados das suas conexões e consulte as execuções mais recentes."
+      compactMobileHeader
     >
       <div className="sync-runs-page">
         <CreateSyncRunAction sync={sync} />

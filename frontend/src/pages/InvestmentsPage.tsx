@@ -1,4 +1,4 @@
-import { PlusOutlined } from "@ant-design/icons";
+import { AimOutlined, BankOutlined, PieChartOutlined, SwapOutlined } from "@ant-design/icons";
 import { Alert, Button, Empty, Switch } from "antd";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -27,7 +27,8 @@ import { InvestmentPortfolioForm } from "../components/investments/InvestmentPor
 import { InvestmentPositionForm } from "../components/investments/InvestmentPositionForm";
 import { InvestmentWorkspaceSummary } from "../components/investments/InvestmentWorkspaceSummary";
 import { InvestmentsSummary } from "../components/investments/InvestmentsSummary";
-import { ListToolbar, Page, PageTabs } from "../components/layout";
+import { BottomActionBar, CreateActionMenu, ListToolbar, Page, PageTabs } from "../components/layout";
+import { useCompactScreen } from "../components/shared/useCompactScreen";
 import { useAccounts } from "../hooks/useAccounts";
 import { useInvestmentWorkspace } from "../hooks/useInvestmentWorkspace";
 import { useInvestments } from "../hooks/useInvestments";
@@ -45,6 +46,7 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 export function InvestmentsPage() {
+  const compact = useCompactScreen();
   const workspace = useInvestmentWorkspace();
   const financialAccounts = useAccounts();
   const syncedInvestments = useInvestments();
@@ -227,25 +229,51 @@ export function InvestmentsPage() {
     { portfolio: null },
   ];
 
+  const createMenu = (
+    <CreateActionMenu
+      label="Adicionar"
+      options={[
+        {
+          key: "operation",
+          label: "Registrar movimentação",
+          description: "Aporte, resgate ou outra movimentação em uma conta",
+          icon: <SwapOutlined aria-hidden="true" />,
+          disabled: workspace.accounts.length === 0,
+          onClick: () => openOperationCreate(null),
+        },
+        {
+          key: "position",
+          label: "Nova posição",
+          description: "Um ativo dentro de uma conta manual",
+          icon: <PieChartOutlined aria-hidden="true" />,
+          disabled: manualAccounts.length === 0,
+          onClick: () => openPositionCreate(null),
+        },
+        {
+          key: "goal",
+          label: "Novo objetivo",
+          description: "Agrupe posições por finalidade",
+          icon: <AimOutlined aria-hidden="true" />,
+          onClick: () => openPortfolio(null),
+        },
+        {
+          key: "account",
+          label: "Nova conta de custódia",
+          description: "Onde suas posições ficam guardadas",
+          icon: <BankOutlined aria-hidden="true" />,
+          onClick: openAccountCreate,
+        },
+      ]}
+    />
+  );
+
   return (
     <Page
       title="Investimentos"
       description="Contas de custódia, objetivos e o caixa disponível para investir"
-      actions={
-        <>
-          <Button onClick={() => navigate("/transacoes?period=all")}>Revisar lançamentos antigos</Button>
-          <Button onClick={() => openOperationCreate(null)} disabled={workspace.accounts.length === 0}>
-            Registrar movimentação
-          </Button>
-          <Button onClick={() => openPositionCreate(null)} disabled={manualAccounts.length === 0}>
-            Nova posição
-          </Button>
-          <Button onClick={() => openPortfolio(null)}>Novo objetivo</Button>
-          <Button type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={openAccountCreate}>
-            Nova conta de custódia
-          </Button>
-        </>
-      }
+      compactMobileHeader
+      hasBottomActionBar
+      actions={createMenu}
       tabs={<PageTabs label="Visão dos investimentos" options={viewOptions} value={view} onChange={setView} />}
     >
       {workspace.error && !workspace.isLoading && (
@@ -278,10 +306,15 @@ export function InvestmentsPage() {
             <ListToolbar
               label="Controles das posições"
               end={
-                <label className="list-toolbar-switch">
-                  <Switch size="small" checked={showClosedPositions} onChange={setShowClosedPositions} />
-                  <span>Mostrar posições fechadas</span>
-                </label>
+                <>
+                  <Button type="link" onClick={() => navigate("/transacoes?period=all")}>
+                    Revisar lançamentos antigos
+                  </Button>
+                  <label className="list-toolbar-switch">
+                    <Switch size="small" checked={showClosedPositions} onChange={setShowClosedPositions} />
+                    <span>Mostrar posições fechadas</span>
+                  </label>
+                </>
               }
             />
           )}
@@ -433,6 +466,7 @@ export function InvestmentsPage() {
         onSubmitCompound={(operations) => void save(() => workspace.createOperations({ operations }), () => setOperationFormOpen(false), "Não foi possível salvar a movimentação.")}
         onCancel={() => setOperationFormOpen(false)}
       />
+      {compact && <BottomActionBar>{createMenu}</BottomActionBar>}
     </Page>
   );
 }
