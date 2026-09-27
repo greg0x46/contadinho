@@ -1,25 +1,22 @@
-import { creditUsagePercent, creditUsageShare } from "../../presentation/accountLabels";
+import { creditUsagePercent, creditUsageLevel, creditUsageShare } from "../../presentation/accountLabels";
 
-/** Renders how much of a card's limit is committed. Returns null when the
+/** Renders how much of a card's limit is committed: one fill bar, not the
+ *  red/paid-vs-green/remaining pairing that fits a debt payoff (see
+ *  payables.css) but not spending room. Color only escalates once usage
+ *  actually needs attention — see creditUsageLevel. Returns null when the
  *  ratio couldn't be computed (no limit, no balance, or a bank account), so
  *  callers can drop it in unconditionally. */
 export function CreditUsageMeter({ ratio }: { ratio: string | null }) {
   if (ratio === null) return null;
   const share = creditUsageShare(ratio);
+  const level = creditUsageLevel(ratio);
 
   return (
-    <div className="debt-row-progress">
-      <div className="debt-row-meter" aria-hidden="true">
-        <span
-          className="debt-row-meter-segment debt-row-meter-remaining"
-          style={{ width: `${share}%` }}
-        />
-        <span
-          className="debt-row-meter-segment debt-row-meter-paid"
-          style={{ width: `${100 - share}%` }}
-        />
+    <div className="credit-usage-meter">
+      <div className="credit-usage-meter-track" aria-hidden="true">
+        <span className={`credit-usage-meter-fill is-${level}`} style={{ width: `${share}%` }} />
       </div>
-      <span className="debt-row-caption">{creditUsagePercent(ratio)} do limite usado</span>
+      <span className="credit-usage-meter-caption">{creditUsagePercent(ratio)} do limite utilizado</span>
     </div>
   );
 }

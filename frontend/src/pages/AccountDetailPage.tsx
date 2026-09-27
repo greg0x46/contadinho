@@ -1,4 +1,3 @@
-import { PageContainer } from "@ant-design/pro-layout";
 import { Alert, Button } from "antd";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -7,8 +6,9 @@ import { isUuid, type ManualTransactionWrite } from "../api/contracts";
 import { LoadingState, UnavailableState } from "../components/AsyncState";
 import { AccountBillsTable } from "../components/accounts/AccountBillsTable";
 import { AccountCardsTable } from "../components/accounts/AccountCardsTable";
-import { AccountHeader } from "../components/accounts/AccountHeader";
+import { AccountSummary } from "../components/accounts/AccountSummary";
 import { AccountRecentTransactions } from "../components/accounts/AccountRecentTransactions";
+import { Page } from "../components/layout";
 import { TransactionPanel } from "../components/transactions/TransactionPanel";
 import { useAccountDetail } from "../hooks/useAccountDetail";
 import { useAccounts } from "../hooks/useAccounts";
@@ -72,7 +72,7 @@ function ValidAccountDetail({ id }: { id: string }) {
   };
 
   return (
-    <PageContainer className="accounts-page" title="Detalhes da conta" extra={backLink}>
+    <Page className="accounts-page" title="Detalhes da conta" back={backLink}>
       <div className="accounts-page-sections">
         {account.state.freshness === "loading" && <LoadingState>Carregando conta…</LoadingState>}
         {account.state.freshness === "not_found" && (
@@ -104,7 +104,7 @@ function ValidAccountDetail({ id }: { id: string }) {
               />
             )}
 
-            <AccountHeader
+            <AccountSummary
               account={snapshot}
               onSaveClosingDay={account.setClosingDay}
               savingClosingDay={account.savingClosingDay}
@@ -157,7 +157,7 @@ function ValidAccountDetail({ id }: { id: string }) {
         deleteManualPending={manualTransaction.isRemoving}
         deleteManualError={manualDeleteError}
       />
-    </PageContainer>
+    </Page>
   );
 }
 

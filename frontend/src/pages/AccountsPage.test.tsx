@@ -40,11 +40,11 @@ describe("AccountsPage", () => {
     vi.mocked(accountsApi.listAccounts).mockResolvedValue([bankAccount, creditAccount]);
     renderPage();
 
-    await findRow("24,7% do limite usado");
+    await findRow("24,7% do limite utilizado");
     // Each figure shows twice: once in its row, once in the summary.
     expect(screen.getAllByText("R$ 2.500,00").length).toBeGreaterThan(0);
     expect(screen.getAllByText("R$ 1.234,56").length).toBeGreaterThan(0);
-    expect(screen.getByText("24,7% do limite usado")).toBeVisible();
+    expect(screen.getByText("24,7% do limite utilizado")).toBeVisible();
   });
 
   it("treats an account with no type as a bank account", async () => {

@@ -67,6 +67,18 @@ export function creditUsageShare(ratio: string): number {
   return Math.min(100, Math.max(0, Number(ratio) * 100));
 }
 
+export type CreditUsageLevel = "normal" | "warning" | "critical";
+
+/** No domain rule pins these thresholds today, so the meter escalates color
+ *  only once usage genuinely needs attention: comfortable below 70%, a
+ *  heads-up from 70%, critical from 90%. */
+export function creditUsageLevel(ratio: string): CreditUsageLevel {
+  const share = Number(ratio) * 100;
+  if (share >= 90) return "critical";
+  if (share >= 70) return "warning";
+  return "normal";
+}
+
 export function isCreditAccount(account: Account): boolean {
   return account.account_type === "CREDIT";
 }

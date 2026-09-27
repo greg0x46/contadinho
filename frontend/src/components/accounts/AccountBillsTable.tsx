@@ -4,6 +4,7 @@ import { Alert, Skeleton } from "antd";
 import type { AccountBill } from "../../api/contracts";
 import { formatOptionalDay } from "../../presentation/dates";
 import { formatAccountMoney } from "../../presentation/accountLabels";
+import { SectionHeader } from "../layout";
 
 /** Closed invoices as flat rows — the closing/due dates as identity, the
  *  total (with the minimum payment as its hint) as the figure — matching
@@ -19,14 +20,16 @@ export function AccountBillsTable({
 }) {
   return (
     <section className="accounts-section" aria-label="Faturas fechadas">
-      <header className="accounts-section-header">
-        <h2>Faturas fechadas</h2>
-        {!isLoading && bills.length > 0 && (
-          <small>
-            {bills.length} {bills.length === 1 ? "fatura" : "faturas"}
-          </small>
-        )}
-      </header>
+      <SectionHeader
+        title="Faturas fechadas"
+        trailing={
+          !isLoading && bills.length > 0 ? (
+            <small>
+              {bills.length} {bills.length === 1 ? "fatura" : "faturas"}
+            </small>
+          ) : undefined
+        }
+      />
       <p className="accounts-section-note">
         A instituição disponibiliza apenas faturas já fechadas — a fatura em aberto aparece no saldo do cartão.
       </p>

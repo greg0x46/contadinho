@@ -2,7 +2,11 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover: without it iOS Safari never reports real
+         env(safe-area-inset-*) values (they stay 0), which silently breaks
+         every safe-area padding rule already in this codebase
+         (filters.css, panel.css, categories.css) on notched devices. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="Acompanhe suas sincronizações no Contadinho." />
     <title>Contadinho</title>
     <!-- Brand mark only (header title "Julius" + its subtitle) — the

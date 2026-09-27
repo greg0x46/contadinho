@@ -258,7 +258,7 @@
   font-size: 0.75rem;
 }
 
-.card-row-figure-limit .debt-row-progress {
+.card-row-figure-limit .credit-usage-meter {
   min-width: 0;
 }
 
@@ -377,25 +377,34 @@
   white-space: nowrap;
 }
 
-/* ---- Account detail: identity + balance, flat — typography and spacing
-   carry the hierarchy instead of a card wrapping the whole block. The
-   balance is the page's one hero figure: it never truncates, wrapping
-   instead if it ever has to. ------------------------------------------- */
+/* ---- Account detail: the summary block shared by bank accounts and credit
+   cards. One lightly-bounded surface — the same border/radius/background
+   language as .accounts-section below it, just without a header row and
+   with more breathing room — so it reads as at least as structured as the
+   sections under it instead of floating loose on the page background.
+   Only the credit-only rows (usage, limits, closing/due) are conditional;
+   the shape is identical for both account types. The balance is the page's
+   one hero figure: it never truncates, wrapping instead if it ever has to.
+   ------------------------------------------------------------------------ */
 
-.account-identity {
+.account-summary {
   display: flex;
   flex-direction: column;
   gap: 1.125rem;
+  padding: 1.125rem 1.25rem;
+  border: 1px solid var(--color-border-secondary);
+  border-radius: 10px;
+  background: var(--color-bg-container);
 }
 
-.account-identity-heading {
+.account-summary-identity {
   display: flex;
   flex-direction: column;
   gap: 0.1875rem;
   min-width: 0;
 }
 
-.account-identity-name {
+.account-summary-name {
   margin: 0;
   overflow: hidden;
   color: var(--color-text-primary);
@@ -405,18 +414,18 @@
   white-space: nowrap;
 }
 
-.account-identity-meta {
+.account-summary-meta {
   color: var(--color-text-secondary);
   font-size: 0.875rem;
 }
 
-.account-balance {
+.account-summary-balance {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.375rem;
 }
 
-.account-balance-label {
+.account-summary-balance-label {
   color: var(--color-text-secondary);
   font-size: 0.8125rem;
 }
@@ -424,7 +433,7 @@
 /* No nowrap/ellipsis here on purpose — this figure must never truncate. A
    vw-based clamp keeps it large without a container query pushing it past
    the smallest phones the way .dashboard-hero-figure's 13cqi does. */
-.account-balance-value {
+.account-summary-balance-value {
   margin: 0;
   overflow-wrap: break-word;
   color: var(--color-text-primary);
@@ -434,14 +443,129 @@
   line-height: 1.15;
 }
 
-.account-updated-at {
+/* ---- Credit usage: one fill bar. Color only escalates at a real
+   threshold (see creditUsageLevel) — a card comfortably under 70% used
+   stays neutral instead of announcing "danger" in red. -------------------- */
+
+.credit-usage-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3125rem;
+  min-width: 0;
+}
+
+.credit-usage-meter-track {
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--color-bg-layout);
+}
+
+.credit-usage-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-text-secondary);
+}
+
+.credit-usage-meter-fill.is-warning {
+  background: var(--color-warning);
+}
+
+.credit-usage-meter-fill.is-critical {
+  background: var(--color-error);
+}
+
+.credit-usage-meter-caption {
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Limits: "Disponível" answers what the user actually wants to know
+   first, so it carries more visual weight than "Limite total" — the two
+   aren't equivalent KPIs. ------------------------------------------------- */
+
+.account-summary-limits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 2rem;
+}
+
+.account-summary-limit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.account-summary-limit span {
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+}
+
+.account-summary-limit strong {
+  color: var(--color-text-secondary);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.account-summary-limit.is-primary strong {
+  color: var(--color-text-primary);
+  font-size: 1.1875rem;
+  font-weight: 700;
+}
+
+/* ---- Closing / due date: grouped as one semantic row — see
+   ClosingDayField for the "Fechamento" half. --------------------------- */
+
+.account-summary-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 2rem;
+}
+
+.account-summary-date {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.account-summary-date-label {
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+}
+
+.account-summary-date-value {
+  color: var(--color-text-primary);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.account-summary-date-row {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+/* A compact link, but still a real touch target on a phone. */
+.account-summary-date-action.ant-btn {
+  height: auto;
+  min-height: 32px;
+  padding-inline: 0.25rem;
+}
+
+.account-summary-updated {
   margin: 0;
   color: var(--color-text-secondary);
   font-size: 0.8125rem;
 }
 
 @media (min-width: 48rem) {
-  .account-identity-name {
+  .account-summary-name {
     font-size: 1.625rem;
   }
 }
