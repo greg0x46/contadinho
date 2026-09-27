@@ -1,5 +1,5 @@
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, DatePicker, Flex, Input, InputNumber, Popconfirm, Select, Space, Switch, Tag } from "antd";
+import { Alert, Button, DatePicker, Flex, Input, InputNumber, Popconfirm, Select, Skeleton, Space, Switch, Tag } from "antd";
 import type { ProColumns } from "@ant-design/pro-table";
 import ProTable from "@ant-design/pro-table";
 import dayjs, { type Dayjs } from "dayjs";
@@ -51,7 +51,7 @@ function NewTransactionRow({
   };
 
   return (
-    <Flex vertical gap="small" style={{ marginTop: 12 }}>
+    <Flex vertical gap="small" className="scenario-panel-new-transaction">
       {error && <Alert type="error" showIcon message={error} closable onClose={() => setError(null)} />}
       <Flex gap="small" wrap>
         <Input
@@ -95,18 +95,24 @@ function NewTransactionRow({
   );
 }
 
-export function StandaloneScenarioCard({
+/**
+ * The expanded body of a scenario row: its hypothetical transactions, the
+ * realized/pending counts of the projected occurrences, and — for
+ * standalone scenarios only — the form to add another transaction.
+ *
+ * Detail and planned-transaction data load here, per expanded scenario,
+ * rather than eagerly for the whole list: the same choice
+ * RecurrenceOccurrenceList makes for recurring commitments, for the same
+ * reason (most scenarios are never opened in a given visit).
+ */
+function ScenarioTransactionsPanel({
   scenario,
-  onDeleteScenario,
   onAddTransaction,
   onDeleteTransaction,
-  onToggleScenario,
 }: {
   scenario: Scenario;
-  onDeleteScenario: (scenario: Scenario) => void;
   onAddTransaction: (scenarioId: string, write: ScenarioTransactionWrite) => Promise<unknown>;
   onDeleteTransaction: (scenarioId: string, transactionId: string) => Promise<void>;
-  onToggleScenario?: (scenario: Scenario, isActive: boolean) => Promise<unknown>;
 }) {
   const detailQuery = useQuery({
     queryKey: ["scenarios", scenario.id, "detail"],
@@ -170,41 +176,8 @@ export function StandaloneScenarioCard({
   ];
 
   return (
-    <Card
-      title={
-        <Space>
-          <span>{scenario.name}</span>
-          <Tag>{scenarioKindLabel[scenario.kind]}</Tag>
-          <Tag color={scenario.is_accounting_source ? "blue" : undefined}>
-            {scenario.is_accounting_source ? "Contábil" : "Simulação"}
-          </Tag>
-        </Space>
-      }
-      extra={
-        <Space>
-          {onToggleScenario && (
-            <Switch
-              aria-label={`${scenario.is_active === false ? "Ativar" : "Desativar"} cenário ${scenario.name}`}
-              checked={scenario.is_active !== false}
-              onChange={(checked) => void onToggleScenario(scenario, checked)}
-            />
-          )}
-          <Popconfirm
-            title="Excluir cenário"
-            description="As projeções deste cenário também serão excluídas."
-            onConfirm={() => onDeleteScenario(scenario)}
-            okText="Excluir"
-            cancelText="Cancelar"
-          >
-            <Button type="link" danger>
-              Excluir cenário
-            </Button>
-          </Popconfirm>
-        </Space>
-      }
-      style={{ marginBottom: 16 }}
-    >
-      {addError && <Alert type="error" showIcon message={addError} style={{ marginBottom: 12 }} />}
+    <Flex vertical gap="small" className="scenario-panel">
+      {addError && <Alert type="error" showIcon message={addError} closable onClose={() => setAddError(null)} />}
       <ProTable<ScenarioTransaction>
         aria-label={`Transações hipotéticas de ${scenario.name}`}
         columns={columns}
@@ -214,14 +187,116 @@ export function StandaloneScenarioCard({
         search={false}
         options={false}
         pagination={false}
+        size="small"
         locale={{ emptyText: "Nenhuma transação hipotética ainda." }}
       />
-      <div style={{ marginTop: 8, color: "#666" }}>
+      <div className="scenario-panel-counts">
         Eventos realizados: {plannedQuery.data?.filter((event) => event.realized).length ?? 0}
         {" · "}
         Eventos pendentes: {plannedQuery.data?.filter((event) => !event.realized).length ?? 0}
       </div>
       {scenario.kind === "standalone" && <NewTransactionRow onAdd={add} submitting={adding} />}
-    </Card>
+    </Flex>
+  );
+}
+
+const emptyText = <span>Nenhum cenário criado ainda.</span>;
+
+/**
+ * Scenarios as flat rows — name, type, source and status up front, with the
+ * hypothetical transactions of each one tucked behind its row's expander
+ * rather than always-open per-scenario cards (see RecurringCommitmentList
+ * for the same shape applied to recurring commitments).
+ */
+export function StandaloneScenarioList({
+  scenarios,
+  isLoading,
+  onDeleteScenario,
+  onAddTransaction,
+  onDeleteTransaction,
+  onToggleScenario,
+}: {
+  scenarios: Scenario[];
+  isLoading: boolean;
+  onDeleteScenario: (scenario: Scenario) => void;
+  onAddTransaction: (scenarioId: string, write: ScenarioTransactionWrite) => Promise<unknown>;
+  onDeleteTransaction: (scenarioId: string, transactionId: string) => Promise<void>;
+  onToggleScenario?: (scenario: Scenario, isActive: boolean) => Promise<unknown>;
+}) {
+  if (isLoading) {
+    return <Skeleton active paragraph={{ rows: 4 }} />;
+  }
+
+  const columns: ProColumns<Scenario>[] = [
+    { title: "Nome", dataIndex: "name" },
+    {
+      title: "Tipo",
+      dataIndex: "kind",
+      render: (_, scenario) => <Tag>{scenarioKindLabel[scenario.kind]}</Tag>,
+    },
+    {
+      title: "Origem",
+      dataIndex: "is_accounting_source",
+      render: (_, scenario) => (
+        <Tag color={scenario.is_accounting_source ? "blue" : undefined}>
+          {scenario.is_accounting_source ? "Contábil" : "Simulação"}
+        </Tag>
+      ),
+    },
+    {
+      title: "Ativo",
+      dataIndex: "is_active",
+      render: (_, scenario) =>
+        onToggleScenario ? (
+          <Switch
+            aria-label={`${scenario.is_active === false ? "Ativar" : "Desativar"} cenário ${scenario.name}`}
+            checked={scenario.is_active !== false}
+            onChange={(checked) => void onToggleScenario(scenario, checked)}
+          />
+        ) : null,
+    },
+    {
+      title: "Ação",
+      valueType: "option",
+      render: (_, scenario) => (
+        <Space onClick={(event) => event.stopPropagation()}>
+          <Popconfirm
+            title="Excluir cenário"
+            description="As projeções deste cenário também serão excluídas."
+            onConfirm={() => onDeleteScenario(scenario)}
+            okText="Excluir"
+            cancelText="Cancelar"
+          >
+            <Button type="link" danger>
+              Excluir
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
+
+  return (
+    <ProTable<Scenario>
+      aria-label="Cenários"
+      columns={columns}
+      dataSource={scenarios}
+      rowKey="id"
+      search={false}
+      options={false}
+      pagination={false}
+      cardBordered
+      scroll={{ x: "max-content" }}
+      expandable={{
+        expandedRowRender: (scenario) => (
+          <ScenarioTransactionsPanel
+            scenario={scenario}
+            onAddTransaction={onAddTransaction}
+            onDeleteTransaction={onDeleteTransaction}
+          />
+        ),
+      }}
+      locale={{ emptyText: <div className="debt-list-empty">{emptyText}</div> }}
+    />
   );
 }
