@@ -182,6 +182,7 @@ export function InvestmentAssetSettings() {
       )}
       <Table<InvestmentAsset>
         aria-label="Ativos de investimento"
+        className="investment-table"
         rowKey="id"
         columns={columns}
         dataSource={assets.assets}

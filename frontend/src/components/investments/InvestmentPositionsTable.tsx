@@ -154,6 +154,7 @@ export function InvestmentPositionsTable({
   return (
     <Table<InvestmentPosition>
       aria-label="Posições"
+      className="investment-table"
       size="small"
       rowKey="id"
       columns={columns}

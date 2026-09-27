@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Collapse, Popconfirm, Space, Tag } from "antd";
+import { Alert, Button, Collapse, Popconfirm, Tag } from "antd";
 
 import type {
   InvestmentAccount,
@@ -63,107 +63,112 @@ export function InvestmentAccountCard({
   ]);
 
   return (
-    <Card
-      title={
-        <Space>
-          <span>{account.name}</span>
+    <section className="investment-card" aria-label={account.name}>
+      <header className="investment-card-header">
+        <div className="investment-card-identity">
+          <h2 className="investment-card-name">{account.name}</h2>
           <Tag color={editable ? "default" : "blue"}>{investmentAccountKindLabel[account.kind]}</Tag>
           {!account.active && <Tag>Inativa</Tag>}
-        </Space>
-      }
-      style={{ marginBottom: 16 }}
-      extra={
-        editable ? (
-          <Space wrap>
-            <Button size="small" onClick={() => onNewOperation(account)}>
-              Registrar movimentação
-            </Button>
-            <Button size="small" onClick={() => onNewPosition(account)}>
-              Nova posição
-            </Button>
-            <Button size="small" onClick={() => onRename(account)}>
-              Editar conta
-            </Button>
-            <Popconfirm
-              title="Remover conta de custódia"
-              description="Só é possível remover uma conta sem posições nem movimentações."
-              okText="Remover"
-              cancelText="Cancelar"
-              okButtonProps={{ danger: true }}
-              onConfirm={() => onRemove(account)}
-            >
-              <Button size="small" danger disabled={busy}>
-                Remover conta
+        </div>
+        <div className="investment-card-actions">
+          {editable ? (
+            <>
+              <Button size="small" onClick={() => onNewOperation(account)}>
+                Registrar movimentação
               </Button>
-            </Popconfirm>
-          </Space>
-        ) : <Space>
-          <Button size="small" onClick={() => onNewOperation(account)}>Registrar movimentação</Button>
-          <Button size="small" onClick={() => onRename(account)}>
-            {account.financial_account_id === null ? "Vincular caixa da corretora" : "Caixa da corretora"}
-          </Button>
-        </Space>
-      }
-    >
-      {!editable && (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message="Conta integrada"
-          description="Saldos e posições vêm da instituição. Registre aportes, resgates e rendimentos para conciliá-los com o extrato, sem alterar o saldo informado."
+              <Button size="small" onClick={() => onNewPosition(account)}>
+                Nova posição
+              </Button>
+              <Button size="small" onClick={() => onRename(account)}>
+                Editar conta
+              </Button>
+              <Popconfirm
+                title="Remover conta de custódia"
+                description="Só é possível remover uma conta sem posições nem movimentações."
+                okText="Remover"
+                cancelText="Cancelar"
+                okButtonProps={{ danger: true }}
+                onConfirm={() => onRemove(account)}
+              >
+                <Button size="small" danger disabled={busy}>
+                  Remover conta
+                </Button>
+              </Popconfirm>
+            </>
+          ) : (
+            <>
+              <Button size="small" onClick={() => onNewOperation(account)}>
+                Registrar movimentação
+              </Button>
+              <Button size="small" onClick={() => onRename(account)}>
+                {account.financial_account_id === null ? "Vincular caixa da corretora" : "Caixa da corretora"}
+              </Button>
+            </>
+          )}
+        </div>
+      </header>
+
+      <div className="investment-card-body">
+        {!editable && (
+          <Alert
+            type="info"
+            showIcon
+            message="Conta integrada"
+            description="Saldos e posições vêm da instituição. Registre aportes, resgates e rendimentos para conciliá-los com o extrato, sem alterar o saldo informado."
+          />
+        )}
+        <InvestmentFigures
+          figures={[
+            { label: "Valor atual", value: formatBRL(currentValue) },
+            {
+              label: "Aportes",
+              value: formatBRL(movements.deposits),
+              hint: "Dinheiro que entrou nesta conta de custódia vindo do seu caixa.",
+            },
+            {
+              label: "Resgates",
+              value: formatBRL(movements.withdrawals),
+              hint: "Dinheiro que saiu desta conta de custódia de volta para o seu caixa.",
+            },
+            {
+              label: "Caixa disponível para investir",
+              value: formatBRL(summary?.cash_balance ?? account.cash_balance),
+              hint: "Valor já aportado que ainda não foi aplicado em nenhuma posição.",
+            },
+            { label: "Última atualização", value: formatDate(updatedOn) },
+          ]}
         />
-      )}
-      <InvestmentFigures
-        figures={[
-          { label: "Valor atual", value: formatBRL(currentValue) },
-          {
-            label: "Aportes",
-            value: formatBRL(movements.deposits),
-            hint: "Dinheiro que entrou nesta conta de custódia vindo do seu caixa.",
-          },
-          {
-            label: "Resgates",
-            value: formatBRL(movements.withdrawals),
-            hint: "Dinheiro que saiu desta conta de custódia de volta para o seu caixa.",
-          },
-          {
-            label: "Caixa disponível para investir",
-            value: formatBRL(summary?.cash_balance ?? account.cash_balance),
-            hint: "Valor já aportado que ainda não foi aplicado em nenhuma posição.",
-          },
-          { label: "Última atualização", value: formatDate(updatedOn) },
-        ]}
-      />
 
-      <InvestmentPositionsTable
-        positions={positions}
-        portfolios={portfolios}
-        onAssignGoal={onAssignGoal}
-        onEdit={editable ? onEditPosition : undefined}
-        onDelete={editable ? onRemovePosition : undefined}
-        busy={busy}
-        emptyText="Nenhuma posição nesta conta."
-      />
+        <InvestmentPositionsTable
+          positions={positions}
+          portfolios={portfolios}
+          onAssignGoal={onAssignGoal}
+          onEdit={editable ? onEditPosition : undefined}
+          onDelete={editable ? onRemovePosition : undefined}
+          busy={busy}
+          emptyText="Nenhuma posição nesta conta."
+        />
 
-      <Collapse
-        ghost
-        items={[
-          {
-            key: "operations",
-            label: `Movimentações (${operations.length})`,
-            children: (
-              <InvestmentOperationsTable
-                operations={operations}
-                positions={allPositions}
-                onEdit={onEditOperation}
-                onDelete={onRemoveOperation}
-                busy={busy}
-              />
-            ),
-          },
-        ]}
-      />
-    </Card>
+        <Collapse
+          ghost
+          className="investment-card-operations"
+          items={[
+            {
+              key: "operations",
+              label: `Movimentações (${operations.length})`,
+              children: (
+                <InvestmentOperationsTable
+                  operations={operations}
+                  positions={allPositions}
+                  onEdit={onEditOperation}
+                  onDelete={onRemoveOperation}
+                  busy={busy}
+                />
+              ),
+            },
+          ]}
+        />
+      </div>
+    </section>
   );
 }
