@@ -290,63 +290,68 @@ export function InvestmentsPage() {
             (workspace.accounts.length === 0 ? (
               <Empty description="Nenhuma conta de custódia ainda. Crie uma conta manual ou conecte uma instituição." />
             ) : (
-              workspace.accounts.map((account) => (
-                <InvestmentAccountCard
-                  key={account.id}
-                  account={account}
-                  summary={summaryAccount(account.id)}
-                  positions={positionsOfAccount(account.id)}
-                  allPositions={allPositionsOfAccount(account.id)}
-                  operations={operationsOfAccount(account.id)}
-                  portfolios={workspace.portfolios}
-                  onRename={openAccountEdit}
-                  onRemove={(target) =>
-                    void run(() => workspace.deleteAccount(target.id), "Não foi possível remover a conta.")
-                  }
-                  onNewPosition={(target) => openPositionCreate([target])}
-                  onNewOperation={(target) => openOperationCreate(target.id)}
-                  onEditPosition={openPositionEdit}
-                  onRemovePosition={(position) =>
-                    void run(() => workspace.deletePosition(position.id), "Não foi possível remover a posição.")
-                  }
-                  onEditOperation={openOperationEdit}
-                  onRemoveOperation={(operation) =>
-                    void run(
-                      () => workspace.deleteOperation(operation.id),
-                      "Não foi possível excluir a movimentação.",
-                    )
-                  }
-                  onAssignGoal={assignGoal}
-                  busy={busy}
-                />
-              ))
+              <div className="investments-list">
+                {workspace.accounts.map((account) => (
+                  <InvestmentAccountCard
+                    key={account.id}
+                    account={account}
+                    summary={summaryAccount(account.id)}
+                    positions={positionsOfAccount(account.id)}
+                    allPositions={allPositionsOfAccount(account.id)}
+                    operations={operationsOfAccount(account.id)}
+                    portfolios={workspace.portfolios}
+                    onRename={openAccountEdit}
+                    onRemove={(target) =>
+                      void run(() => workspace.deleteAccount(target.id), "Não foi possível remover a conta.")
+                    }
+                    onNewPosition={(target) => openPositionCreate([target])}
+                    onNewOperation={(target) => openOperationCreate(target.id)}
+                    onEditPosition={openPositionEdit}
+                    onRemovePosition={(position) =>
+                      void run(() => workspace.deletePosition(position.id), "Não foi possível remover a posição.")
+                    }
+                    onEditOperation={openOperationEdit}
+                    onRemoveOperation={(operation) =>
+                      void run(
+                        () => workspace.deleteOperation(operation.id),
+                        "Não foi possível excluir a movimentação.",
+                      )
+                    }
+                    onAssignGoal={assignGoal}
+                    busy={busy}
+                  />
+                ))}
+              </div>
             ))}
 
-          {view === "goals" &&
-            goalCards.map(({ portfolio }) => {
-              const positions = positionsOfGoal(portfolio?.id ?? null);
-              // The "sem objetivo" bucket only earns a card when it has
-              // something in it; an empty one would just be noise.
-              if (portfolio === null && positions.length === 0) return null;
-              return (
-                <InvestmentGoalCard
-                  key={portfolio?.id ?? "sem-objetivo"}
-                  portfolio={portfolio}
-                  summary={summaryPortfolio(portfolio?.id ?? null)}
-                  positions={positions}
-                  operations={operationsOfPositions(allPositionsOfGoal(portfolio?.id ?? null))}
-                  portfolios={workspace.portfolios}
-                  cashBalance={workspace.summary?.cash_balance ?? "0"}
-                  accountNameOf={accountName}
-                  onEdit={openPortfolio}
-                  onRemove={(target) =>
-                    void run(() => workspace.deletePortfolio(target.id), "Não foi possível remover o objetivo.")
-                  }
-                  onAssignGoal={assignGoal}
-                  busy={busy}
-                />
-              );
-            })}
+          {view === "goals" && (
+            <div className="investments-list">
+              {goalCards.map(({ portfolio }) => {
+                const positions = positionsOfGoal(portfolio?.id ?? null);
+                // The "sem objetivo" bucket only earns a card when it has
+                // something in it; an empty one would just be noise.
+                if (portfolio === null && positions.length === 0) return null;
+                return (
+                  <InvestmentGoalCard
+                    key={portfolio?.id ?? "sem-objetivo"}
+                    portfolio={portfolio}
+                    summary={summaryPortfolio(portfolio?.id ?? null)}
+                    positions={positions}
+                    operations={operationsOfPositions(allPositionsOfGoal(portfolio?.id ?? null))}
+                    portfolios={workspace.portfolios}
+                    cashBalance={workspace.summary?.cash_balance ?? "0"}
+                    accountNameOf={accountName}
+                    onEdit={openPortfolio}
+                    onRemove={(target) =>
+                      void run(() => workspace.deletePortfolio(target.id), "Não foi possível remover o objetivo.")
+                    }
+                    onAssignGoal={assignGoal}
+                    busy={busy}
+                  />
+                );
+              })}
+            </div>
+          )}
 
           {view === "synced" && (
             <>
