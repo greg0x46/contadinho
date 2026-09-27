@@ -1,4 +1,6 @@
 export { Page } from "./Page";
+export { DetailPage, InvalidDetailPage } from "./DetailPage";
+export type { DetailPageQueryState, DetailFreshness } from "./DetailPage";
 export { PageTabs } from "./PageTabs";
 export { SectionHeader } from "./SectionHeader";
 export { ListToolbar } from "./ListToolbar";

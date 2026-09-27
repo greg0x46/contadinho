@@ -3,6 +3,67 @@
   gap: 1rem;
 }
 
+/* ---- Sync run detail: overview body + failure rows, replacing the old
+   Card+Descriptions/Statistic-grid pattern with the same flat, bounded
+   section language as the account detail page. ------------------------- */
+
+.sync-run-overview-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1rem 1.25rem;
+}
+
+.sync-run-overview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 2rem;
+  margin: 0;
+}
+
+.sync-run-overview-meta > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.sync-run-overview-meta dt {
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+}
+
+.sync-run-overview-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-text-primary);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sync-failure-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+}
+
+.sync-failure-row .ant-alert {
+  align-items: flex-start;
+}
+
+.sync-failure-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.sync-failure-meta {
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+}
+
 .ant-pro-page-container-children-container {
   padding-block-end: 2rem;
 }

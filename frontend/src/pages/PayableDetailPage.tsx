@@ -1,10 +1,9 @@
-import { PageContainer } from "@ant-design/pro-layout";
-import { Alert, Button, Flex } from "antd";
+import { Alert } from "antd";
 import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { isUuid, type PayableKind } from "../api/contracts";
-import { LoadingState, UnavailableState } from "../components/AsyncState";
+import { DetailPage, InvalidDetailPage } from "../components/layout";
 import { PayableForm } from "../components/payables/PayableForm";
 import { PayableHeaderCard } from "../components/payables/PayableHeaderCard";
 import { PayableTimeline } from "../components/payables/PayableTimeline";
@@ -15,17 +14,8 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
-function InvalidPayable() {
-  return (
-    <Alert
-      type="error"
-      showIcon
-      message={<h1>Endereço inválido</h1>}
-      description="O identificador informado não possui o formato esperado."
-      action={<Link to="/pendencias">Voltar para pendências</Link>}
-    />
-  );
-}
+const pageTitle = "Detalhes";
+const backLink = <Link to="/pendencias">Voltar para pendências</Link>;
 
 function ValidPayableDetail({ id, kind }: { id: string; kind: PayableKind }) {
   const payable = usePayableDetail(id, kind);
@@ -59,84 +49,62 @@ function ValidPayableDetail({ id, kind }: { id: string; kind: PayableKind }) {
   };
 
   return (
-    <PageContainer title="Detalhes" extra={<Link to="/pendencias">Voltar para pendências</Link>}>
-      <Flex vertical gap="large">
-        {payable.state.freshness === "loading" && <LoadingState>Carregando…</LoadingState>}
-        {payable.state.freshness === "not_found" && (
-          <Alert
-            type="error"
-            showIcon
-            message="Não encontrada"
-            description="Não existe uma dívida ou conta a receber com este identificador."
-            action={<Link to="/pendencias">Voltar para pendências</Link>}
+    <DetailPage
+      title={pageTitle}
+      back={backLink}
+      state={payable.state}
+      retry={payable.retry}
+      loadingLabel="Carregando…"
+      notFoundMessage="Não encontrada"
+      notFoundDescription="Não existe uma dívida ou conta a receber com este identificador."
+      unavailableMessage="Não foi possível consultar esta pendência agora."
+    >
+      {(snapshot) => (
+        <>
+          {deleteError && (
+            <Alert
+              type="error"
+              showIcon
+              closable
+              onClose={() => setDeleteError(null)}
+              message={deleteError}
+            />
+          )}
+
+          <PayableHeaderCard
+            payable={snapshot}
+            onEdit={() => {
+              setSaveError(null);
+              setFormOpen(true);
+            }}
+            onDelete={submitDelete}
           />
-        )}
-        {payable.state.freshness === "unavailable" && (
-          <UnavailableState onRetry={payable.retry}>
-            Não foi possível consultar esta pendência agora.
-          </UnavailableState>
-        )}
-        {payable.state.snapshot !== null && (
-          <>
-            {payable.state.freshness === "stale" && (
-              <Alert
-                type="warning"
-                showIcon
-                message="As informações podem estar desatualizadas."
-                action={
-                  <Button loading={payable.state.retrying} onClick={payable.retry}>
-                    Tentar novamente
-                  </Button>
-                }
-              />
-            )}
-            {deleteError && (
-              <Alert
-                type="error"
-                showIcon
-                closable
-                onClose={() => setDeleteError(null)}
-                message={deleteError}
-              />
-            )}
 
-            <PayableHeaderCard
-              payable={payable.state.snapshot}
-              onEdit={() => {
-                setSaveError(null);
-                setFormOpen(true);
-              }}
-              onDelete={submitDelete}
-            />
+          <PayableTimeline
+            payableId={id}
+            kind={kind}
+            links={snapshot.links}
+            search={payable.search}
+            onSearchChange={payable.setSearch}
+            candidates={payable.eligibleTransactions}
+            isSearching={payable.isSearching}
+            isLinking={payable.isLinking}
+            onLinkTransaction={payable.linkTransaction}
+            onUnlinkTransaction={payable.unlinkTransaction}
+          />
 
-            <PayableTimeline
-              payableId={id}
-              kind={kind}
-              links={payable.state.snapshot.links}
-              search={payable.search}
-              onSearchChange={payable.setSearch}
-              candidates={payable.eligibleTransactions}
-              isSearching={payable.isSearching}
-              isLinking={payable.isLinking}
-              onLinkTransaction={payable.linkTransaction}
-              onUnlinkTransaction={payable.unlinkTransaction}
-            />
-          </>
-        )}
-      </Flex>
-
-      {payable.state.snapshot !== null && (
-        <PayableForm
-          kind={kind}
-          open={formOpen}
-          payable={payable.state.snapshot}
-          submitting={payables.isUpdating}
-          submitError={saveError}
-          onSubmit={submitEdit}
-          onCancel={() => setFormOpen(false)}
-        />
+          <PayableForm
+            kind={kind}
+            open={formOpen}
+            payable={snapshot}
+            submitting={payables.isUpdating}
+            submitError={saveError}
+            onSubmit={submitEdit}
+            onCancel={() => setFormOpen(false)}
+          />
+        </>
       )}
-    </PageContainer>
+    </DetailPage>
   );
 }
 
@@ -145,5 +113,9 @@ export function PayableDetailPage() {
   const [searchParams] = useSearchParams();
   const kindParam = searchParams.get("kind");
   const kind: PayableKind = kindParam === "receivable" ? "receivable" : "debt";
-  return isUuid(id) ? <ValidPayableDetail id={id} kind={kind} /> : <InvalidPayable />;
+  return isUuid(id) ? (
+    <ValidPayableDetail id={id} kind={kind} />
+  ) : (
+    <InvalidDetailPage title={pageTitle} back={backLink} invalidTitle="Endereço inválido" />
+  );
 }
