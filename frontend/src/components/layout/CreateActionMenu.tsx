@@ -29,7 +29,7 @@ interface CreateActionMenuProps {
  * The trigger stays a single compact action regardless of viewport — it
  * replaces what used to be N full-width stacked buttons, so it deliberately
  * opts out of the page header's default "actions fill the width" rule (see
- * `.create-action-trigger` in payables.css).
+ * `.create-action-trigger` in layout.css).
  */
 export function CreateActionMenu({ label, options }: CreateActionMenuProps) {
   const compact = useCompactScreen();
