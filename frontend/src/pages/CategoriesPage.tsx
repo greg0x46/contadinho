@@ -6,6 +6,7 @@ import { useState } from "react";
 import type { Category, CategoryKind } from "../api/contracts";
 import { CategoryForm } from "../components/categories/CategoryForm";
 import { CategoryList } from "../components/categories/CategoryList";
+import { DataCard } from "../components/layout";
 import { useCategories } from "../hooks/useCategories";
 
 function errorMessage(error: unknown): string {
@@ -109,13 +110,15 @@ export function CategoriesPage() {
           style={{ marginBottom: 16 }}
         />
       )}
-      <CategoryList
-        categories={categories.categories}
-        isLoading={categories.isLoading}
-        togglingCategoryId={togglingCategoryId}
-        onRename={openEdit}
-        onToggle={toggle}
-      />
+      <DataCard flush>
+        <CategoryList
+          categories={categories.categories}
+          isLoading={categories.isLoading}
+          togglingCategoryId={togglingCategoryId}
+          onRename={openEdit}
+          onToggle={toggle}
+        />
+      </DataCard>
       <CategoryForm
         open={formOpen}
         category={editingCategory}
