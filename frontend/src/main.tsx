@@ -24,6 +24,7 @@ import "./styles/timeline.css";
 import "./styles/accounts.css";
 import "./styles/investments.css";
 import "./styles/netWorth.css";
+import "./styles/scenarios.css";
 
 dayjs.locale("pt-br");
 
