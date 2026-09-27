@@ -6,6 +6,7 @@ import { NotFoundPage } from "../pages/NotFoundPage";
 import { App } from "./App";
 import { LegacySettingsRedirect } from "./LegacySettingsRedirect";
 import { AuthGate } from "./AuthGate";
+import { AppLoadingScreen } from "./AppLoadingScreen";
 
 const SyncRunListPage = lazy(() =>
   import("../pages/SyncRunListPage").then((module) => ({
@@ -92,7 +93,7 @@ const InvestmentAssetsSettingsPage = lazy(() => import("../pages/InvestmentAsset
 export function AppRouter() {
   return (
     <BrowserRouter>
-      <Suspense fallback={<p role="status">Carregando página…</p>}>
+      <Suspense fallback={<AppLoadingScreen />}>
         <Routes>
           <Route
             element={

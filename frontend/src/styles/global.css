@@ -183,6 +183,32 @@ body {
   transform: scaleX(1.379);
 }
 
+/* App boot screen: shown by AuthGate while the session check is in flight
+   and by router.tsx's Suspense fallback while a lazy route chunk downloads.
+   Same component in both spots so the two phases read as one continuous
+   screen instead of two different loading flashes in sequence. */
+.app-loading-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  min-height: 100vh;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.app-loading-screen-gif {
+  width: min(220px, 60vw);
+  height: auto;
+}
+
+.app-loading-screen-caption {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.9375rem;
+}
+
 /* App.tsx's headerTitleRender wraps logo+title in a plain <a> (needed to
    pick up pro-layout's own flex/align-items styling for that selector) —
    left unstyled, its color would default to the theme's link color
