@@ -1,20 +1,18 @@
 import { FundOutlined } from "@ant-design/icons";
-import type { ProColumns } from "@ant-design/pro-table";
-import ProTable from "@ant-design/pro-table";
-import { Tag, Tooltip, Typography } from "antd";
+import { Skeleton, Tooltip } from "antd";
 
 import type { Investment } from "../../api/contracts";
 import { investmentTypeLabel, investmentYield, yieldUnavailable } from "../../presentation/investmentLabels";
 import { formatBRL } from "../../presentation/money";
 import { colors } from "../../theme/tokens";
 
-function YieldCell({ investment }: { investment: Investment }) {
+function YieldFigure({ investment }: { investment: Investment }) {
   const estimate = investmentYield(investment);
   if (estimate === null) {
     const { label, hint } = yieldUnavailable(investment);
     return (
       <Tooltip title={hint === "" ? undefined : hint}>
-        <Typography.Text type="secondary">{label}</Typography.Text>
+        <span className="investment-row-figure-value">{label}</span>
       </Tooltip>
     );
   }
@@ -27,13 +25,22 @@ function YieldCell({ investment }: { investment: Investment }) {
           : "Calculado a partir do histórico de aplicações e resgates"
       }
     >
-      <span style={{ color: negative ? colors.error : colors.success, fontVariantNumeric: "tabular-nums" }}>
+      <span
+        className="investment-row-figure-value"
+        style={{ color: negative ? colors.error : colors.success }}
+      >
         {formatBRL(estimate.value)}
       </span>
     </Tooltip>
   );
 }
 
+/**
+ * Investimentos sincronizados as flat rows: name + institution/type on the
+ * left, saldo atual and rendimento as the two figures on the right — the
+ * same recipe as BankAccountList/CreditCardList on Contas e cartões, instead
+ * of a ProTable grid.
+ */
 export function InvestmentList({
   investments,
   isLoading,
@@ -43,50 +50,58 @@ export function InvestmentList({
   isLoading: boolean;
   onOpen: (investment: Investment) => void;
 }) {
-  const columns: ProColumns<Investment>[] = [
-    { title: "Nome", dataIndex: "name", render: (_, i) => i.name ?? "Sem nome" },
-    { title: "Instituição", dataIndex: "source_display_name", render: (_, i) => i.source_display_name ?? "—" },
-    {
-      title: "Tipo",
-      dataIndex: "investment_type",
-      render: (_, i) => <Tag>{investmentTypeLabel(i.investment_type)}</Tag>,
-    },
-    {
-      title: "Saldo atual",
-      dataIndex: "balance",
-      render: (_, i) => (i.balance !== null ? formatBRL(i.balance) : "—"),
-    },
-    {
-      title: "Rendimento",
-      dataIndex: "amount_profit",
-      render: (_, i) => <YieldCell investment={i} />,
-    },
-  ];
-
   return (
-    <ProTable<Investment>
-      aria-label="Investimentos"
-      columns={columns}
-      dataSource={investments}
-      loading={isLoading}
-      rowKey="id"
-      search={false}
-      options={false}
-      pagination={false}
-      cardBordered
-      scroll={{ x: "max-content" }}
-      locale={{
-        emptyText: (
-          <div className="debt-list-empty">
-            <FundOutlined className="debt-list-empty-icon" aria-hidden="true" />
-            <span>Nenhum investimento sincronizado ainda.</span>
-          </div>
-        ),
-      }}
-      onRow={(investment) => ({
-        onClick: () => onOpen(investment),
-        style: { cursor: "pointer" },
-      })}
-    />
+    <section className="investments-section" aria-label="Investimentos sincronizados">
+      <header className="investments-section-header">
+        <h2>Investimentos sincronizados</h2>
+        {!isLoading && investments.length > 0 && (
+          <small>
+            {investments.length} {investments.length === 1 ? "investimento" : "investimentos"}
+          </small>
+        )}
+      </header>
+      {isLoading ? (
+        <div className="investments-section-loading" role="status" aria-label="Carregando investimentos">
+          <Skeleton active paragraph={{ rows: 2 }} title={false} />
+        </div>
+      ) : investments.length === 0 ? (
+        <div className="debt-list-empty">
+          <FundOutlined className="debt-list-empty-icon" aria-hidden="true" />
+          <span>Nenhum investimento sincronizado ainda.</span>
+        </div>
+      ) : (
+        <div className="investments-section-rows">
+          {investments.map((investment) => (
+            <button
+              key={investment.id}
+              type="button"
+              className="investment-row"
+              onClick={() => onOpen(investment)}
+            >
+              <span className="investment-row-identity">
+                <span className="investment-row-name">{investment.name ?? "Sem nome"}</span>
+                <span className="investment-row-meta">
+                  {[investment.source_display_name, investmentTypeLabel(investment.investment_type)]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              </span>
+              <span className="investment-row-figures">
+                <span className="investment-row-figure">
+                  <span className="investment-row-figure-label">Saldo atual</span>
+                  <span className="investment-row-figure-value">
+                    {investment.balance !== null ? formatBRL(investment.balance) : "—"}
+                  </span>
+                </span>
+                <span className="investment-row-figure">
+                  <span className="investment-row-figure-label">Rendimento</span>
+                  <YieldFigure investment={investment} />
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
