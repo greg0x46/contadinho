@@ -18,7 +18,7 @@ export function SettingsPage() {
   const navigate = useNavigate();
 
   return (
-    <Page title="Configurações" description="Organize suas preferências e os recursos da sua conta">
+    <Page title="Configurações" description="Organize suas preferências e os recursos da sua conta" compactMobileHeader>
       <DataCard>
         <PanelSection className="panel-section-rows">
           {sections.map((section) => (

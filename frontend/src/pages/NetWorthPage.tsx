@@ -15,7 +15,7 @@ export function NetWorthPage() {
   const hasBackfilledPoints = netWorth.series.some((s) => s.is_backfilled);
 
   return (
-    <Page title="Patrimônio líquido" description="Ativos menos passivos ao longo do tempo">
+    <Page title="Patrimônio líquido" description="Ativos menos passivos ao longo do tempo" compactMobileHeader>
       <p className="net-worth-note">
         Os dias mais recentes sem registro são reconstruídos automaticamente a partir do histórico de
         transações disponível — a série pode não cobrir todo o passado se as contas foram conectadas há pouco

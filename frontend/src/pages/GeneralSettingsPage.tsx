@@ -51,6 +51,7 @@ export function GeneralSettingsPage() {
       title="Geral"
       subTitle="Preferências gerais do Contadinho"
       content="Escolha se as compras no cartão de crédito devem contar no mês em que foram realizadas ou no mês em que efetivamente entram na fatura paga. Essa escolha não afeta transações de débito ou outras contas, que não têm essa distinção."
+      compactMobileHeader
     >
       <Card title="Mês das transações de cartão de crédito">
         {loading ? (

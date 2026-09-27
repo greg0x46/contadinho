@@ -137,6 +137,7 @@ export function AutomationRulesPage() {
       title="Automações"
       subTitle="Regras que ignoram transações e automações de conciliação de recorrências, automaticamente"
       content="Crie automações no estilo de filtros de e-mail: ignore transações recorrentes sem revisar cada sincronização, ou concilie compromissos recorrentes (salário, aluguel, assinaturas) com as transações reais."
+      compactMobileHeader
       extra={[
         <Button key="new-entry" type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={openCreate}>
           Nova automação

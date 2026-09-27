@@ -80,6 +80,7 @@ export function CategoriesPage() {
       title="Categorias"
       subTitle="Catálogo interno de categorias financeiras"
       content="Gerencie as categorias usadas para classificar despesas, receitas e transferências. Categorias nunca são excluídas — apenas renomeadas ou desativadas."
+      compactMobileHeader
       extra={[
         <Button
           key="new-category"
