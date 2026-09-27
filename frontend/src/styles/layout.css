@@ -129,6 +129,93 @@
   min-height: 40px;
 }
 
+/* ---- Create-action menu: one compact trigger for several equally-weighted
+   creation options (see CreateActionMenu), replacing what used to be one
+   big button per option. It opts out of .page-actions's "fill the width"
+   default even on a phone — it is already the compact, single-line
+   alternative to that, not another full-width CTA. -------------------- */
+
+.page-actions > .ant-btn.create-action-trigger {
+  width: auto;
+  flex: none;
+}
+
+.create-action-menu-option {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.125rem 0;
+}
+
+.create-action-menu-option-label {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.create-action-menu-option-description {
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+}
+
+.create-action-sheet .ant-drawer-body {
+  padding: 0.5rem 0 1rem;
+}
+
+.create-action-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem 0.5rem;
+}
+
+.create-action-sheet-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.create-action-sheet-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.create-action-sheet-option {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  width: 100%;
+  padding: 0.75rem 1.25rem;
+  border: 0;
+  border-top: 1px solid var(--color-border-secondary);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.create-action-sheet-option:hover {
+  background: rgba(23, 43, 77, 0.035);
+}
+
+.create-action-sheet-option:focus-visible {
+  outline: 3px solid var(--color-warning);
+  outline-offset: -3px;
+}
+
+.create-action-sheet-option-label {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.create-action-sheet-option-description {
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+}
+
 /* ---- Tabs ------------------------------------------------------------- */
 
 .page-tabs {

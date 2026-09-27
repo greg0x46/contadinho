@@ -1,10 +1,17 @@
-import { PlusOutlined } from "@ant-design/icons";
 import { Alert, Button } from "antd";
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import type { Payable, PayableKind } from "../api/contracts";
-import { DataCard, ListToolbar, Page, PageTabs, SearchField, SortSelect } from "../components/layout";
+import {
+  CreateActionMenu,
+  DataCard,
+  ListToolbar,
+  Page,
+  PageTabs,
+  SearchField,
+  SortSelect,
+} from "../components/layout";
 import { PayableForm } from "../components/payables/PayableForm";
 import { PayableList } from "../components/payables/PayableList";
 import { PayablesSummary } from "../components/payables/PayablesSummary";
@@ -125,28 +132,24 @@ export function PayablesPage() {
   return (
     <Page
       title="Pendências"
-      description="Acompanhe dívidas e contas a receber em um só lugar"
       actions={
-        <>
-          {filter !== "receivable" && (
-            <Button
-              type="primary"
-              icon={<PlusOutlined aria-hidden="true" />}
-              onClick={() => openCreate("debt")}
-            >
-              Nova dívida
-            </Button>
-          )}
-          {filter !== "debt" && (
-            <Button
-              type={filter === "receivable" ? "primary" : "default"}
-              icon={<PlusOutlined aria-hidden="true" />}
-              onClick={() => openCreate("receivable")}
-            >
-              Nova conta a receber
-            </Button>
-          )}
-        </>
+        <CreateActionMenu
+          label="Nova pendência"
+          options={[
+            {
+              key: "debt",
+              label: "Nova dívida",
+              description: "Valor que você precisa pagar",
+              onClick: () => openCreate("debt"),
+            },
+            {
+              key: "receivable",
+              label: "Nova conta a receber",
+              description: "Valor que outra pessoa precisa pagar a você",
+              onClick: () => openCreate("receivable"),
+            },
+          ]}
+        />
       }
       tabs={<PageTabs label="Tipo de pendência" options={viewOptions} value={filter} onChange={setFilter} />}
     >
