@@ -226,8 +226,12 @@ body {
   height: 58px;
 }
 
-/* Drawer: not boxed in by the 64px header, so this can go much bigger. */
-.ant-pro-sider-logo .app-mobile-brand img {
+/* Drawer: not boxed in by the 64px header, so this can go much bigger.
+   Prefixed with .ant-pro-layout to out-specificity pro-layout's own
+   generated `.ant-pro-layout .ant-pro-sider-logo > a > img { height: 22px }`
+   rule (3 classes vs. its 2) — without it, that rule silently wins and the
+   logo renders at 22px no matter what height is set here. */
+.ant-pro-layout .ant-pro-sider-logo .app-mobile-brand img {
   width: auto;
   height: 110px;
 }
