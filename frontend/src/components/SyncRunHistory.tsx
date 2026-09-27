@@ -5,7 +5,19 @@ import { Link } from "react-router-dom";
 
 import type { SyncRun } from "../api/contracts";
 import { formatDate } from "../presentation/dates";
+import { DataCardSummary } from "./layout/DataCard";
 import { SyncStatusBadge } from "./SyncStatusBadge";
+
+/** The summary strip of the sync-run history DataCard: how many runs are listed. */
+export function SyncRunHistorySummary({ runs }: { runs: SyncRun[] }) {
+  return (
+    <DataCardSummary label="Resumo das sincronizações">
+      <p className="sync-history-summary-count">
+        {runs.length} {runs.length === 1 ? "sincronização" : "sincronizações"}
+      </p>
+    </DataCardSummary>
+  );
+}
 
 export function SyncRunHistory({ runs }: { runs: SyncRun[] }) {
   const columns: ProColumns<SyncRun>[] = [

@@ -3,6 +3,22 @@
   gap: 1rem;
 }
 
+/* Open Banking list page: a stack of bounded sections — the sync action,
+   the connections list, the run history as a DataCard, and the (rarely
+   touched) Pluggy credentials tucked behind a Collapse. */
+.sync-runs-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.sync-history-summary-count {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
 .ant-pro-page-container-children-container {
   padding-block-end: 2rem;
 }
