@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 
 import type { TransactionInclusionState, TransactionItem } from "../../api/contracts";
 import { TransactionRow } from "../transactions/TransactionRow";
+import { SectionHeader } from "../layout";
 
 /**
  * Recent activity on this account, reusing the exact same TransactionRow as
@@ -33,10 +34,10 @@ export function AccountRecentTransactions({
 }) {
   return (
     <section className="accounts-section" aria-label="Últimas transações">
-      <header className="accounts-section-header">
-        <h2>Últimas transações</h2>
-        <Link to={`/transacoes?account_ids=${encodeURIComponent(accountId)}`}>Ver todas</Link>
-      </header>
+      <SectionHeader
+        title="Últimas transações"
+        trailing={<Link to={`/transacoes?account_ids=${encodeURIComponent(accountId)}`}>Ver todas</Link>}
+      />
       {error !== null && error !== undefined && (
         <Alert
           type="error"

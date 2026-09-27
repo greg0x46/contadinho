@@ -62,9 +62,24 @@
   width: 100%;
 }
 
+.page-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
 .page-title {
   margin: 0;
   font: inherit;
+}
+
+.page-back {
+  font-size: 0.8125rem;
+}
+
+.page-back a {
+  color: var(--color-text-secondary);
 }
 
 .page-header-slots {

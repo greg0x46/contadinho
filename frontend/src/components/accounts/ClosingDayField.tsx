@@ -42,15 +42,22 @@ export function ClosingDayField({
 
   return (
     <>
-      <li>
-        <span>Fechamento</span>
-        <Tooltip title={closingDaySourceHint(account.closing_day_source)}>
-          <strong>{closingDayLabel(account.closing_day)}</strong>
-        </Tooltip>
-        <Button size="small" type="link" onClick={() => setOpen(true)}>
-          {account.closing_day === null ? "Definir" : "Alterar"}
-        </Button>
-      </li>
+      <div className="account-summary-date">
+        <span className="account-summary-date-label">Fechamento</span>
+        <div className="account-summary-date-row">
+          <Tooltip title={closingDaySourceHint(account.closing_day_source)}>
+            <strong className="account-summary-date-value">{closingDayLabel(account.closing_day)}</strong>
+          </Tooltip>
+          <Button
+            size="small"
+            type="link"
+            className="account-summary-date-action"
+            onClick={() => setOpen(true)}
+          >
+            {account.closing_day === null ? "Definir" : "Alterar"}
+          </Button>
+        </div>
+      </div>
 
       <Modal
         open={open}
