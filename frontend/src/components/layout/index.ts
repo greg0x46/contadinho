@@ -1,6 +1,8 @@
 export { Page } from "./Page";
 export { DetailPage, InvalidDetailPage } from "./DetailPage";
 export type { DetailPageQueryState, DetailFreshness } from "./DetailPage";
+export { CreateActionMenu } from "./CreateActionMenu";
+export type { CreateActionOption } from "./CreateActionMenu";
 export { PageTabs } from "./PageTabs";
 export { SectionHeader } from "./SectionHeader";
 export { ListToolbar } from "./ListToolbar";
