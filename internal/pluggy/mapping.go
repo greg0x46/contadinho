@@ -427,6 +427,15 @@ func mapInvestment(payload map[string]any) (InvestmentSnapshot, error) {
 	if i.AmountWithdrawal, err = optionalDecimal(payload["amountWithdrawal"], "amountWithdrawal"); err != nil {
 		return InvestmentSnapshot{}, err
 	}
+	if i.AmountOriginal, err = optionalDecimal(payload["amountOriginal"], "amountOriginal"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.Taxes, err = optionalDecimal(payload["taxes"], "taxes"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.Taxes2, err = optionalDecimal(payload["taxes2"], "taxes2"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
 	if i.AsOfDate, err = optionalDateTime(payload["date"], "date"); err != nil {
 		return InvestmentSnapshot{}, err
 	}

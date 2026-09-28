@@ -2126,6 +2126,12 @@ export interface Investment {
   amount: string | null;
   amount_profit: string | null;
   amount_withdrawal: string | null;
+  /** Principal originally applied (Pluggy's amountOriginal). FIXED_INCOME only, null for EQUITY. */
+  amount_original: string | null;
+  /** IR (income tax) provisioned on the position (Pluggy's taxes). FIXED_INCOME only, null for EQUITY. */
+  taxes: string | null;
+  /** IOF, regressive, nonzero only in the first 30 days (Pluggy's taxes2). FIXED_INCOME only, null for EQUITY. */
+  taxes2: string | null;
   rate: string | null;
   rate_type: string | null;
   fixed_annual_rate: string | null;
@@ -2155,6 +2161,9 @@ const investmentKeys = [
   "amount",
   "amount_profit",
   "amount_withdrawal",
+  "amount_original",
+  "taxes",
+  "taxes2",
   "rate",
   "rate_type",
   "fixed_annual_rate",
@@ -2204,6 +2213,9 @@ export function parseInvestment(value: unknown): Investment {
     amount: nullableDecimal(item.amount),
     amount_profit: nullableDecimal(item.amount_profit),
     amount_withdrawal: nullableDecimal(item.amount_withdrawal),
+    amount_original: nullableDecimal(item.amount_original),
+    taxes: nullableDecimal(item.taxes),
+    taxes2: nullableDecimal(item.taxes2),
     rate: nullableDecimal(item.rate),
     rate_type: item.rate_type,
     fixed_annual_rate: nullableDecimal(item.fixed_annual_rate),
@@ -2406,6 +2418,8 @@ export interface InvestmentAsset {
   ticker: string | null;
   asset_type: string;
   currency_code: string;
+  quote_source: string | null;
+  quote_symbol: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -2415,6 +2429,8 @@ export interface InvestmentAssetWrite {
   ticker: string | null;
   asset_type: string;
   currency_code: string;
+  quote_source: string | null;
+  quote_symbol: string | null;
 }
 
 const investmentAssetKeys = [
@@ -2423,6 +2439,8 @@ const investmentAssetKeys = [
   "ticker",
   "asset_type",
   "currency_code",
+  "quote_source",
+  "quote_symbol",
   "created_at",
   "updated_at",
 ] as const;
@@ -2439,6 +2457,8 @@ export function parseInvestmentAsset(value: unknown): InvestmentAsset {
     item.asset_type.trim() === "" ||
     typeof item.currency_code !== "string" ||
     !/^[A-Z]{3}$/.test(item.currency_code) ||
+    !isNullableString(item.quote_source) ||
+    !isNullableString(item.quote_symbol) ||
     !isValidDate(item.created_at) ||
     !isValidDate(item.updated_at)
   ) {
@@ -2450,6 +2470,8 @@ export function parseInvestmentAsset(value: unknown): InvestmentAsset {
     ticker: item.ticker as string | null,
     asset_type: item.asset_type,
     currency_code: item.currency_code,
+    quote_source: item.quote_source as string | null,
+    quote_symbol: item.quote_symbol as string | null,
     created_at: item.created_at as string,
     updated_at: item.updated_at as string,
   };

@@ -28,17 +28,32 @@ func assetCanonicalKey(name string, ticker *string, assetType string) string {
 	return "name:" + clean(assetType) + ":" + clean(name)
 }
 
+// assetColumns is the column order scanAsset expects. Shared by every read
+// path (ListAssets, GetAsset, ensureAsset's lookup) so a new column is added
+// once instead of drifting across three repeated SELECTs — mirrors
+// operationColumns in operations.go.
+const assetColumns = `id, canonical_key, name, ticker, asset_type, currency_code, quote_source, quote_symbol, created_at, updated_at`
+
 func scanAsset(row interface{ Scan(...any) error }) (Asset, error) {
 	var asset Asset
-	var ticker sql.NullString
+	var ticker, quoteSource, quoteSymbol sql.NullString
 	var created, updated string
-	err := row.Scan(&asset.ID, &asset.CanonicalKey, &asset.Name, &ticker, &asset.AssetType, &asset.CurrencyCode, &created, &updated)
+	err := row.Scan(&asset.ID, &asset.CanonicalKey, &asset.Name, &ticker, &asset.AssetType, &asset.CurrencyCode,
+		&quoteSource, &quoteSymbol, &created, &updated)
 	if err != nil {
 		return Asset{}, err
 	}
 	if ticker.Valid {
 		value := ticker.String
 		asset.Ticker = &value
+	}
+	if quoteSource.Valid {
+		value := quoteSource.String
+		asset.QuoteSource = &value
+	}
+	if quoteSymbol.Valid {
+		value := quoteSymbol.String
+		asset.QuoteSymbol = &value
 	}
 	asset.CreatedAt, err = parseTimestamp(created)
 	if err != nil {
@@ -52,7 +67,7 @@ func scanAsset(row interface{ Scan(...any) error }) (Asset, error) {
 }
 
 func ListAssets(ctx context.Context, q Querier) ([]Asset, error) {
-	rows, err := q.QueryContext(ctx, `SELECT id, canonical_key, name, ticker, asset_type, currency_code, created_at, updated_at FROM investment_assets ORDER BY name, id`)
+	rows, err := q.QueryContext(ctx, `SELECT `+assetColumns+` FROM investment_assets ORDER BY name, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -69,13 +84,20 @@ func ListAssets(ctx context.Context, q Querier) ([]Asset, error) {
 }
 
 func GetAsset(ctx context.Context, q Querier, id string) (Asset, error) {
-	asset, err := scanAsset(q.QueryRowContext(ctx, `SELECT id, canonical_key, name, ticker, asset_type, currency_code, created_at, updated_at FROM investment_assets WHERE id = ?`, id))
+	asset, err := scanAsset(q.QueryRowContext(ctx, `SELECT `+assetColumns+` FROM investment_assets WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Asset{}, ErrAssetNotFound
 	}
 	return asset, err
 }
 
+// normalizeAssetInput also enforces that QuoteSource and QuoteSymbol are
+// either both set or both empty: a connector key with no symbol to ask it
+// for (or vice versa) can never be dispatched by internal/quotes, so it is
+// rejected here rather than stored half-configured. Whether a non-empty
+// QuoteSource actually names a connector this build knows about is validated
+// one layer up, in internal/httpapi, which can import internal/quotes
+// without this package depending on it in return.
 func normalizeAssetInput(in AssetInput) (AssetInput, string, error) {
 	name := strings.TrimSpace(in.Name)
 	assetType := strings.TrimSpace(in.AssetType)
@@ -90,10 +112,18 @@ func normalizeAssetInput(in AssetInput) (AssetInput, string, error) {
 			validCurrency = false
 		}
 	}
+	quoteSource := trimOptional(in.QuoteSource)
+	quoteSymbol := trimOptional(in.QuoteSymbol)
+	if (quoteSource == nil) != (quoteSymbol == nil) {
+		return AssetInput{}, "", ErrInvalidInput
+	}
 	if name == "" || assetType == "" || !validCurrency {
 		return AssetInput{}, "", ErrInvalidInput
 	}
-	normalized := AssetInput{Name: name, Ticker: ticker, AssetType: assetType, CurrencyCode: currency}
+	normalized := AssetInput{
+		Name: name, Ticker: ticker, AssetType: assetType, CurrencyCode: currency,
+		QuoteSource: quoteSource, QuoteSymbol: quoteSymbol,
+	}
 	return normalized, assetCanonicalKey(name, ticker, assetType), nil
 }
 
@@ -120,10 +150,11 @@ func CreateAsset(ctx context.Context, q Querier, in AssetInput) (Asset, error) {
 	now, id := db.FormatTime(time.Now()), uuid.NewString()
 	if _, err := q.ExecContext(ctx, `
 		INSERT INTO investment_assets
-			(id, canonical_key, name, ticker, asset_type, currency_code, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			(id, canonical_key, name, ticker, asset_type, currency_code, quote_source, quote_symbol, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, key, normalized.Name, nullableString(normalized.Ticker), normalized.AssetType,
-		normalized.CurrencyCode, now, now); err != nil {
+		normalized.CurrencyCode, nullableString(normalized.QuoteSource), nullableString(normalized.QuoteSymbol),
+		now, now); err != nil {
 		return Asset{}, err
 	}
 	return GetAsset(ctx, q, id)
@@ -146,10 +177,12 @@ func UpdateAsset(ctx context.Context, q Querier, id string, in AssetInput) (Asse
 	}
 	if _, err := q.ExecContext(ctx, `
 		UPDATE investment_assets
-		SET canonical_key = ?, name = ?, ticker = ?, asset_type = ?, currency_code = ?, updated_at = ?
+		SET canonical_key = ?, name = ?, ticker = ?, asset_type = ?, currency_code = ?,
+		    quote_source = ?, quote_symbol = ?, updated_at = ?
 		WHERE id = ?`,
 		key, normalized.Name, nullableString(normalized.Ticker), normalized.AssetType,
-		normalized.CurrencyCode, db.FormatTime(time.Now()), id); err != nil {
+		normalized.CurrencyCode, nullableString(normalized.QuoteSource), nullableString(normalized.QuoteSymbol),
+		db.FormatTime(time.Now()), id); err != nil {
 		return Asset{}, err
 	}
 	return GetAsset(ctx, q, id)
@@ -187,7 +220,7 @@ func ensureAsset(ctx context.Context, q Querier, rawName string, rawTicker *stri
 	}
 	ticker := trimOptional(rawTicker)
 	key := assetCanonicalKey(name, ticker, kind)
-	asset, err := scanAsset(q.QueryRowContext(ctx, `SELECT id, canonical_key, name, ticker, asset_type, currency_code, created_at, updated_at FROM investment_assets WHERE canonical_key = ?`, key))
+	asset, err := scanAsset(q.QueryRowContext(ctx, `SELECT `+assetColumns+` FROM investment_assets WHERE canonical_key = ?`, key))
 	if err == nil {
 		return asset, nil
 	}

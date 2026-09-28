@@ -14,19 +14,26 @@ import (
 )
 
 type investmentDTO struct {
-	ID                   string     `json:"id"`
-	ExternalID           string     `json:"external_id"`
-	SourceDisplayName    *string    `json:"source_display_name"`
-	InvestmentType       *string    `json:"investment_type"`
-	Subtype              *string    `json:"subtype"`
-	Name                 *string    `json:"name"`
-	Balance              *string    `json:"balance"`
-	CurrencyCode         *string    `json:"currency_code"`
-	Quantity             *string    `json:"quantity"`
-	Value                *string    `json:"value"`
-	Amount               *string    `json:"amount"`
-	AmountProfit         *string    `json:"amount_profit"`
-	AmountWithdrawal     *string    `json:"amount_withdrawal"`
+	ID                string  `json:"id"`
+	ExternalID        string  `json:"external_id"`
+	SourceDisplayName *string `json:"source_display_name"`
+	InvestmentType    *string `json:"investment_type"`
+	Subtype           *string `json:"subtype"`
+	Name              *string `json:"name"`
+	Balance           *string `json:"balance"`
+	CurrencyCode      *string `json:"currency_code"`
+	Quantity          *string `json:"quantity"`
+	Value             *string `json:"value"`
+	Amount            *string `json:"amount"`
+	AmountProfit      *string `json:"amount_profit"`
+	AmountWithdrawal  *string `json:"amount_withdrawal"`
+	// AmountOriginal/Taxes/Taxes2 are Pluggy's principal-applied/IR/IOF detail
+	// for FIXED_INCOME holdings (see the amount_original migration) — purely
+	// additive display data, never read by applyYield/netContributed. Null
+	// for EQUITY, matching real Nubank data.
+	AmountOriginal       *string    `json:"amount_original"`
+	Taxes                *string    `json:"taxes"`
+	Taxes2               *string    `json:"taxes2"`
 	Rate                 *string    `json:"rate"`
 	RateType             *string    `json:"rate_type"`
 	FixedAnnualRate      *string    `json:"fixed_annual_rate"`
@@ -49,8 +56,9 @@ type investmentDTO struct {
 const investmentSelectColumns = `
 	fi.id, fi.external_id, ` + connectionNameColumn + `, fi.investment_type, fi.subtype, fi.name,
 	fi.balance, fi.currency_code, fi.quantity, fi.value, fi.amount, fi.amount_profit,
-	fi.amount_withdrawal, fi.rate, fi.rate_type, fi.fixed_annual_rate, fi.annual_rate,
-	fi.last_twelve_months_rate, fi.issuer, fi.due_date, fi.as_of_date, fi.provider_updated_at`
+	fi.amount_withdrawal, fi.amount_original, fi.taxes, fi.taxes2, fi.rate, fi.rate_type,
+	fi.fixed_annual_rate, fi.annual_rate, fi.last_twelve_months_rate, fi.issuer, fi.due_date,
+	fi.as_of_date, fi.provider_updated_at`
 
 func scanInvestment(row interface{ Scan(...any) error }) (investmentDTO, error) {
 	var (
@@ -61,7 +69,7 @@ func scanInvestment(row interface{ Scan(...any) error }) (investmentDTO, error) 
 	)
 	if err := row.Scan(&d.ID, &d.ExternalID, &d.SourceDisplayName, &d.InvestmentType, &d.Subtype, &d.Name,
 		&d.Balance, &d.CurrencyCode, &d.Quantity, &d.Value, &d.Amount, &d.AmountProfit,
-		&d.AmountWithdrawal, &d.Rate, &d.RateType, &d.FixedAnnualRate, &d.AnnualRate,
+		&d.AmountWithdrawal, &d.AmountOriginal, &d.Taxes, &d.Taxes2, &d.Rate, &d.RateType, &d.FixedAnnualRate, &d.AnnualRate,
 		&d.LastTwelveMonthsRate, &d.Issuer, &dueDateRaw, &asOfDateRaw, &providerUpdRaw); err != nil {
 		return investmentDTO{}, err
 	}

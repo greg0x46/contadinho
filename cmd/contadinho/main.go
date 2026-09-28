@@ -21,6 +21,7 @@ import (
 	"contadinho-go/internal/httpapi"
 	"contadinho-go/internal/payables"
 	"contadinho-go/internal/pluggy"
+	"contadinho-go/internal/quotes"
 	"contadinho-go/internal/settings"
 	"contadinho-go/internal/webui"
 	"contadinho-go/internal/worker"
@@ -51,6 +52,13 @@ func main() {
 		log.Fatal(err)
 	}
 	schedule, scheduled, err := worker.ParseSchedule(os.Getenv("CONTADINHO_SYNC_SCHEDULE"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Opt-in and independent of the sync schedule above: unset means no
+	// automatic quoting, so a fresh install never starts hitting CoinGecko
+	// or brapi on its own.
+	quotesSchedule, quotesScheduled, err := quotes.ParseSchedule(os.Getenv("CONTADINHO_QUOTES_SCHEDULE"))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -108,6 +116,11 @@ func main() {
 	if scheduled {
 		log.Printf("sync scheduled daily at %02d:%02d %s", schedule.Hour, schedule.Minute, schedule.Location)
 		go worker.RunSchedule(ctx, conn, schedule)
+	}
+
+	if quotesScheduled {
+		log.Printf("quote refresh scheduled daily at %02d:%02d %s", quotesSchedule.Hour, quotesSchedule.Minute, quotesSchedule.Location)
+		go quotes.RunSchedule(ctx, conn, secrets, quotesSchedule)
 	}
 
 	handler := httpapi.NewServer(conn, frontend, secrets, config)

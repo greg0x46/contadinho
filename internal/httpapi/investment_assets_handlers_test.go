@@ -6,7 +6,7 @@ import (
 )
 
 var investmentAssetResponseKeys = []string{
-	"id", "name", "ticker", "asset_type", "currency_code", "created_at", "updated_at",
+	"id", "name", "ticker", "asset_type", "currency_code", "quote_source", "quote_symbol", "created_at", "updated_at",
 }
 
 func TestInvestmentAssetLifecycleOverHTTP(t *testing.T) {
@@ -74,5 +74,60 @@ func TestInvestmentAssetValidationAndMissingRecords(t *testing.T) {
 		"/api/investment-assets/33333333-3333-4333-8333-333333333333", nil, http.StatusNotFound)
 	if problem != "investment-asset-not-found" {
 		t.Errorf("missing problem = %q", problem)
+	}
+}
+
+// TestInvestmentAssetQuoteSourceRoundTrip covers the fields this feature
+// adds to the asset CRUD endpoints: a connector name and the symbol to ask
+// it for round-trip through create, update (including clearing both back to
+// null) and list; an unknown connector key is rejected the same way any
+// other invalid asset input is.
+func TestInvestmentAssetQuoteSourceRoundTrip(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	created := investmentCall(t, srv, http.MethodPost, "/api/investment-assets", map[string]any{
+		"name": "Bitcoin", "ticker": nil, "asset_type": "Criptoativo", "currency_code": "BRL",
+		"quote_source": "coingecko", "quote_symbol": "bitcoin",
+	}, http.StatusCreated)
+	assertInvestmentKeys(t, "asset", created, investmentAssetResponseKeys)
+	if created["quote_source"] != "coingecko" || created["quote_symbol"] != "bitcoin" {
+		t.Fatalf("created asset = %+v", created)
+	}
+	id := investmentID(t, created)
+
+	items := investmentItems(t, srv, "/api/investment-assets")
+	if len(items) != 1 || items[0]["quote_source"] != "coingecko" || items[0]["quote_symbol"] != "bitcoin" {
+		t.Fatalf("listed assets = %+v", items)
+	}
+
+	updated := investmentCall(t, srv, http.MethodPut, "/api/investment-assets/"+id, map[string]any{
+		"name": "Bitcoin", "ticker": nil, "asset_type": "Criptoativo", "currency_code": "BRL",
+		"quote_source": "brapi", "quote_symbol": "BTC11",
+	}, http.StatusOK)
+	if updated["quote_source"] != "brapi" || updated["quote_symbol"] != "BTC11" {
+		t.Fatalf("updated asset = %+v", updated)
+	}
+
+	cleared := investmentCall(t, srv, http.MethodPut, "/api/investment-assets/"+id, map[string]any{
+		"name": "Bitcoin", "ticker": nil, "asset_type": "Criptoativo", "currency_code": "BRL",
+	}, http.StatusOK)
+	if cleared["quote_source"] != nil || cleared["quote_symbol"] != nil {
+		t.Fatalf("cleared asset = %+v", cleared)
+	}
+
+	problem := investmentProblem(t, srv, http.MethodPost, "/api/investment-assets", map[string]any{
+		"name": "Ethereum", "ticker": nil, "asset_type": "Criptoativo", "currency_code": "BRL",
+		"quote_source": "not-a-real-connector", "quote_symbol": "ethereum",
+	}, http.StatusBadRequest)
+	if problem != "invalid-investment-input" {
+		t.Errorf("unknown connector problem = %q", problem)
+	}
+
+	problem = investmentProblem(t, srv, http.MethodPost, "/api/investment-assets", map[string]any{
+		"name": "Ethereum", "ticker": nil, "asset_type": "Criptoativo", "currency_code": "BRL",
+		"quote_source": "coingecko",
+	}, http.StatusBadRequest)
+	if problem != "invalid-investment-input" {
+		t.Errorf("quote_source without quote_symbol problem = %q", problem)
 	}
 }

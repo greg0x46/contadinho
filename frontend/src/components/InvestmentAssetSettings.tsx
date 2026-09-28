@@ -1,19 +1,39 @@
 import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
-import { Alert, Button, Card, Drawer, Flex, Input, Popconfirm, Space, Table, Tag, Typography } from "antd";
+import { Alert, Button, Card, Drawer, Flex, Input, Popconfirm, Select, Space, Table, Tag, Typography } from "antd";
 import { useEffect, useState } from "react";
 
 import type { InvestmentAsset, InvestmentAssetWrite } from "../api/contracts";
 import { useInvestmentAssets } from "../hooks/useInvestmentAssets";
+
+const quoteSourceOptions = [
+  { value: "", label: "Nenhuma" },
+  { value: "coingecko", label: "CoinGecko" },
+  { value: "brapi", label: "brapi" },
+];
+
+const quoteSymbolPlaceholder: Record<string, string> = {
+  coingecko: "Ex.: bitcoin (id do ativo na CoinGecko)",
+  brapi: "Ex.: PETR4 (ticker na B3)",
+};
 
 type AssetDraft = {
   name: string;
   ticker: string;
   assetType: string;
   currencyCode: string;
+  quoteSource: string;
+  quoteSymbol: string;
 };
 
-const emptyDraft: AssetDraft = { name: "", ticker: "", assetType: "", currencyCode: "BRL" };
+const emptyDraft: AssetDraft = {
+  name: "",
+  ticker: "",
+  assetType: "",
+  currencyCode: "BRL",
+  quoteSource: "",
+  quoteSymbol: "",
+};
 
 function draftFrom(asset: InvestmentAsset | null): AssetDraft {
   if (!asset) return emptyDraft;
@@ -22,6 +42,8 @@ function draftFrom(asset: InvestmentAsset | null): AssetDraft {
     ticker: asset.ticker ?? "",
     assetType: asset.asset_type,
     currencyCode: asset.currency_code,
+    quoteSource: asset.quote_source ?? "",
+    quoteSymbol: asset.quote_symbol ?? "",
   };
 }
 
@@ -71,12 +93,24 @@ export function InvestmentAssetSettings() {
       setFormError("Informe a moeda com três letras, como BRL ou USD.");
       return;
     }
+    const quoteSource = draft.quoteSource.trim();
+    const quoteSymbol = draft.quoteSymbol.trim();
+    if (quoteSource !== "" && quoteSymbol === "") {
+      setFormError("Informe o símbolo usado pela fonte de cotação escolhida.");
+      return;
+    }
+    if (quoteSource === "" && quoteSymbol !== "") {
+      setFormError("Escolha uma fonte de cotação para o símbolo informado.");
+      return;
+    }
 
     const write: InvestmentAssetWrite = {
       name,
       ticker: draft.ticker.trim() || null,
       asset_type: assetType,
       currency_code: currencyCode,
+      quote_source: quoteSource || null,
+      quote_symbol: quoteSymbol || null,
     };
     setFormError(null);
     try {
@@ -245,6 +279,26 @@ export function InvestmentAssetSettings() {
               onChange={(event) => setDraft((current) => ({ ...current, currencyCode: event.target.value.toUpperCase() }))}
             />
           </div>
+          <div className="filter-field">
+            <label htmlFor="investment-asset-quote-source">Fonte de cotação</label>
+            <Select
+              id="investment-asset-quote-source"
+              value={draft.quoteSource}
+              options={quoteSourceOptions}
+              onChange={(value) => setDraft((current) => ({ ...current, quoteSource: value }))}
+            />
+          </div>
+          {draft.quoteSource !== "" && (
+            <div className="filter-field">
+              <label htmlFor="investment-asset-quote-symbol">Símbolo</label>
+              <Input
+                id="investment-asset-quote-symbol"
+                value={draft.quoteSymbol}
+                placeholder={quoteSymbolPlaceholder[draft.quoteSource]}
+                onChange={(event) => setDraft((current) => ({ ...current, quoteSymbol: event.target.value }))}
+              />
+            </div>
+          )}
         </Flex>
       </Drawer>
     </Card>

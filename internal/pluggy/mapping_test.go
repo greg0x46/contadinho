@@ -221,6 +221,42 @@ func TestMapInvestmentMapsCoreFields(t *testing.T) {
 	}
 }
 
+// TestMapInvestmentMapsTaxFields covers amountOriginal/taxes/taxes2: three
+// Pluggy fields real Nubank FIXED_INCOME (CDB/LCA) holdings send that were
+// previously parsed nowhere and silently dropped. Pluggy never populates any
+// of the three for EQUITY, which mapInvestment's ordinary nil-on-absent
+// handling (see the EQUITY case below) already covers correctly.
+func TestMapInvestmentMapsTaxFields(t *testing.T) {
+	payload, _ := decodeJSON([]byte(`{
+		"id": "inv-1", "type": "FIXED_INCOME", "amountOriginal": 900.00, "taxes": 15.32, "taxes2": 2.75
+	}`))
+	investment, err := mapInvestment(payload)
+	if err != nil {
+		t.Fatalf("mapInvestment: %v", err)
+	}
+	if investment.AmountOriginal == nil || investment.AmountOriginal.StringFixed(2) != "900.00" {
+		t.Errorf("AmountOriginal = %v", investment.AmountOriginal)
+	}
+	if investment.Taxes == nil || investment.Taxes.StringFixed(2) != "15.32" {
+		t.Errorf("Taxes = %v", investment.Taxes)
+	}
+	if investment.Taxes2 == nil || investment.Taxes2.StringFixed(2) != "2.75" {
+		t.Errorf("Taxes2 = %v", investment.Taxes2)
+	}
+}
+
+func TestMapInvestmentLeavesTaxFieldsNilForEquity(t *testing.T) {
+	payload, _ := decodeJSON([]byte(`{"id": "inv-2", "type": "EQUITY", "value": 412.70, "quantity": 10}`))
+	investment, err := mapInvestment(payload)
+	if err != nil {
+		t.Fatalf("mapInvestment: %v", err)
+	}
+	if investment.AmountOriginal != nil || investment.Taxes != nil || investment.Taxes2 != nil {
+		t.Errorf("expected nil tax fields for EQUITY, got AmountOriginal=%v Taxes=%v Taxes2=%v",
+			investment.AmountOriginal, investment.Taxes, investment.Taxes2)
+	}
+}
+
 func TestMapInvestmentRejectsMissingID(t *testing.T) {
 	payload, _ := decodeJSON([]byte(`{"name": "no id"}`))
 	if _, err := mapInvestment(payload); err == nil {

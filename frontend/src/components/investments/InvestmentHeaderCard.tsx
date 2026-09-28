@@ -70,6 +70,24 @@ export function InvestmentHeaderCard({
               <strong>{formatBRL(contributed)}</strong>
             </li>
           )}
+          {investment.amount_original !== null && (
+            <li>
+              <span>Valor aplicado</span>
+              <strong>{formatBRL(investment.amount_original)}</strong>
+            </li>
+          )}
+          {investment.taxes !== null && (
+            <li>
+              <span>IR retido</span>
+              <strong>{formatBRL(investment.taxes)}</strong>
+            </li>
+          )}
+          {investment.taxes2 !== null && (
+            <li>
+              <span>IOF retido</span>
+              <strong>{formatBRL(investment.taxes2)}</strong>
+            </li>
+          )}
           {investment.annual_rate !== null && (
             <li>
               <span>Taxa anual</span>
