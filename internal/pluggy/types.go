@@ -136,7 +136,15 @@ type InvestmentSnapshot struct {
 	Amount               *decimal.Decimal
 	AmountProfit         *decimal.Decimal
 	AmountWithdrawal     *decimal.Decimal
-	AsOfDate             *time.Time
+	// AmountOriginal is the principal originally applied. Taxes is Pluggy's
+	// "taxes" (IR provisioned) and Taxes2 its "taxes2" (IOF, regressive,
+	// nonzero only in the holding's first 30 days) — both empirically
+	// verified against real Nubank FIXED_INCOME data; Pluggy never populates
+	// any of the three for EQUITY.
+	AmountOriginal    *decimal.Decimal
+	Taxes             *decimal.Decimal
+	Taxes2            *decimal.Decimal
+	AsOfDate          *time.Time
 	ProviderUpdatedAt    *time.Time
 	ISIN                 *string
 	Code                 *string

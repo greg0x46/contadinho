@@ -81,6 +81,38 @@ func TestInvestmentHashChangesWithRealChange(t *testing.T) {
 	}
 }
 
+// TestInvestmentHashChangesWithTaxFields covers amountOriginal/taxes/taxes2:
+// without them in InvestmentHash, a provider correcting a FIXED_INCOME
+// holding's provisioned IR/IOF between syncs would go undetected — the
+// upsert would leave the stale values in place forever since nothing would
+// mark the row as changed.
+func TestInvestmentHashChangesWithTaxFields(t *testing.T) {
+	base := InvestmentSnapshot{
+		ExternalID:     "inv-1",
+		AmountOriginal: decp("900.00"),
+		Taxes:          decp("15.00"),
+		Taxes2:         decp("2.50"),
+	}
+
+	onlyTaxesChanged := base
+	onlyTaxesChanged.Taxes = decp("17.00")
+	if InvestmentHash(base) == InvestmentHash(onlyTaxesChanged) {
+		t.Error("hash should change when only taxes changes")
+	}
+
+	onlyAmountOriginalChanged := base
+	onlyAmountOriginalChanged.AmountOriginal = decp("950.00")
+	if InvestmentHash(base) == InvestmentHash(onlyAmountOriginalChanged) {
+		t.Error("hash should change when only amountOriginal changes")
+	}
+
+	onlyTaxes2Changed := base
+	onlyTaxes2Changed.Taxes2 = decp("3.00")
+	if InvestmentHash(base) == InvestmentHash(onlyTaxes2Changed) {
+		t.Error("hash should change when only taxes2 changes")
+	}
+}
+
 func TestInvestmentTransactionHashDistinguishesEveryField(t *testing.T) {
 	base := InvestmentTransactionSnapshot{ExternalID: "invtx-1", ExternalInvestmentID: "inv-1", Amount: decp("-10.00")}
 	variant := base

@@ -13,6 +13,7 @@ import (
 
 	"contadinho-go/internal/investments"
 	"contadinho-go/internal/money"
+	"contadinho-go/internal/quotes"
 )
 
 // This file is the HTTP face of internal/investments: the custody accounts,
@@ -187,6 +188,8 @@ type investmentAssetDTO struct {
 	Ticker       *string   `json:"ticker"`
 	AssetType    string    `json:"asset_type"`
 	CurrencyCode string    `json:"currency_code"`
+	QuoteSource  *string   `json:"quote_source"`
+	QuoteSymbol  *string   `json:"quote_symbol"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -198,6 +201,8 @@ func investmentAssetToDTO(asset investments.Asset) investmentAssetDTO {
 		Ticker:       asset.Ticker,
 		AssetType:    asset.AssetType,
 		CurrencyCode: asset.CurrencyCode,
+		QuoteSource:  asset.QuoteSource,
+		QuoteSymbol:  asset.QuoteSymbol,
 		CreatedAt:    asset.CreatedAt,
 		UpdatedAt:    asset.UpdatedAt,
 	}
@@ -755,12 +760,27 @@ type investmentAssetRequest struct {
 	Ticker       *string `json:"ticker"`
 	AssetType    string  `json:"asset_type"`
 	CurrencyCode string  `json:"currency_code"`
+	QuoteSource  *string `json:"quote_source"`
+	QuoteSymbol  *string `json:"quote_symbol"`
 }
 
 func (req investmentAssetRequest) toInput() investments.AssetInput {
 	return investments.AssetInput{
 		Name: req.Name, Ticker: req.Ticker, AssetType: req.AssetType, CurrencyCode: req.CurrencyCode,
+		QuoteSource: req.QuoteSource, QuoteSymbol: req.QuoteSymbol,
 	}
+}
+
+// quoteSourceKnown lets a request through when quote_source is empty (no
+// automatic quoting for this asset) or names a connector internal/quotes
+// actually knows how to route. internal/investments cannot make this check
+// itself — it would need to import internal/quotes, which imports
+// internal/investments in the other direction.
+func quoteSourceKnown(source *string) bool {
+	if source == nil || strings.TrimSpace(*source) == "" {
+		return true
+	}
+	return quotes.IsKnownConnector(strings.TrimSpace(*source))
 }
 
 func handleListInvestmentAssets(conn *sql.DB) http.HandlerFunc {
@@ -785,6 +805,10 @@ func handleCreateInvestmentAsset(conn *sql.DB) http.HandlerFunc {
 			writeInvestmentInvalid(w, "Não foi possível ler os dados enviados.")
 			return
 		}
+		if !quoteSourceKnown(req.QuoteSource) {
+			writeInvestmentInvalid(w, "Fonte de cotação desconhecida.")
+			return
+		}
 		asset, err := investments.CreateAsset(r.Context(), conn, req.toInput())
 		if err != nil {
 			writeInvestmentProblem(w, err)
@@ -799,6 +823,10 @@ func handleUpdateInvestmentAsset(conn *sql.DB) http.HandlerFunc {
 		var req investmentAssetRequest
 		if err := decodeStrict(r, &req); err != nil {
 			writeInvestmentInvalid(w, "Não foi possível ler os dados enviados.")
+			return
+		}
+		if !quoteSourceKnown(req.QuoteSource) {
+			writeInvestmentInvalid(w, "Fonte de cotação desconhecida.")
 			return
 		}
 		asset, err := investments.UpdateAsset(r.Context(), conn, r.PathValue("id"), req.toInput())

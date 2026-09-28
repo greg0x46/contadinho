@@ -134,6 +134,40 @@ func TestGetMissingKey(t *testing.T) {
 	}
 }
 
+func TestBrapiTokenRoundTripsEncrypted(t *testing.T) {
+	conn := newTestDB(t)
+	ctx := context.Background()
+	key, err := settings.Setup(ctx, conn, "hunter2hunter2")
+	if err != nil {
+		t.Fatalf("Setup: %v", err)
+	}
+
+	if _, ok, err := settings.GetBrapiToken(ctx, conn, key); err != nil || ok {
+		t.Fatalf("unset token: ok=%v err=%v", ok, err)
+	}
+
+	if err := settings.SetBrapiToken(ctx, conn, "brapi-token-123", key); err != nil {
+		t.Fatalf("SetBrapiToken: %v", err)
+	}
+	got, ok, err := settings.GetBrapiToken(ctx, conn, key)
+	if err != nil || !ok || got != "brapi-token-123" {
+		t.Fatalf("GetBrapiToken: got=%q ok=%v err=%v", got, ok, err)
+	}
+
+	// Stored encrypted like the Pluggy credentials: unreadable without the key.
+	if _, _, err := settings.GetBrapiToken(ctx, conn, nil); !errors.Is(err, settings.ErrLocked) {
+		t.Errorf("GetBrapiToken without key: err = %v, want ErrLocked", err)
+	}
+
+	// An empty token is how a saved one gets cleared, not an error.
+	if err := settings.SetBrapiToken(ctx, conn, "", key); err != nil {
+		t.Fatalf("SetBrapiToken clearing: %v", err)
+	}
+	if got, ok, err := settings.GetBrapiToken(ctx, conn, key); err != nil || !ok || got != "" {
+		t.Fatalf("GetBrapiToken after clearing: got=%q ok=%v err=%v", got, ok, err)
+	}
+}
+
 func TestAuthenticationEnabledDefaultsAndPersists(t *testing.T) {
 	conn := newTestDB(t)
 	ctx := context.Background()

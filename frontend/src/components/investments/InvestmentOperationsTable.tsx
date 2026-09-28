@@ -47,6 +47,11 @@ export function InvestmentOperationsTable({
       ),
     },
     {
+      title: "Notas",
+      key: "notes",
+      render: (_, operation) => operation.notes ?? "—",
+    },
+    {
       title: "Ações",
       key: "actions",
       render: (_, operation) =>
