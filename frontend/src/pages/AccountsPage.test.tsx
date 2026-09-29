@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
+import * as compactScreen from "../components/shared/useCompactScreen";
 import { describe, expect, it, vi } from "vitest";
 
 import * as accountsApi from "../api/accounts";
@@ -26,6 +27,19 @@ function renderPage() {
 const findRow = (text: string) => screen.findByText(text, {}, { timeout: 5000 });
 
 describe("AccountsPage", () => {
+  it.each([
+    ["on a phone (bottom bar)", true],
+    ["on a wide screen (page header)", false],
+  ])("offers the statement import %s", async (_label, compact) => {
+    vi.spyOn(compactScreen, "useCompactScreen").mockReturnValue(compact);
+    vi.mocked(accountsApi.listAccounts).mockResolvedValue([bankAccount]);
+    renderPage();
+
+    expect(await findRow("Conta Corrente")).toBeVisible();
+    expect(screen.getAllByRole("button", { name: /Importar extrato/ })).toHaveLength(1);
+    vi.restoreAllMocks();
+  });
+
   it("splits bank accounts and credit cards into their own sections", async () => {
     vi.mocked(accountsApi.listAccounts).mockResolvedValue([bankAccount, creditAccount]);
     renderPage();

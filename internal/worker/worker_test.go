@@ -69,6 +69,27 @@ func TestClaimNextRunPicksOldestUnclaimed(t *testing.T) {
 	}
 }
 
+func TestClaimNextRunSkipsFileImports(t *testing.T) {
+	conn := newTestConn(t)
+	ctx := context.Background()
+	source, err := datasources.Create(ctx, conn, datasources.ProviderFile, "local-account-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(`INSERT INTO sync_runs (id, source_id, status, run_type, started_at)
+		VALUES ('file-run', ?, 'in_progress', 'file_import', ?)`, source.ID, db.FormatTime(time.Now().Add(-time.Hour))); err != nil {
+		t.Fatal(err)
+	}
+	_, pluggyRun := insertSourceAndRun(t, conn, "item-1", "in_progress", time.Now())
+	runID, _, ok, err := worker.ClaimNextRun(ctx, conn, "worker-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || runID != pluggyRun {
+		t.Fatalf("claimed %q, ok=%v, want Pluggy run %q", runID, ok, pluggyRun)
+	}
+}
+
 func TestClaimNextRunSkipsAlreadyClaimedRuns(t *testing.T) {
 	conn := newTestConn(t)
 	_, runID := insertSourceAndRun(t, conn, "item-1", "in_progress", time.Now())

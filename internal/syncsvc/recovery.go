@@ -28,7 +28,10 @@ func RecoverStaleRuns(ctx context.Context, conn *sql.DB, now time.Time) ([]strin
 	}
 	defer tx.Rollback()
 
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM sync_runs WHERE status = 'in_progress' ORDER BY started_at, id`)
+	rows, err := tx.QueryContext(ctx, `SELECT sr.id FROM sync_runs sr
+		JOIN data_sources ds ON ds.id = sr.source_id
+		WHERE sr.status = 'in_progress' AND sr.run_type = 'sync' AND ds.provider = 'pluggy'
+		ORDER BY sr.started_at, sr.id`)
 	if err != nil {
 		return nil, err
 	}

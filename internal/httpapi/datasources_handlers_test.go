@@ -5,7 +5,39 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"contadinho-go/internal/db"
 )
+
+func TestSyncRunsRejectFileSources(t *testing.T) {
+	srv, conn := newTestServer(t)
+	now := db.FormatTime(time.Now())
+	if _, err := conn.Exec(`INSERT INTO data_sources (id, provider, external_item_id, created_at, updated_at)
+		VALUES ('file-source', 'file', 'local-1', ?, ?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/sync-runs", map[string]any{"source_id": "file-source"})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("file sync status = %d, want 409", resp.StatusCode)
+	}
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/sync-runs", nil)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("all sync status = %d, want 409 without Pluggy sources", resp.StatusCode)
+	}
+	if _, err := conn.Exec(`INSERT INTO sync_runs (id, source_id, run_type, status, started_at, finished_at)
+		VALUES ('file-run', 'file-source', 'file_import', 'completed', ?, ?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/sync-runs", nil)
+	var runs []map[string]any
+	decodeJSON(t, resp, &runs)
+	if len(runs) != 0 {
+		t.Fatalf("sync history includes file import: %+v", runs)
+	}
+}
 
 // registerConnection adds a Pluggy connection over HTTP and returns its id —
 // the setup every sync-run test needs now that the item id lives in

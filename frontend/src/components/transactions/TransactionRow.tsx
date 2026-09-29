@@ -30,6 +30,7 @@ export function TransactionMeta({ item }: { item: TransactionItem }) {
       <span className="transaction-meta-date">{rowDay(item.occurred_at)}</span>
       <span className="transaction-meta-where">{where}</span>
       {item.origin === "manual" && <span className="transaction-meta-flag">Manual</span>}
+      {item.source_provider === "file" && <span className="transaction-meta-flag">Arquivo</span>}
       {ignored && (
         <span
           className="transaction-meta-flag is-ignored"

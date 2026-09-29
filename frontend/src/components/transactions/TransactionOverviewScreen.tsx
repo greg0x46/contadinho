@@ -79,6 +79,7 @@ export function TransactionOverviewScreen({
         <div className="transaction-identity-kicker">
           <span>{classificationLabel[item.classification]}</span>
           {item.origin === "manual" && <Tag color="purple">Manual</Tag>}
+          {item.source_provider === "file" && <Tag color="blue">Arquivo</Tag>}
         </div>
         <strong className="transaction-identity-description">
           {item.description ?? "Descrição não informada"}

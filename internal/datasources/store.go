@@ -20,6 +20,7 @@ import (
 // ProviderPluggy is the only provider implemented today; the column exists so
 // a second one would not need a schema change.
 const ProviderPluggy = "pluggy"
+const ProviderFile = "file"
 
 var (
 	// ErrNotFound is returned by Get/Update when an id has no matching row.
@@ -103,7 +104,7 @@ func List(ctx context.Context, q Querier) ([]DataSource, error) {
 // ListActive returns the connections a "sync everything" should cover.
 func ListActive(ctx context.Context, q Querier) ([]DataSource, error) {
 	return query(ctx, q,
-		`SELECT `+selectColumns+` FROM data_sources WHERE is_active = 1 ORDER BY created_at, id`)
+		`SELECT `+selectColumns+` FROM data_sources WHERE is_active = 1 AND provider = 'pluggy' ORDER BY created_at, id`)
 }
 
 func query(ctx context.Context, q Querier, sqlText string, args ...any) ([]DataSource, error) {
