@@ -1,6 +1,9 @@
 import { Tooltip } from "antd";
 import type { ReactNode } from "react";
 
+import { formatSignedBRL } from "../../presentation/money";
+import { formatPercent, isZeroBRL } from "./investmentFigures";
+
 export type InvestmentFigure = { label: string; value: ReactNode; hint?: string };
 
 /**
@@ -25,5 +28,23 @@ export function InvestmentFigures({ figures }: { figures: InvestmentFigure[] }) 
         </div>
       ))}
     </div>
+  );
+}
+
+/**
+ * Rendimento in R$ with its % beside it. The sign is spelled out (+/−) so
+ * direction never depends on the colour alone.
+ */
+export function InvestmentYieldValue({ gain, percent }: { gain: string; percent: number | null }) {
+  const direction = isZeroBRL(gain) ? "zero" : gain.startsWith("-") ? "negative" : "positive";
+  const amount = formatSignedBRL(
+    gain,
+    direction === "positive" ? "inflow" : direction === "negative" ? "outflow" : "unclassified",
+  );
+  return (
+    <span className={`investment-yield is-${direction}`}>
+      <span className="investment-yield-amount">{amount}</span>
+      {percent !== null && <span className="investment-yield-percent">{formatPercent(percent)}</span>}
+    </span>
   );
 }

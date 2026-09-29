@@ -1,6 +1,6 @@
 import { AimOutlined, BankOutlined, PieChartOutlined, SwapOutlined } from "@ant-design/icons";
 import { Alert, Button, Empty, Switch } from "antd";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import type {
@@ -51,6 +51,13 @@ export function InvestmentsPage() {
   const financialAccounts = useAccounts();
   const syncedInvestments = useInvestments();
   const navigate = useNavigate();
+
+  // Synced positions carry no local cost basis; their rendimento, principal
+  // and IR/IOF live on the linked provider investment.
+  const linkedInvestments = useMemo(
+    () => new Map(syncedInvestments.investments.map((investment) => [investment.id, investment])),
+    [syncedInvestments.investments],
+  );
 
   const [view, setView] = useState<View>("accounts");
   const [showClosedPositions, setShowClosedPositions] = useState(false);
@@ -151,12 +158,6 @@ export function InvestmentsPage() {
     setSaveError(null);
     setEditingOperation(null);
     setOperationAccountId(accountId);
-    setOperationFormOpen(true);
-  };
-  const openOperationEdit = (operation: InvestmentOperation) => {
-    setSaveError(null);
-    setEditingOperation(operation);
-    setOperationAccountId(operation.account_id);
     setOperationFormOpen(true);
   };
 
@@ -300,7 +301,12 @@ export function InvestmentsPage() {
             <Alert type="info" showIcon style={{ marginBottom: 16 }} message="Totais em reais"
               description="Posições em outras moedas são exibidas na moeda original e ficam fora dos totais e metas em reais. Esta versão não faz conversão de câmbio." />
           )}
-          <InvestmentWorkspaceSummary summary={workspace.summary} operations={workspace.operations} />
+          <InvestmentWorkspaceSummary
+            summary={workspace.summary}
+            positions={workspace.positions}
+            operations={workspace.operations}
+            linked={linkedInvestments}
+          />
 
           {view !== "synced" && (
             <ListToolbar
@@ -333,6 +339,7 @@ export function InvestmentsPage() {
                     allPositions={allPositionsOfAccount(account.id)}
                     operations={operationsOfAccount(account.id)}
                     portfolios={workspace.portfolios}
+                    linked={linkedInvestments}
                     onRename={openAccountEdit}
                     onRemove={(target) =>
                       void run(() => workspace.deleteAccount(target.id), "Não foi possível remover a conta.")
@@ -342,13 +349,6 @@ export function InvestmentsPage() {
                     onEditPosition={openPositionEdit}
                     onRemovePosition={(position) =>
                       void run(() => workspace.deletePosition(position.id), "Não foi possível remover a posição.")
-                    }
-                    onEditOperation={openOperationEdit}
-                    onRemoveOperation={(operation) =>
-                      void run(
-                        () => workspace.deleteOperation(operation.id),
-                        "Não foi possível excluir a movimentação.",
-                      )
                     }
                     onAssignGoal={assignGoal}
                     busy={busy}
@@ -372,6 +372,7 @@ export function InvestmentsPage() {
                     positions={positions}
                     operations={operationsOfPositions(allPositionsOfGoal(portfolio?.id ?? null))}
                     portfolios={workspace.portfolios}
+                    linked={linkedInvestments}
                     cashBalance={workspace.summary?.cash_balance ?? "0"}
                     accountNameOf={accountName}
                     onEdit={openPortfolio}
@@ -388,13 +389,10 @@ export function InvestmentsPage() {
 
           {view === "synced" && (
             <>
-              <Alert
-                type="info"
-                showIcon
-                style={{ marginBottom: 16 }}
-                message="Importados da sua instituição"
-                description="Estes ativos também aparecem como posições dentro da conta integrada correspondente. Aqui fica o detalhe importado, com o histórico do provedor."
-              />
+              <p className="investments-note">
+                Importados da sua instituição — também aparecem como posições dentro da conta integrada
+                correspondente. Aqui fica o detalhe importado, com o histórico do provedor.
+              </p>
               {syncedInvestments.error && (
                 <Alert
                   type="error"

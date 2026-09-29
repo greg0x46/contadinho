@@ -7,9 +7,17 @@ import type {
   InvestmentSummaryPortfolio,
 } from "../../api/contracts";
 import { formatBRL, sumBRL } from "../../presentation/money";
-import { InvestmentFigures } from "./InvestmentFigures";
+import { InvestmentFigures, InvestmentYieldValue } from "./InvestmentFigures";
 import { InvestmentPositionsTable } from "./InvestmentPositionsTable";
-import { formatDate, goalMovements, latestDate } from "./investmentFigures";
+import {
+  aggregateYield,
+  costsByPosition,
+  formatDate,
+  goalMovements,
+  groupCost,
+  latestDate,
+  type LinkedInvestments,
+} from "./investmentFigures";
 
 export function InvestmentGoalCard({
   portfolio,
@@ -17,6 +25,7 @@ export function InvestmentGoalCard({
   positions,
   operations,
   portfolios,
+  linked,
   cashBalance,
   accountNameOf,
   onEdit,
@@ -30,6 +39,7 @@ export function InvestmentGoalCard({
   positions: InvestmentPosition[];
   operations: InvestmentOperation[];
   portfolios: InvestmentPortfolio[];
+  linked: LinkedInvestments;
   cashBalance: string;
   accountNameOf: (accountId: string) => string;
   onEdit: (portfolio: InvestmentPortfolio) => void;
@@ -46,6 +56,10 @@ export function InvestmentGoalCard({
   ]);
   const target = summary?.target_amount ?? portfolio?.target_amount ?? null;
   const progress = summary?.progress ?? portfolio?.progress ?? null;
+
+  const costs = costsByPosition(operations, positions, linked);
+  const yieldAggregate = aggregateYield(positions, linked, costs);
+  const cost = groupCost(operations, positions, linked);
 
   return (
     <section className="investment-card" aria-label={portfolio?.name ?? "Sem objetivo"}>
@@ -80,6 +94,16 @@ export function InvestmentGoalCard({
           figures={[
             { label: "Valor atual", value: formatBRL(currentValue) },
             {
+              label: "Rendimento líquido",
+              value: <InvestmentYieldValue gain={yieldAggregate.gain} percent={yieldAggregate.percent} />,
+              hint: "Já descontados IR, IOF e taxas das posições que têm rendimento conhecido.",
+            },
+            {
+              label: "IR/Taxas",
+              value: formatBRL(cost),
+              hint: "Taxas e impostos das movimentações, mais IR e IOF informados pela instituição.",
+            },
+            {
               label: "Compras e saldo inicial",
               value: formatBRL(movements.deposits),
               hint: "Compras e saldos iniciais registrados nas posições deste objetivo.",
@@ -108,6 +132,8 @@ export function InvestmentGoalCard({
         <InvestmentPositionsTable
           positions={positions}
           portfolios={portfolios}
+          costs={costs}
+          linked={linked}
           accountNameOf={accountNameOf}
           showAccount
           onAssignGoal={onAssignGoal}
