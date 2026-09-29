@@ -91,7 +91,9 @@ function parsePreview(value: unknown): ImportPreview {
   };
 }
 
-async function request<T>(path: string, init: RequestInit, expectedStatus: number, parse: (value: unknown) => T): Promise<T> {
+async function fetchExpecting(
+  path: string, init: RequestInit, expectedStatus: number, fallback = "Não foi possível concluir a importação.",
+): Promise<Response> {
   let response: Response;
   try { response = await apiFetch(path, { ...init, headers: { Accept: "application/json", ...init.headers } }); }
   catch (error) {
@@ -99,7 +101,7 @@ async function request<T>(path: string, init: RequestInit, expectedStatus: numbe
     throw new ApiError("transport", "Não foi possível comunicar com o servidor.");
   }
   if (response.status !== expectedStatus) {
-    let detail = "Não foi possível concluir a importação.";
+    let detail = fallback;
     try {
       const body = record(await response.json());
       if (typeof body.detail === "string") detail = body.detail;
@@ -107,6 +109,11 @@ async function request<T>(path: string, init: RequestInit, expectedStatus: numbe
     } catch { /* Keep the generic message. */ }
     throw new ApiError(response.status === 409 ? "conflict" : response.status === 404 ? "not_found" : "response", detail);
   }
+  return response;
+}
+
+async function request<T>(path: string, init: RequestInit, expectedStatus: number, parse: (value: unknown) => T): Promise<T> {
+  const response = await fetchExpecting(path, init, expectedStatus);
   try { return parse(await response.json()); }
   catch { throw new ApiError("response", "A resposta do servidor não pôde ser confirmada."); }
 }
@@ -153,4 +160,32 @@ export function listStatementImports(signal?: AbortSignal): Promise<ImportHistor
         filename: str(item.filename), format: str(item.format), created_at: str(item.created_at), counts: counts(item.counts) };
     });
   });
+}
+
+const templateFilename = "modelo-extrato-flash.csv";
+
+/**
+ * Saves the CSV template of the supported statement format through the
+ * browser's download flow. Errors keep the ApiError kinds of the calls above,
+ * so the page can show the server's own message.
+ */
+export async function downloadStatementTemplate(): Promise<void> {
+  const response = await fetchExpecting(
+    "/api/statement-imports/template", { method: "GET", headers: { Accept: "text/csv" } }, 200, "Não foi possível baixar o modelo.",
+  );
+  let blob: Blob;
+  try { blob = await response.blob(); }
+  catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new ApiError("response", "O modelo não pôde ser baixado.");
+  }
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = templateFilename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  // Revoking in the same tick can cancel the download in some browsers.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
