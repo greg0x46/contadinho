@@ -86,6 +86,7 @@ func NewServer(db *sql.DB, frontend fs.FS, secrets *settings.Secrets, config aut
 	mux.HandleFunc("POST /api/statement-imports", handleStatementConfirm(db))
 	mux.HandleFunc("GET /api/statement-imports", handleStatementHistory(db))
 	mux.HandleFunc("GET /api/statement-imports/accounts", handleStatementAccounts(db))
+	mux.HandleFunc("GET /api/statement-imports/template", handleStatementTemplate())
 
 	mux.HandleFunc("GET /api/accounts", handleListAccounts(db))
 	mux.HandleFunc("GET /api/accounts/{id}", handleGetAccount(db))
