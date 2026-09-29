@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +12,30 @@ import (
 	"contadinho-go/internal/auth"
 	"contadinho-go/internal/settings"
 )
+
+var loopbackHosts = map[string]bool{"localhost": true, "127.0.0.1": true, "::1": true}
+
+// originAllowed compares the request Origin against the configured public URL.
+// Exact match is required, except that localhost/127.0.0.1/::1 are treated as
+// equivalent when both sides are plain HTTP on the same port, since browsers
+// send whichever loopback hostname is in the address bar.
+func originAllowed(publicURL, origin string) bool {
+	if origin == publicURL {
+		return true
+	}
+	want, err := url.Parse(publicURL)
+	if err != nil {
+		return false
+	}
+	got, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	if want.Scheme != "http" || got.Scheme != "http" || want.Port() != got.Port() {
+		return false
+	}
+	return loopbackHosts[want.Hostname()] && loopbackHosts[got.Hostname()]
+}
 
 type identityKey struct{}
 type authenticationEnabledKey struct{}
@@ -87,7 +112,7 @@ func (a *authAPI) gate(next http.Handler) http.Handler {
 			return
 		}
 		if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" {
-			if r.Header.Get("Origin") != a.config.PublicURL || r.Header.Get("X-Contadinho-Request") != "1" {
+			if !originAllowed(a.config.PublicURL, r.Header.Get("Origin")) || r.Header.Get("X-Contadinho-Request") != "1" {
 				writeProblem(w, 403, "invalid-origin", "Origem da solicitação inválida", "")
 				return
 			}
