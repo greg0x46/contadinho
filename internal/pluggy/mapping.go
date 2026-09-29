@@ -439,6 +439,15 @@ func mapInvestment(payload map[string]any) (InvestmentSnapshot, error) {
 	if i.AsOfDate, err = optionalDateTime(payload["date"], "date"); err != nil {
 		return InvestmentSnapshot{}, err
 	}
+	if i.IssueDate, err = optionalDateTime(payload["issueDate"], "issueDate"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.PurchaseDate, err = optionalDateTime(payload["purchaseDate"], "purchaseDate"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
+	if i.IssuerCNPJ, err = optionalString(payload["issuerCNPJ"], "issuerCNPJ"); err != nil {
+		return InvestmentSnapshot{}, err
+	}
 	if i.ProviderUpdatedAt, err = optionalDateTime(payload["lastUpdatedAt"], "lastUpdatedAt"); err != nil {
 		return InvestmentSnapshot{}, err
 	}
@@ -607,6 +616,19 @@ func mapInvestmentsPage(payload map[string]any) ([]InvestmentSnapshot, []Rejecte
 		investments = append(investments, investment)
 	}
 	return investments, rejections, nil
+}
+
+// ParseInvestmentsPayload maps a stored raw_imports payload of scope
+// "investments" with the same rules a live sync uses, so a backfill over past
+// payloads reads each holding exactly as the sync that fetched it did.
+// Records the live sync would have rejected are skipped here too.
+func ParseInvestmentsPayload(body []byte) ([]InvestmentSnapshot, error) {
+	payload, err := decodeJSON(body)
+	if err != nil {
+		return nil, err
+	}
+	investments, _, err := mapInvestmentsPage(payload)
+	return investments, err
 }
 
 // pageMarker is a page-numbered envelope's own account of where it sits in

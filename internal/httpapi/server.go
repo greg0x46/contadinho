@@ -115,6 +115,7 @@ func NewServer(db *sql.DB, frontend fs.FS, secrets *settings.Secrets, config aut
 
 	mux.HandleFunc("GET /api/investment-positions", handleListInvestmentPositions(db))
 	mux.HandleFunc("GET /api/investment-positions/{id}", handleGetInvestmentPosition(db))
+	mux.HandleFunc("GET /api/investment-positions/{id}/yield", handleGetInvestmentPositionYield(db))
 	mux.HandleFunc("POST /api/investment-positions", handleCreateInvestmentPosition(db))
 	mux.HandleFunc("PUT /api/investment-positions/{id}", handleUpdateInvestmentPosition(db))
 	mux.HandleFunc("DELETE /api/investment-positions/{id}", handleDeleteInvestmentPosition(db))
