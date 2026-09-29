@@ -13,6 +13,7 @@ import (
 
 	"contadinho-go/internal/categories"
 	"contadinho-go/internal/db"
+	"contadinho-go/internal/investments"
 	"contadinho-go/internal/money"
 	"contadinho-go/internal/pluggy"
 	"contadinho-go/internal/transactions"
@@ -220,6 +221,12 @@ func (s *Service) processInvestments(ctx context.Context) error {
 		}
 		if err := s.incrementInvestmentsProcessed(ctx); err != nil {
 			return err
+		}
+		// The holding itself is already stored; a quote that fails to record
+		// only leaves a gap in the price series, which the next sync fills.
+		rawImportID := investmentsPage.RawImportID
+		if err := investments.RecordSyncedQuotes(ctx, s.DB, HoldingFromSnapshot(record), &rawImportID); err != nil {
+			log.Printf("investment_quote_failed run_id=%s investment=%s: %v", s.SyncRunID, record.ExternalID, err)
 		}
 
 		extID := record.ExternalID
@@ -713,9 +720,10 @@ func (s *Service) upsertInvestment(ctx context.Context, snapshot pluggy.Investme
 			number, owner, tax_number, due_date, issuer, issuer_code, rate, rate_type,
 			fixed_annual_rate, annual_rate, last_twelve_months_rate, quantity, value, amount,
 			amount_profit, amount_withdrawal, amount_original, taxes, taxes2, as_of_date,
+			issue_date, purchase_date, issuer_cnpj,
 			provider_updated_at, isin, code,
 			provider_status, current_raw_import_id, normalized_hash, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (source_id, external_id) DO NOTHING
 		RETURNING id`,
 		newID, s.SourceID, snapshot.ExternalID, snapshot.InvestmentType, snapshot.Subtype, snapshot.Name,
@@ -725,7 +733,8 @@ func (s *Service) upsertInvestment(ctx context.Context, snapshot pluggy.Investme
 		decimalToStorage(snapshot.LastTwelveMonthsRate), decimalToStorage(snapshot.Quantity), decimalToStorage(snapshot.Value),
 		decimalToStorage(snapshot.Amount), decimalToStorage(snapshot.AmountProfit), decimalToStorage(snapshot.AmountWithdrawal),
 		decimalToStorage(snapshot.AmountOriginal), decimalToStorage(snapshot.Taxes), decimalToStorage(snapshot.Taxes2),
-		db.FormatTimePtr(snapshot.AsOfDate), db.FormatTimePtr(snapshot.ProviderUpdatedAt), snapshot.ISIN, snapshot.Code,
+		db.FormatTimePtr(snapshot.AsOfDate), db.FormatTimePtr(snapshot.IssueDate), db.FormatTimePtr(snapshot.PurchaseDate),
+		snapshot.IssuerCNPJ, db.FormatTimePtr(snapshot.ProviderUpdatedAt), snapshot.ISIN, snapshot.Code,
 		snapshot.ProviderStatus, rawImportID, digest, now, now,
 	).Scan(&insertedID)
 	inserted := err == nil
@@ -751,6 +760,7 @@ func (s *Service) upsertInvestment(ctx context.Context, snapshot pluggy.Investme
 				issuer_code = ?, rate = ?, rate_type = ?, fixed_annual_rate = ?, annual_rate = ?,
 				last_twelve_months_rate = ?, quantity = ?, value = ?, amount = ?, amount_profit = ?,
 				amount_withdrawal = ?, amount_original = ?, taxes = ?, taxes2 = ?, as_of_date = ?,
+				issue_date = ?, purchase_date = ?, issuer_cnpj = ?,
 				provider_updated_at = ?, isin = ?, code = ?,
 				provider_status = ?, current_raw_import_id = ?, normalized_hash = ?, updated_at = ?
 			WHERE id = ?`,
@@ -761,7 +771,8 @@ func (s *Service) upsertInvestment(ctx context.Context, snapshot pluggy.Investme
 			decimalToStorage(snapshot.LastTwelveMonthsRate), decimalToStorage(snapshot.Quantity), decimalToStorage(snapshot.Value),
 			decimalToStorage(snapshot.Amount), decimalToStorage(snapshot.AmountProfit), decimalToStorage(snapshot.AmountWithdrawal),
 			decimalToStorage(snapshot.AmountOriginal), decimalToStorage(snapshot.Taxes), decimalToStorage(snapshot.Taxes2),
-			db.FormatTimePtr(snapshot.AsOfDate), db.FormatTimePtr(snapshot.ProviderUpdatedAt), snapshot.ISIN, snapshot.Code,
+			db.FormatTimePtr(snapshot.AsOfDate), db.FormatTimePtr(snapshot.IssueDate), db.FormatTimePtr(snapshot.PurchaseDate),
+			snapshot.IssuerCNPJ, db.FormatTimePtr(snapshot.ProviderUpdatedAt), snapshot.ISIN, snapshot.Code,
 			snapshot.ProviderStatus, rawImportID, digest, now, investmentID,
 		)
 		if err != nil {

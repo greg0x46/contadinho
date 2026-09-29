@@ -23,6 +23,7 @@ import (
 	"contadinho-go/internal/pluggy"
 	"contadinho-go/internal/quotes"
 	"contadinho-go/internal/settings"
+	"contadinho-go/internal/syncsvc"
 	"contadinho-go/internal/webui"
 	"contadinho-go/internal/worker"
 )
@@ -97,6 +98,16 @@ func main() {
 		log.Printf("backfill card payment categories failed, leaving those rows uncategorized: %v", err)
 	} else if applied > 0 {
 		log.Printf("categorized %d card payment transactions as transfers", applied)
+	}
+
+	// Synced holdings had no price history before investment_asset_quotes;
+	// raw_imports kept every investments payload, so the series is rebuilt
+	// from them once. Logged rather than fatal for the same reason as above:
+	// without it rendimento falls back to the movement history.
+	if processed, err := syncsvc.BackfillAssetQuotes(context.Background(), conn); err != nil {
+		log.Printf("backfill investment asset quotes failed, rendimento falls back to movement history: %v", err)
+	} else if processed > 0 {
+		log.Printf("rebuilt investment asset quotes from %d stored holding snapshots", processed)
 	}
 
 	frontend, err := webui.DistFS()

@@ -88,6 +88,14 @@ func RefreshAll(ctx context.Context, conn *sql.DB, registry Registry, today time
 			continue
 		}
 		summary.PricesFetched++
+		// The asset's price series is what rendimento over a period is
+		// derived from; the valuation operations below stay the manual
+		// ledger's own record of the same quote.
+		if err := investments.UpsertAssetQuote(ctx, conn, investments.AssetQuote{
+			AssetID: asset.ID, QuotedOn: today, Price: price, Source: *asset.QuoteSource,
+		}); err != nil {
+			log.Printf("quote_store_failed asset_id=%s source=%s: %v", asset.ID, *asset.QuoteSource, err)
+		}
 
 		for _, position := range holdings {
 			// A position with no operations at all (just created, nothing
