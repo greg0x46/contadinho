@@ -35,23 +35,26 @@ function TooltipContent({ active, payload, label }: { active?: boolean; payload?
 export function NetWorthChart({ snapshots }: { snapshots: NetWorthSnapshot[] }) {
   const data = toChartData(snapshots);
   return (
-    <div className="timeline-chart" aria-label="Evolução do patrimônio líquido">
-      <ResponsiveContainer width="100%" height={320}>
-        <LineChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="date" tickLine={false} axisLine={{ stroke: colors.border }} />
-          <YAxis tickLine={false} axisLine={false} width={0} />
-          <Tooltip content={<TooltipContent />} />
-          <Line
-            type="monotone"
-            dataKey="netWorth"
-            name="Patrimônio líquido"
-            stroke={monthlyEvolutionColor.result}
-            strokeWidth={2}
-            dot={{ r: 4 }}
-          />
-        </LineChart>
-      </ResponsiveContainer>
+    <div className="net-worth-chart-card">
+      <h2 className="net-worth-chart-title">Evolução do patrimônio líquido</h2>
+      <div className="timeline-chart" aria-label="Evolução do patrimônio líquido">
+        <ResponsiveContainer width="100%" height={320}>
+          <LineChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="date" tickLine={false} axisLine={{ stroke: colors.border }} />
+            <YAxis tickLine={false} axisLine={false} width={0} />
+            <Tooltip content={<TooltipContent />} />
+            <Line
+              type="monotone"
+              dataKey="netWorth"
+              name="Patrimônio líquido"
+              stroke={monthlyEvolutionColor.result}
+              strokeWidth={2}
+              dot={{ r: 4 }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }

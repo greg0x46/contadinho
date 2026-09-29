@@ -24,6 +24,7 @@ export function AccountsPage() {
       title="Contas e cartões"
       description="Saldo, limite e detalhes de cada conta importada automaticamente da sua instituição financeira"
       className="accounts-page"
+      compactMobileHeader
     >
       {accounts.error && (
         <Alert

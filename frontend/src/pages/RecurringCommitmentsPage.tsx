@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import type { RecurringCommitment, RecurringCommitmentWrite } from "../api/contracts";
-import { Page } from "../components/layout";
+import { DataCard, Page } from "../components/layout";
 import type { RecurringCommitmentDraft } from "../components/recurringCommitments/RecurringCommitmentForm";
 import { RecurringCommitmentForm } from "../components/recurringCommitments/RecurringCommitmentForm";
 import { RecurringCommitmentList } from "../components/recurringCommitments/RecurringCommitmentList";
@@ -113,15 +113,17 @@ export function RecurringCommitmentsPage() {
           style={{ marginBottom: 16 }}
         />
       )}
-      <RecurringCommitmentList
-        commitments={commitments.commitments}
-        categories={categories.categories}
-        isLoading={commitments.isLoading}
-        togglingCommitmentId={togglingCommitmentId}
-        onEdit={openEdit}
-        onToggle={toggle}
-        onDelete={remove}
-      />
+      <DataCard flush>
+        <RecurringCommitmentList
+          commitments={commitments.commitments}
+          categories={categories.categories}
+          isLoading={commitments.isLoading}
+          togglingCommitmentId={togglingCommitmentId}
+          onEdit={openEdit}
+          onToggle={toggle}
+          onDelete={remove}
+        />
+      </DataCard>
       <RecurringCommitmentForm
         open={formOpen}
         commitment={editingCommitment}

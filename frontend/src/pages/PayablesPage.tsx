@@ -1,14 +1,24 @@
-import { PlusOutlined } from "@ant-design/icons";
 import { Alert, Button } from "antd";
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import type { Payable, PayableKind } from "../api/contracts";
-import { DataCard, ListToolbar, Page, PageTabs, SearchField, SortSelect } from "../components/layout";
+import {
+  BottomActionBar,
+  CreateActionMenu,
+  DataCard,
+  ListToolbar,
+  Page,
+  PageTabs,
+  SearchField,
+  SortSelect,
+} from "../components/layout";
 import { PayableForm } from "../components/payables/PayableForm";
 import { PayableList } from "../components/payables/PayableList";
 import { PayablesSummary } from "../components/payables/PayablesSummary";
+import { useCompactScreen } from "../components/shared/useCompactScreen";
 import { usePayables } from "../hooks/usePayables";
+import { payableVocabulary } from "../presentation/payableLabels";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Não foi possível salvar a pendência.";
@@ -45,6 +55,7 @@ function arrange(payables: Payable[], search: string, sort: PayableSort): Payabl
 }
 
 export function PayablesPage() {
+  const compact = useCompactScreen();
   const [searchParams, setSearchParams] = useSearchParams();
   const kindParam = searchParams.get("kind");
   const filter: PayableView = kindParam === "debt" || kindParam === "receivable" ? kindParam : "all";
@@ -122,32 +133,34 @@ export function PayablesPage() {
 
   const visible = arrange(payables.payables, search, sort);
 
+  const createMenu = (
+    <CreateActionMenu
+      label="Nova pendência"
+      options={[
+        {
+          key: "debt",
+          label: "Nova dívida",
+          description: "Valor que você precisa pagar",
+          icon: payableVocabulary.debt.icon,
+          onClick: () => openCreate("debt"),
+        },
+        {
+          key: "receivable",
+          label: "Nova conta a receber",
+          description: "Valor que outra pessoa precisa pagar a você",
+          icon: payableVocabulary.receivable.icon,
+          onClick: () => openCreate("receivable"),
+        },
+      ]}
+    />
+  );
+
   return (
     <Page
       title="Pendências"
-      description="Acompanhe dívidas e contas a receber em um só lugar"
-      actions={
-        <>
-          {filter !== "receivable" && (
-            <Button
-              type="primary"
-              icon={<PlusOutlined aria-hidden="true" />}
-              onClick={() => openCreate("debt")}
-            >
-              Nova dívida
-            </Button>
-          )}
-          {filter !== "debt" && (
-            <Button
-              type={filter === "receivable" ? "primary" : "default"}
-              icon={<PlusOutlined aria-hidden="true" />}
-              onClick={() => openCreate("receivable")}
-            >
-              Nova conta a receber
-            </Button>
-          )}
-        </>
-      }
+      compactMobileHeader
+      hasBottomActionBar
+      actions={createMenu}
       tabs={<PageTabs label="Tipo de pendência" options={viewOptions} value={filter} onChange={setFilter} />}
     >
       {actionError && (
@@ -209,6 +222,7 @@ export function PayablesPage() {
         onSubmit={submit}
         onCancel={closeForm}
       />
+      {compact && <BottomActionBar>{createMenu}</BottomActionBar>}
     </Page>
   );
 }

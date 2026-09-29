@@ -13,7 +13,8 @@ import {
 import { filtersToSearchParams, listFromSearchParams } from "../components/filters/filterUrl";
 import { PeriodNavigator } from "../components/filters/PeriodNavigator";
 import { periodPresets } from "../components/filters/periodPresets";
-import { DataCard, GroupBySelect, Page } from "../components/layout";
+import { BottomActionBar, DataCard, GroupBySelect, Page } from "../components/layout";
+import { useCompactScreen } from "../components/shared/useCompactScreen";
 import { ManualTransactionForm } from "../components/transactions/ManualTransactionForm";
 import { TransactionPanel } from "../components/transactions/TransactionPanel";
 import { TransactionFilters as TransactionFilterBar } from "../components/transactions/TransactionFilters";
@@ -101,6 +102,7 @@ function ResultsSkeleton() {
 }
 
 export function TransactionsPage() {
+  const compact = useCompactScreen();
   const [searchParams, setSearchParams] = useSearchParams();
   const { period, setPeriod } = usePeriod(() => periodFromUrl(searchParams));
   const [state] = useState(() => initialState(searchParams, period));
@@ -197,11 +199,19 @@ export function TransactionsPage() {
     ? Math.min(data.page.number * data.page.size, data.page.total_items)
     : 0;
 
+  const createAction = (
+    <Button type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={openManualCreate}>
+      Novo lançamento
+    </Button>
+  );
+
   return (
     <Page
       title="Transações"
       description="Acompanhe suas entradas, saídas e o resultado do período"
       className="transactions-page"
+      compactMobileHeader
+      hasBottomActionBar
       context={
         <PeriodNavigator
           id="transactions-period"
@@ -212,11 +222,7 @@ export function TransactionsPage() {
           bare
         />
       }
-      actions={
-        <Button type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={openManualCreate}>
-          Novo lançamento
-        </Button>
-      }
+      actions={createAction}
     >
       <TransactionFilterBar
         applied={filters}
@@ -447,6 +453,7 @@ export function TransactionsPage() {
         onSubmit={createManualTransaction}
         onCancel={closeManualForm}
       />
+      {compact && <BottomActionBar>{createAction}</BottomActionBar>}
     </Page>
   );
 }

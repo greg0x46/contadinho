@@ -2,8 +2,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, type ReactNode } from "react";
 import { getSession } from "../api/auth";
 import { expireSession, onSessionExpired } from "../api/transport";
-import { LoadingState, UnavailableState } from "../components/AsyncState";
+import { UnavailableState } from "../components/AsyncState";
 import { LoginPage } from "../pages/LoginPage";
+import { AppLoadingScreen } from "./AppLoadingScreen";
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const client = useQueryClient();
@@ -32,7 +33,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       client.removeQueries({ predicate: (query) => query.queryKey[0] !== "auth-session" });
     }
   }, [client, data?.authenticated, data?.authentication_enabled]);
-  if (isLoading) return <LoadingState>Verificando sessão…</LoadingState>;
+  if (isLoading) return <AppLoadingScreen />;
   if (error || !data) return <UnavailableState onRetry={() => refetch()}>Não foi possível verificar sua sessão.</UnavailableState>;
   if (data.authentication_enabled && !data.authenticated) return <LoginPage onDone={() => { void client.invalidateQueries({ queryKey: ["auth-session"] }); }} />;
   return <>{children}</>;

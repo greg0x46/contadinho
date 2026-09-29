@@ -1,7 +1,7 @@
-import { PageContainer } from "@ant-design/pro-layout";
 import { Alert, Empty } from "antd";
 
 import { LoadingState, UnavailableState } from "../components/AsyncState";
+import { Page } from "../components/layout";
 import { NetWorthBreakdownCard } from "../components/netWorth/NetWorthBreakdownCard";
 import { NetWorthChart } from "../components/netWorth/NetWorthChart";
 import { useNetWorth } from "../hooks/useNetWorth";
@@ -15,11 +15,13 @@ export function NetWorthPage() {
   const hasBackfilledPoints = netWorth.series.some((s) => s.is_backfilled);
 
   return (
-    <PageContainer
-      title="Patrimônio líquido"
-      subTitle="Ativos menos passivos ao longo do tempo"
-      content="Os dias mais recentes sem registro são reconstruídos automaticamente a partir do histórico de transações disponível — a série pode não cobrir todo o passado se as contas foram conectadas há pouco tempo."
-    >
+    <Page title="Patrimônio líquido" description="Ativos menos passivos ao longo do tempo" compactMobileHeader>
+      <p className="net-worth-note">
+        Os dias mais recentes sem registro são reconstruídos automaticamente a partir do histórico de
+        transações disponível — a série pode não cobrir todo o passado se as contas foram conectadas há pouco
+        tempo.
+      </p>
+
       {netWorth.isLoading && <LoadingState>Carregando patrimônio líquido…</LoadingState>}
       {netWorth.error && !netWorth.isLoading && (
         <UnavailableState onRetry={() => netWorth.refetch()}>
@@ -48,6 +50,6 @@ export function NetWorthPage() {
           )}
         </>
       )}
-    </PageContainer>
+    </Page>
   );
 }
