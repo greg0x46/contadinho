@@ -5,9 +5,12 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -51,7 +54,14 @@ type importHistory struct {
 func readStatementUpload(w http.ResponseWriter, r *http.Request) ([]byte, string, bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, statementimport.MaxBytes+1<<16)
 	if err := r.ParseMultipartForm(statementimport.MaxBytes + 1<<16); err != nil {
-		writeProblem(w, 413, "upload-too-large", "Arquivo muito grande", "O limite é 2 MB.")
+		// Only the size cap is "too large"; a body that is not multipart, or is
+		// malformed or cut short, is a bad request whatever its size.
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeProblem(w, 413, "upload-too-large", "Arquivo muito grande", "O limite é 2 MB.")
+		} else {
+			writeProblem(w, 422, "invalid-upload", "Envio inválido", "Não foi possível ler o arquivo enviado.")
+		}
 		return nil, "", false
 	}
 	f, h, err := r.FormFile("file")
@@ -61,12 +71,44 @@ func readStatementUpload(w http.ResponseWriter, r *http.Request) ([]byte, string
 	}
 	defer f.Close()
 	data, err := io.ReadAll(io.LimitReader(f, statementimport.MaxBytes+1))
-	if err != nil || len(data) > statementimport.MaxBytes {
+	if err != nil {
+		writeProblem(w, 422, "invalid-upload", "Envio inválido", "Não foi possível ler o arquivo enviado.")
+		return nil, "", false
+	}
+	if len(data) > statementimport.MaxBytes {
 		writeProblem(w, 413, "upload-too-large", "Arquivo muito grande", "O limite é 2 MB.")
 		return nil, "", false
 	}
 	return data, h.Filename, true
 }
+
+// statementParseError marks a failure of statementimport.Parse. Its message is
+// a safe pt-BR sentence meant for the user (422); every other error on the
+// preview/confirm path comes from the database and must not reach the client.
+type statementParseError struct{ err error }
+
+func (e *statementParseError) Error() string { return e.err.Error() }
+func (e *statementParseError) Unwrap() error { return e.err }
+
+// statementParseProblem answers a Parse failure as 422 and reports whether err
+// was one; it writes nothing for any other error.
+func statementParseProblem(w http.ResponseWriter, err error) bool {
+	var parseErr *statementParseError
+	if !errors.As(err, &parseErr) {
+		return false
+	}
+	writeProblem(w, 422, "invalid-statement", "Extrato inválido", parseErr.Error())
+	return true
+}
+
+// previewFailure answers an infrastructure failure during a preview. The
+// underlying error is only logged: driver text is not for the UI, and nothing
+// from the statement rows goes into the log line.
+func previewFailure(w http.ResponseWriter, err error) {
+	log.Printf("statement_preview_failed: %v", err)
+	writeProblem(w, 503, "preview-unavailable", "Prévia indisponível", "Tente novamente em instantes.")
+}
+
 func loadFileAccount(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, id string) (string, error) {
@@ -77,6 +119,37 @@ func loadFileAccount(ctx context.Context, q interface {
 func digest(parts ...string) string {
 	s := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	return hex.EncodeToString(s[:])
+}
+
+// warnBalanceDiffers flags a row already imported whose stored balance
+// differs from the file's; confirmation reads it back to skip the account
+// balance update.
+const warnBalanceDiffers = "saldo difere da importação anterior; revisão necessária"
+
+// amountSpellings lists the text forms one statement amount can have in the
+// TEXT amount columns. The file side is always fixed at two decimals
+// ("-49.90"), but Pluggy and manual rows are written through
+// money.CanonicalDecimal, which keeps the scale of the source ("-49.9",
+// "-10"), so comparing against a single spelling misses them. The result runs
+// from the shortest form (trailing zeros trimmed, an integer when the value is
+// whole) up to two decimals, without duplicates: "-10.00" gives "-10", "-10.0"
+// and "-10.00", and "1533.33" only itself. Each spelling is matched exactly,
+// so "-10" never matches "-100". An unparseable input is returned as is.
+func amountSpellings(amount string) []string {
+	d, err := decimal.NewFromString(strings.TrimSpace(amount))
+	if err != nil {
+		return []string{amount}
+	}
+	shortest := d.String()
+	places := int32(0)
+	if dot := strings.IndexByte(shortest, '.'); dot >= 0 {
+		places = int32(len(shortest) - dot - 1)
+	}
+	out := []string{}
+	for p := places; p <= max(places, 2); p++ {
+		out = append(out, d.StringFixed(p))
+	}
+	return out
 }
 func classifyStatement(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
@@ -101,7 +174,7 @@ func classifyStatement(ctx context.Context, q interface {
 			if err == nil {
 				row.Status = "duplicate"
 				if oldBalance.Valid && oldBalance.String != row.Balance {
-					row.Warnings = append(row.Warnings, "saldo difere da importação anterior; revisão necessária")
+					row.Warnings = append(row.Warnings, warnBalanceDiffers)
 				}
 			} else if err != sql.ErrNoRows {
 				return err
@@ -111,8 +184,12 @@ func classifyStatement(ctx context.Context, q interface {
 			p.Counts.Duplicate++
 		} else {
 			p.Counts.New++
+			// The amount is matched under every spelling it may be stored with;
+			// occurred_at stays an equality so the lookup remains selective.
+			in, amountArgs := db.InClause(amountSpellings(row.Amount))
 			var similarPluggy int
-			err := q.QueryRowContext(ctx, `SELECT 1 FROM financial_transactions ft JOIN data_sources ds ON ds.id=ft.source_id WHERE ds.provider='pluggy' AND ft.deleted_at IS NULL AND ft.occurred_at=? AND ft.amount=? AND LOWER(TRIM(ft.description))=LOWER(TRIM(?)) LIMIT 1`, row.OccurredAt, row.Amount, row.Description).Scan(&similarPluggy)
+			args := append([]any{row.OccurredAt}, amountArgs...)
+			err := q.QueryRowContext(ctx, `SELECT 1 FROM financial_transactions ft JOIN data_sources ds ON ds.id=ft.source_id WHERE ds.provider='pluggy' AND ft.deleted_at IS NULL AND ft.occurred_at=? AND ft.amount IN (`+in+`) AND LOWER(TRIM(ft.description))=LOWER(TRIM(?)) LIMIT 1`, append(args, row.Description)...).Scan(&similarPluggy)
 			if err == nil {
 				row.Warnings = append(row.Warnings, "possível correspondência com conexão automática")
 			} else if err != sql.ErrNoRows {
@@ -120,7 +197,8 @@ func classifyStatement(ctx context.Context, q interface {
 			}
 			if accountID != "" {
 				var similar int
-				err = q.QueryRowContext(ctx, `SELECT 1 FROM financial_transactions WHERE account_id=? AND origin='manual' AND deleted_at IS NULL AND occurred_at=? AND amount=? AND LOWER(TRIM(description))=LOWER(TRIM(?)) LIMIT 1`, accountID, row.OccurredAt, row.Amount, row.Description).Scan(&similar)
+				args = append([]any{accountID, row.OccurredAt}, amountArgs...)
+				err = q.QueryRowContext(ctx, `SELECT 1 FROM financial_transactions WHERE account_id=? AND origin='manual' AND deleted_at IS NULL AND occurred_at=? AND amount IN (`+in+`) AND LOWER(TRIM(description))=LOWER(TRIM(?)) LIMIT 1`, append(args, row.Description)...).Scan(&similar)
 				if err == nil {
 					row.Warnings = append(row.Warnings, "possível correspondência com lançamento manual")
 				} else if err != sql.ErrNoRows {
@@ -161,7 +239,7 @@ func makeStatementPreview(ctx context.Context, q interface {
 }, data []byte, filename, format, accountID string) (importPreview, error) {
 	parsed, err := statementimport.Parse(data, format)
 	if err != nil {
-		return importPreview{}, err
+		return importPreview{}, &statementParseError{err}
 	}
 	p := importPreview{Parsed: parsed, Filename: filename}
 	if err := classifyStatement(ctx, q, &p, accountID); err != nil {
@@ -178,13 +256,19 @@ func handleStatementPreview(conn *sql.DB) http.HandlerFunc {
 		accountID := strings.TrimSpace(r.FormValue("account_id"))
 		if accountID != "" {
 			if _, err := loadFileAccount(r.Context(), conn, accountID); err != nil {
-				writeProblem(w, 422, "invalid-account", "Conta inválida", "Escolha uma conta de arquivo em BRL.")
+				if errors.Is(err, sql.ErrNoRows) {
+					writeProblem(w, 422, "invalid-account", "Conta inválida", "Escolha uma conta de arquivo em BRL.")
+				} else {
+					previewFailure(w, err)
+				}
 				return
 			}
 		}
 		p, err := makeStatementPreview(r.Context(), conn, data, name, r.FormValue("format"), accountID)
 		if err != nil {
-			writeProblem(w, 422, "invalid-statement", "Extrato inválido", err.Error())
+			if !statementParseProblem(w, err) {
+				previewFailure(w, err)
+			}
 			return
 		}
 		writeJSON(w, 200, p)
@@ -256,21 +340,26 @@ func handleStatementConfirm(conn *sql.DB) http.HandlerFunc {
 		}
 		tx, err := conn.BeginTx(r.Context(), nil)
 		if err != nil {
-			writeProblem(w, 503, "import-unavailable", "Importação indisponível", "")
+			importFailure(w, err)
 			return
 		}
 		defer tx.Rollback()
 		sourceID := ""
 		if accountID != "" {
 			sourceID, err = loadFileAccountTx(r.Context(), tx, accountID)
-			if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
 				writeProblem(w, 422, "invalid-account", "Conta inválida", "Escolha uma conta de arquivo em BRL.")
+				return
+			} else if err != nil {
+				importFailure(w, err)
 				return
 			}
 		}
 		p, err := makeStatementPreviewTx(r.Context(), tx, data, name, r.FormValue("format"), accountID)
 		if err != nil {
-			writeProblem(w, 422, "invalid-statement", "Extrato inválido", err.Error())
+			if !statementParseProblem(w, err) {
+				importFailure(w, err)
+			}
 			return
 		}
 		if p.SHA256 != r.FormValue("expected_sha256") || p.Format != r.FormValue("expected_format") || p.FormatVersion != r.FormValue("expected_format_version") {
@@ -297,45 +386,34 @@ func handleStatementConfirm(conn *sql.DB) http.HandlerFunc {
 			accountID = uuid.NewString()
 			_, err = tx.ExecContext(r.Context(), `INSERT INTO data_sources (id,provider,external_item_id,display_name,label,created_at,updated_at) VALUES (?,'file',?,?,?,?,?)`, sourceID, sourceID, newName, newName, now, now)
 			if err != nil {
-				importFailure(w)
+				importFailure(w, err)
 				return
 			}
 			if err = classifyStatementTx(r.Context(), tx, &p, accountID); err != nil {
-				importFailure(w)
+				importFailure(w, err)
 				return
 			}
 		}
 		if _, err = tx.ExecContext(r.Context(), `INSERT INTO sync_runs (id,source_id,run_type,status,started_at,finished_at,accounts_processed,transactions_inserted) VALUES (?,?,'file_import','completed',?,?,1,?)`, runID, sourceID, now, now, p.Counts.New); err != nil {
-			importFailure(w)
+			importFailure(w, err)
 			return
 		}
 		if _, err = tx.ExecContext(r.Context(), `INSERT INTO raw_imports (id,sync_run_id,source_id,scope,external_account_id,page_sequence,request_attempt,payload,payload_sha256,received_at) VALUES (?,?,?,'file',?,1,1,?,?,?)`, rawID, runID, sourceID, accountID, data, p.SHA256, now); err != nil {
-			importFailure(w)
+			importFailure(w, err)
 			return
 		}
 		if newName != "" {
 			_, err = tx.ExecContext(r.Context(), `INSERT INTO financial_accounts (id,source_id,external_id,institution,name,account_type,account_subtype,currency_code,current_raw_import_id,normalized_hash,created_at,updated_at) VALUES (?,?,?,?,?,'BANK','CHECKING_ACCOUNT','BRL',?,?,?,?)`, accountID, sourceID, accountID, p.Institution, newName, rawID, digest(accountID, newName), now, now)
 			if err != nil {
-				importFailure(w)
+				importFailure(w, err)
 				return
 			}
 		}
-		latestTime := ""
-		latestBalance := ""
 		inserted := 0
 		duplicates := 0
 		for _, row := range p.Rows {
 			if row.Status == "invalid" {
 				continue
-			}
-			if row.OccurredAt > latestTime {
-				latestTime = row.OccurredAt
-				latestBalance = row.Balance
-				for _, warning := range row.Warnings {
-					if strings.Contains(warning, "saldo difere da importação anterior") {
-						latestBalance = ""
-					}
-				}
 			}
 			if row.Status == "duplicate" {
 				duplicates++
@@ -348,7 +426,7 @@ func handleStatementConfirm(conn *sql.DB) http.HandlerFunc {
 			}
 			res, e := tx.ExecContext(r.Context(), `INSERT INTO financial_transactions (id,source_id,account_id,external_id,description,description_raw,amount,amount_in_account_currency,balance_after,currency_code,occurred_at,provider_status,movement_type,source_category,current_raw_import_id,normalized_hash,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?, 'BRL',?,'POSTED',?,?,?,?,?,?) ON CONFLICT (source_id,external_id) DO NOTHING`, id, sourceID, accountID, row.Identity, row.Description, row.Description, row.Amount, row.Amount, row.Balance, row.OccurredAt, move, row.PaymentMethod, rawID, row.ContentHash, now, now)
 			if e != nil {
-				importFailure(w)
+				importFailure(w, e)
 				return
 			}
 			n, _ := res.RowsAffected()
@@ -358,51 +436,84 @@ func handleStatementConfirm(conn *sql.DB) http.HandlerFunc {
 			}
 			inserted++
 			if _, e = tx.ExecContext(r.Context(), `INSERT INTO normalization_events (id,sync_run_id,raw_import_id,entity_type,transaction_id,external_id,outcome,normalized_hash,created_at) VALUES (?,?,?,'transaction',?,?,'inserted',?,?)`, uuid.NewString(), runID, rawID, id, row.Identity, row.ContentHash, now); e != nil {
-				importFailure(w)
+				importFailure(w, e)
 				return
 			}
 			if _, e = categories.ApplyLearned(r.Context(), tx, id); e != nil {
-				importFailure(w)
+				importFailure(w, e)
 				return
 			}
 			if e = automation.ApplyToNewTransactionWithQuerier(r.Context(), tx, id, onIgnoredHook); e != nil {
-				importFailure(w)
+				importFailure(w, e)
 				return
 			}
 		}
-		latestCount := 0
-		for _, row := range p.Rows {
-			if row.Status != "invalid" && row.OccurredAt == latestTime {
-				latestCount++
-			}
-		}
-		if latestCount > 1 || latestBalance == "" {
-			latestTime = ""
-		}
-		if latestTime != "" {
-			_, err = tx.ExecContext(r.Context(), `UPDATE financial_accounts SET balance=?,balance_as_of=?,updated_at=? WHERE id=? AND (balance_as_of IS NULL OR balance_as_of < ?)`, latestBalance, latestTime, now, accountID, latestTime)
+		if asOf, balance := latestStatementBalance(p.Rows); asOf != "" {
+			_, err = tx.ExecContext(r.Context(), `UPDATE financial_accounts SET balance=?,balance_as_of=?,updated_at=? WHERE id=? AND (balance_as_of IS NULL OR balance_as_of < ?)`, balance, asOf, now, accountID, asOf)
 			if err != nil {
-				importFailure(w)
+				importFailure(w, err)
 				return
 			}
 		}
 		if _, err = tx.ExecContext(r.Context(), `UPDATE sync_runs SET transactions_inserted=? WHERE id=?`, inserted, runID); err != nil {
-			importFailure(w)
+			importFailure(w, err)
 			return
 		}
 		if _, err = tx.ExecContext(r.Context(), `INSERT INTO statement_imports (id,sync_run_id,source_id,account_id,format,adapter_version,filename,file_sha256,rows_total,rows_invalid,rows_duplicate,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, uuid.NewString(), runID, sourceID, accountID, p.Format, p.FormatVersion, name, p.SHA256, p.Counts.Total, p.Counts.Invalid, duplicates, now); err != nil {
-			importFailure(w)
+			importFailure(w, err)
 			return
 		}
 		if err = tx.Commit(); err != nil {
-			importFailure(w)
+			importFailure(w, err)
 			return
 		}
 		writeJSON(w, 201, map[string]any{"run_id": runID, "account_id": accountID, "counts": importCounts{Total: p.Counts.Total, New: inserted, Duplicate: duplicates, Invalid: p.Counts.Invalid}})
 	}
 }
-func importFailure(w http.ResponseWriter) {
+
+// importFailure answers an infrastructure failure during confirmation. As with
+// previewFailure, the underlying error is logged and never sent to the client.
+func importFailure(w http.ResponseWriter, err error) {
+	log.Printf("statement_import_failed: %v", err)
 	writeProblem(w, 503, "import-unavailable", "Importação indisponível", "Tente novamente em instantes.")
+}
+
+// latestStatementBalance picks the balance the file leaves the account with:
+// that of its newest valid row, together with that row's instant. It returns
+// empty strings, meaning "leave the account balance alone", whenever the
+// figure could be stale or ambiguous:
+//   - several rows share the newest instant, so their order is unknown;
+//   - the newest row is a duplicate whose stored balance differs from the file's;
+//   - an invalid row (only imported under allow_partial) may be newer: its date
+//     is unreadable, or it is not older than the newest valid row.
+//
+// Older invalid rows do not matter. The caller still imports the valid rows
+// and never moves balance_as_of backwards.
+func latestStatementBalance(rows []statementimport.Row) (asOf, balance string) {
+	newest := 0
+	for _, row := range rows {
+		if row.Status == "invalid" {
+			continue
+		}
+		switch {
+		case row.OccurredAt > asOf:
+			asOf, balance, newest = row.OccurredAt, row.Balance, 1
+			if slices.Contains(row.Warnings, warnBalanceDiffers) {
+				balance = ""
+			}
+		case row.OccurredAt == asOf:
+			newest++
+		}
+	}
+	if newest != 1 || balance == "" {
+		return "", ""
+	}
+	for _, row := range rows {
+		if row.Status == "invalid" && (row.OccurredAt == "" || row.OccurredAt >= asOf) {
+			return "", ""
+		}
+	}
+	return asOf, balance
 }
 
 // sql.Tx.QueryRowContext returns *sql.Row too; these wrappers keep the
@@ -415,7 +526,7 @@ func loadFileAccountTx(ctx context.Context, tx *sql.Tx, id string) (string, erro
 func makeStatementPreviewTx(ctx context.Context, tx *sql.Tx, data []byte, name, format, account string) (importPreview, error) {
 	p, e := statementimport.Parse(data, format)
 	if e != nil {
-		return importPreview{}, e
+		return importPreview{}, &statementParseError{e}
 	}
 	v := importPreview{Parsed: p, Filename: name}
 	e = classifyStatementTx(ctx, tx, &v, account)

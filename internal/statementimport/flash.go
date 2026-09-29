@@ -53,6 +53,30 @@ type Parsed struct {
 	Warnings      []string `json:"warnings"`
 }
 
+// newFlashReader is the one way a Flash export is read as CSV, so Detect and
+// parseFlash agree on BOM handling, quoting and line endings.
+func newFlashReader(data []byte) *csv.Reader {
+	reader := csv.NewReader(bytes.NewReader(bytes.TrimPrefix(data, []byte{0xef, 0xbb, 0xbf})))
+	reader.FieldsPerRecord = -1
+	return reader
+}
+
+// matchesFlashHeader reports whether a CSV record is the Flash header row.
+// Fields are compared trimmed because real exports may put spaces after the
+// commas. Both Detect and parseFlash use it, so recognizing a file and parsing
+// it cannot drift apart.
+func matchesFlashHeader(record []string) bool {
+	if len(record) != len(header) {
+		return false
+	}
+	for i, field := range record {
+		if strings.TrimSpace(field) != header[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func parseFlash(data []byte) (Parsed, error) {
 	p := Parsed{Format: Format, FormatVersion: Version, Currency: "BRL", Rows: []Row{}, Warnings: []string{}}
 	if len(data) == 0 || len(data) > MaxBytes {
@@ -63,19 +87,13 @@ func parseFlash(data []byte) (Parsed, error) {
 	}
 	sum := sha256.Sum256(data)
 	p.SHA256 = hex.EncodeToString(sum[:])
-	reader := csv.NewReader(bytes.NewReader(bytes.TrimPrefix(data, []byte{0xef, 0xbb, 0xbf})))
-	reader.FieldsPerRecord = -1
+	reader := newFlashReader(data)
 	first, err := reader.Read()
 	if err != nil {
 		return p, errors.New("CSV inválido")
 	}
-	if len(first) != len(header) {
+	if !matchesFlashHeader(first) {
 		return p, errors.New("cabeçalho Flash não reconhecido")
-	}
-	for i, v := range first {
-		if strings.TrimSpace(v) != header[i] {
-			return p, errors.New("cabeçalho Flash não reconhecido")
-		}
 	}
 	loc, _ := time.LoadLocation("America/Sao_Paulo")
 	rownum := 1
