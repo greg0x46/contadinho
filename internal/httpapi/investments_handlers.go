@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"contadinho-go/internal/db"
+	"contadinho-go/internal/investments"
 	"contadinho-go/internal/money"
 )
 
@@ -28,9 +30,9 @@ type investmentDTO struct {
 	AmountProfit      *string `json:"amount_profit"`
 	AmountWithdrawal  *string `json:"amount_withdrawal"`
 	// AmountOriginal/Taxes/Taxes2 are Pluggy's principal-applied/IR/IOF detail
-	// for FIXED_INCOME holdings (see the amount_original migration) — purely
-	// additive display data, never read by applyYield/netContributed. Null
-	// for EQUITY, matching real Nubank data.
+	// for FIXED_INCOME holdings (see the amount_original migration). Null for
+	// EQUITY, matching real Nubank data. The price-series yield is gross, so
+	// the IR/IOF here is what a caller deducts to state it net.
 	AmountOriginal       *string    `json:"amount_original"`
 	Taxes                *string    `json:"taxes"`
 	Taxes2               *string    `json:"taxes2"`
@@ -209,17 +211,43 @@ func historyCovers(info contributionInfo, investmentType *string) bool {
 }
 
 // applyYield fills YieldValue/YieldSource: Pluggy's own amount_profit when
-// the provider sends it ("informado"), otherwise balance minus net
-// contributed from the transaction history when that history is complete
-// enough to net against ("calculado"). When neither holds it leaves the
-// yield nil and says why, so the UI can distinguish a holding that simply
-// has no movements yet from one whose history the provider only half sent.
-func applyYield(d *investmentDTO, contributed map[string]contributionInfo) {
+// the provider sends it ("informado"), otherwise the rendimento since
+// inception derived from the asset's price series (investments.PositionYield,
+// "calculado"). Until the series covers the holding — no quote stored yet —
+// it falls back to balance minus net contributed from the transaction
+// history, when that history is complete enough to net against. When
+// nothing holds it leaves the yield nil and says why, so the UI can
+// distinguish a holding that simply has no movements yet from one whose
+// history the provider only half sent.
+func applyYield(ctx context.Context, conn *sql.DB, d *investmentDTO, contributed map[string]contributionInfo) error {
 	if d.AmountProfit != nil {
 		informado := "informado"
 		d.YieldValue, d.YieldSource = d.AmountProfit, &informado
-		return
+		return nil
 	}
+	result, err := investments.PositionYield(ctx, conn, d.ID, nil, investments.ProviderDay(time.Now()))
+	var reason *investments.YieldUnavailableError
+	switch {
+	case err == nil:
+		value := money.CanonicalDecimal(result.Value)
+		calculado := "calculado"
+		d.YieldValue, d.YieldSource = &value, &calculado
+		return nil
+	case !errors.As(err, &reason):
+		return err
+	case reason.Reason != investments.YieldReasonNoPrice:
+		// The history itself cannot reach the purchase; netting the same
+		// history below would only restate that less carefully.
+		d.YieldUnavailableReason = &reason.Reason
+		return nil
+	}
+	applyHistoryYield(d, contributed)
+	return nil
+}
+
+// applyHistoryYield is the fallback for a holding the price series does not
+// cover yet: balance minus net contributed.
+func applyHistoryYield(d *investmentDTO, contributed map[string]contributionInfo) {
 	info := contributed[d.ID]
 	if info.movements == 0 {
 		reason := "sem_historico"
@@ -289,7 +317,10 @@ func handleListInvestments(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 		for i := range result {
-			applyYield(&result[i], contributed)
+			if err := applyYield(r.Context(), conn, &result[i], contributed); err != nil {
+				writeProblem(w, 503, "investments-unavailable", "Investimentos temporariamente indisponíveis", "Tente novamente em instantes.")
+				return
+			}
 		}
 		writeJSON(w, http.StatusOK, result)
 	}
@@ -317,7 +348,10 @@ func handleGetInvestment(conn *sql.DB) http.HandlerFunc {
 			writeProblem(w, 503, "investments-unavailable", "Investimentos temporariamente indisponíveis", "Tente novamente em instantes.")
 			return
 		}
-		applyYield(&d, contributed)
+		if err := applyYield(r.Context(), conn, &d, contributed); err != nil {
+			writeProblem(w, 503, "investments-unavailable", "Investimentos temporariamente indisponíveis", "Tente novamente em instantes.")
+			return
+		}
 		writeJSON(w, http.StatusOK, d)
 	}
 }

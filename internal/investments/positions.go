@@ -230,12 +230,8 @@ func applyLedgerState(position *Position, state *positionLedger) error {
 func listSyncedPositions(ctx context.Context, q Querier, scope positionScope) ([]Position, error) {
 	where, args := scope.where("fi.id")
 	rows, err := q.QueryContext(ctx, `
-		SELECT fi.id, ia.id,
-		       COALESCE(NULLIF(fi.name, ''), NULLIF(fi.code, ''), NULLIF(fi.isin, ''), fi.external_id),
-		       COALESCE(NULLIF(fi.code, ''), NULLIF(fi.isin, '')),
-		       COALESCE(NULLIF(fi.investment_type, ''), NULLIF(fi.subtype, ''), 'Investimento'),
-		       fi.balance, fi.quantity, fi.value, fi.currency_code, fi.as_of_date, fi.created_at, fi.updated_at,
-		       pp.portfolio_id
+		SELECT fi.id, ia.id, fi.balance, fi.created_at, fi.updated_at, pp.portfolio_id,
+		       `+syncedHoldingColumns+`
 		FROM financial_investments fi
 		JOIN investment_accounts ia ON ia.source_id = fi.source_id
 		LEFT JOIN investment_position_portfolios pp ON pp.financial_investment_id = fi.id
@@ -247,30 +243,30 @@ func listSyncedPositions(ctx context.Context, q Querier, scope positionScope) ([
 	defer rows.Close()
 
 	positions := []Position{}
+	holdings := []SyncedHolding{}
 	for rows.Next() {
 		var (
-			position                                       Position
-			ticker, balance, quantity, unitPrice, currency sql.NullString
-			asOfDateRaw, portfolioID                       sql.NullString
-			createdAtRaw, updatedAtRaw                     string
+			position                   Position
+			balance, portfolioID       sql.NullString
+			createdAtRaw, updatedAtRaw string
+			row                        syncedHoldingRow
 		)
-		if err := rows.Scan(&position.ID, &position.AccountID, &position.Name, &ticker, &position.AssetType,
-			&balance, &quantity, &unitPrice, &currency, &asOfDateRaw, &createdAtRaw, &updatedAtRaw,
-			&portfolioID); err != nil {
+		if err := rows.Scan(append([]any{&position.ID, &position.AccountID, &balance, &createdAtRaw, &updatedAtRaw,
+			&portfolioID}, row.dests()...)...); err != nil {
+			return nil, err
+		}
+		holding, err := row.holding()
+		if err != nil {
 			return nil, err
 		}
 		linked := position.ID
 		position.Source = PositionSourceSynced
 		position.ValuationBasis = ValuationBasisProviderBalance
 		position.LinkedInvestmentID = &linked
-		if ticker.Valid {
-			v := ticker.String
-			position.Ticker = &v
-		}
-		if currency.Valid {
-			v := currency.String
-			position.CurrencyCode = &v
-		}
+		position.Name = holding.DisplayName()
+		position.Ticker = holding.Ticker()
+		position.AssetType = holding.AssetType()
+		position.CurrencyCode = holding.CurrencyCode
 		if portfolioID.Valid {
 			v := portfolioID.String
 			position.PortfolioID = &v
@@ -282,26 +278,12 @@ func listSyncedPositions(ctx context.Context, q Querier, scope positionScope) ([
 			}
 			position.CurrentValue = value
 		}
-		if quantity.Valid {
-			value, err := decimal.NewFromString(quantity.String)
-			if err != nil {
-				return nil, err
-			}
-			position.Quantity = value
+		if holding.Quantity != nil {
+			position.Quantity = *holding.Quantity
 		}
-		if unitPrice.Valid {
-			value, err := decimal.NewFromString(unitPrice.String)
-			if err != nil {
-				return nil, err
-			}
-			position.CurrentUnitPrice = &value
-		}
-		valuedOn, err := db.ParseNullTime(asOfDateRaw)
-		if err != nil {
-			return nil, err
-		}
-		if valuedOn != nil {
-			day := Day(*valuedOn)
+		position.CurrentUnitPrice = holding.Value
+		if holding.AsOfDate != nil {
+			day := Day(*holding.AsOfDate)
 			position.ValuedOn = &day
 		}
 		createdAt, err := parseTimestamp(createdAtRaw)
@@ -317,6 +299,7 @@ func listSyncedPositions(ctx context.Context, q Querier, scope positionScope) ([
 		// closed for the same reason a manual holding with no quantity is.
 		position.Closed = position.CurrentValue.IsZero()
 		positions = append(positions, position)
+		holdings = append(holdings, holding)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -328,11 +311,7 @@ func listSyncedPositions(ctx context.Context, q Querier, scope positionScope) ([
 	// This lets a BTC imported from one institution and a BTC held manually in
 	// another account share identity while provider balances stay read-only.
 	for i := range positions {
-		currency := "BRL"
-		if positions[i].CurrencyCode != nil {
-			currency = *positions[i].CurrencyCode
-		}
-		asset, err := ensureAsset(ctx, q, positions[i].Name, positions[i].Ticker, positions[i].AssetType, currency)
+		asset, err := ResolveSyncedAsset(ctx, q, holdings[i])
 		if err != nil {
 			return nil, err
 		}
