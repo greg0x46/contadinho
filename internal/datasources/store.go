@@ -17,9 +17,13 @@ import (
 	"contadinho-go/internal/db"
 )
 
-// ProviderPluggy is the only provider implemented today; the column exists so
-// a second one would not need a schema change.
+// ProviderPluggy is the Open Banking provider: the connections users manage on
+// the connections screen and that a sync run can refresh.
 const ProviderPluggy = "pluggy"
+
+// ProviderFile marks the local accounts a statement import creates. They own
+// accounts and transactions like any connection but are never synced, and they
+// are not something the connections screen manages.
 const ProviderFile = "file"
 
 var (
@@ -95,10 +99,17 @@ func scan(row rowScanner) (DataSource, error) {
 	return d, nil
 }
 
-// List returns every connection, oldest first, so the one configured at setup
-// stays at the top no matter how many are added later.
+// List returns every data source of any provider, oldest first, so the one
+// configured at setup stays at the top no matter how many are added later.
+// Callers that present connections to the user want ListByProvider instead.
 func List(ctx context.Context, q Querier) ([]DataSource, error) {
 	return query(ctx, q, `SELECT `+selectColumns+` FROM data_sources ORDER BY created_at, id`)
+}
+
+// ListByProvider is List restricted to one provider, in the same order.
+func ListByProvider(ctx context.Context, q Querier, provider string) ([]DataSource, error) {
+	return query(ctx, q,
+		`SELECT `+selectColumns+` FROM data_sources WHERE provider = ? ORDER BY created_at, id`, provider)
 }
 
 // ListActive returns the connections a "sync everything" should cover.
