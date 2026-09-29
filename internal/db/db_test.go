@@ -23,6 +23,7 @@ func TestMigrateAppliesAllMigrations(t *testing.T) {
 
 	tables := []string{
 		"data_sources", "sync_runs", "raw_imports", "financial_accounts",
+		"statement_imports",
 		"financial_transactions", "normalization_events", "sync_failures",
 		"automation_rules", "automation_rule_conditions",
 		"transaction_inclusion_decisions", "transaction_inclusion_events",
@@ -37,6 +38,22 @@ func TestMigrateAppliesAllMigrations(t *testing.T) {
 		if err != nil {
 			t.Errorf("table %s missing: %v", table, err)
 		}
+	}
+}
+
+func TestFileRawImportAllowsUploadWithoutHTTPMetadata(t *testing.T) {
+	conn := openTest(t)
+	mustExec(t, conn, `INSERT INTO data_sources (id, provider, external_item_id, created_at, updated_at)
+		VALUES ('file-source', 'file', 'local-1', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
+	mustExec(t, conn, `INSERT INTO sync_runs (id, source_id, run_type, status, started_at, finished_at)
+		VALUES ('file-run', 'file-source', 'file_import', 'completed', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
+	mustExec(t, conn, `INSERT INTO raw_imports (id, sync_run_id, source_id, scope, page_sequence,
+		request_attempt, payload, payload_sha256, received_at)
+		VALUES ('file-raw', 'file-run', 'file-source', 'file', 1, 1, X'4142', 'hash', '2026-01-01T00:00:00Z')`)
+	if _, err := conn.Exec(`INSERT INTO raw_imports (id, sync_run_id, source_id, scope, page_sequence,
+		request_attempt, payload, payload_sha256, received_at)
+		VALUES ('bad-http', 'file-run', 'file-source', 'transactions', 1, 1, X'4142', 'hash', '2026-01-01T00:00:00Z')`); err == nil {
+		t.Fatal("HTTP raw import should require HTTP metadata")
 	}
 }
 

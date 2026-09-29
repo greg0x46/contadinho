@@ -211,6 +211,11 @@ func syncRunTargets(w http.ResponseWriter, r *http.Request, conn *sql.DB, source
 			writeProblem(w, 503, "sync-run-unavailable", "Sincronização temporariamente indisponível", "Tente novamente em instantes.")
 			return nil, false
 		}
+		if source.Provider != datasources.ProviderPluggy {
+			writeProblem(w, 409, "data-source-not-syncable", "Fonte sem sincronização",
+				"Esta fonte é importada por arquivo e não pode ser sincronizada com a Pluggy.")
+			return nil, false
+		}
 		if !source.IsActive {
 			writeProblem(w, 409, "data-source-inactive", "Conexão desativada",
 				"Reative a conexão antes de sincronizá-la.")
@@ -250,7 +255,7 @@ func handleListSyncRuns(conn *sql.DB) http.HandlerFunc {
 			}
 		}
 		rows, err := conn.QueryContext(r.Context(),
-			syncRunSelect+` ORDER BY sr.started_at DESC, sr.id DESC LIMIT ?`, limit)
+			syncRunSelect+` WHERE sr.run_type = 'sync' ORDER BY sr.started_at DESC, sr.id DESC LIMIT ?`, limit)
 		if err != nil {
 			writeProblem(w, 503, "sync-run-unavailable", "Sincronização temporariamente indisponível", "Tente novamente em instantes.")
 			return

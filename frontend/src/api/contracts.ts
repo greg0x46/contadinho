@@ -105,6 +105,7 @@ export type CategoryOrigin = (typeof categoryOrigins)[number];
 
 export interface TransactionFilters {
   origin?: "manual" | "synced" | null;
+  source_provider?: "file" | "pluggy" | null;
   card_balance?: boolean | null;
   credit_card?: boolean | null;
   date_from: string | null;
@@ -154,6 +155,7 @@ export interface TransactionItem {
   id: string;
   external_id: string;
   origin: TransactionOrigin;
+  source_provider?: string | null;
   occurred_at: string | null;
   description: string | null;
   account: {
@@ -508,7 +510,7 @@ export function parseTransactionItem(value: unknown): TransactionItem {
     "inclusion",
     "totals_eligibility",
     "group_key",
-  ], ["investment_transfer_amount", "reportable_amount"]);
+  ], ["investment_transfer_amount", "reportable_amount", "source_provider"]);
   const account = requiredRecord(item.account, ["id", "name", "institution", "currency_code"]);
   const eligibility = requiredRecord(item.totals_eligibility, ["included", "reason"]);
   const inclusion = requiredRecord(item.inclusion, [
@@ -574,6 +576,7 @@ export function parseTransactionItem(value: unknown): TransactionItem {
     id: item.id,
     external_id: item.external_id,
     origin: item.origin as TransactionOrigin,
+    ...(item.source_provider === undefined ? {} : { source_provider: nullableText(item.source_provider) }),
     occurred_at: item.occurred_at as string | null,
     description: nullableText(item.description),
     account: {

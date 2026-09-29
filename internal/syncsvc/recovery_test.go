@@ -40,6 +40,33 @@ func TestRecoverStaleRunsMarksInProgressRunsAsInterrupted(t *testing.T) {
 	_ = sourceID
 }
 
+func TestRecoverStaleRunsLeavesFileImportAlone(t *testing.T) {
+	conn := newTestConn(t)
+	now := db.FormatTime(time.Now())
+	if _, err := conn.Exec(`INSERT INTO data_sources (id, provider, external_item_id, created_at, updated_at)
+		VALUES ('file-source', 'file', 'local-1', ?, ?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(`INSERT INTO sync_runs (id, source_id, run_type, status, started_at)
+		VALUES ('file-run', 'file-source', 'file_import', 'in_progress', ?)`, now); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := syncsvc.RecoverStaleRuns(context.Background(), conn, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovered) != 0 {
+		t.Fatalf("recovered = %v, want none", recovered)
+	}
+	var status string
+	if err := conn.QueryRow(`SELECT status FROM sync_runs WHERE id = 'file-run'`).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "in_progress" {
+		t.Fatalf("status = %s, want in_progress", status)
+	}
+}
+
 func TestRecoverStaleRunsLeavesCompletedRunsAlone(t *testing.T) {
 	conn := newTestConn(t)
 	sourceID, syncRunID := newSyncRun(t, conn)
