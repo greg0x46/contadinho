@@ -369,3 +369,43 @@
     align-items: flex-end;
   }
 }
+
+/* ---- Rendimento: R$ with its % under it (beside it in a figures row). The
+   +/− sign carries the direction; colour only reinforces it. ------------- */
+
+.investment-yield {
+  display: inline-flex;
+  flex-direction: column;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.investment-yield-percent {
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.investment-yield.is-positive {
+  color: var(--color-success);
+}
+
+.investment-yield.is-negative {
+  color: var(--color-error);
+}
+
+.investment-yield.is-zero {
+  color: var(--color-text-secondary);
+}
+
+.investment-figure-value .investment-yield,
+.investments-summary-figure-value .investment-yield {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.375rem;
+}
+
+.investments-note {
+  margin: 0 0 1rem;
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+}

@@ -1,4 +1,4 @@
-import { Alert, Button, Collapse, Popconfirm, Tag } from "antd";
+import { Button, Popconfirm, Tag, Tooltip } from "antd";
 
 import type {
   InvestmentAccount,
@@ -9,10 +9,17 @@ import type {
 } from "../../api/contracts";
 import { investmentAccountKindLabel } from "../../presentation/investmentWorkspaceLabels";
 import { formatBRL, sumBRL } from "../../presentation/money";
-import { InvestmentFigures } from "./InvestmentFigures";
-import { InvestmentOperationsTable } from "./InvestmentOperationsTable";
+import { InvestmentFigures, InvestmentYieldValue } from "./InvestmentFigures";
 import { InvestmentPositionsTable } from "./InvestmentPositionsTable";
-import { accountMovements, formatDate, latestDate } from "./investmentFigures";
+import {
+  accountMovements,
+  aggregateYield,
+  costsByPosition,
+  formatDate,
+  groupCost,
+  latestDate,
+  type LinkedInvestments,
+} from "./investmentFigures";
 
 export function InvestmentAccountCard({
   account,
@@ -21,14 +28,13 @@ export function InvestmentAccountCard({
   allPositions,
   operations,
   portfolios,
+  linked,
   onRename,
   onRemove,
   onNewPosition,
   onNewOperation,
   onEditPosition,
   onRemovePosition,
-  onEditOperation,
-  onRemoveOperation,
   onAssignGoal,
   busy,
 }: {
@@ -40,14 +46,13 @@ export function InvestmentAccountCard({
   allPositions: InvestmentPosition[];
   operations: InvestmentOperation[];
   portfolios: InvestmentPortfolio[];
+  linked: LinkedInvestments;
   onRename: (account: InvestmentAccount) => void;
   onRemove: (account: InvestmentAccount) => void;
   onNewPosition: (account: InvestmentAccount) => void;
   onNewOperation: (account: InvestmentAccount) => void;
   onEditPosition: (position: InvestmentPosition) => void;
   onRemovePosition: (position: InvestmentPosition) => void;
-  onEditOperation: (operation: InvestmentOperation) => void;
-  onRemoveOperation: (operation: InvestmentOperation) => void;
   onAssignGoal: (position: InvestmentPosition, portfolioId: string | null) => void;
   busy: boolean;
 }) {
@@ -62,12 +67,25 @@ export function InvestmentAccountCard({
     ...operations.map((operation) => operation.occurred_on),
   ]);
 
+  const costs = costsByPosition(operations, allPositions, linked);
+  const yieldAggregate = aggregateYield(positions, linked, costs);
+  const cost = groupCost(operations, allPositions, linked);
+
   return (
     <section className="investment-card" aria-label={account.name}>
       <header className="investment-card-header">
         <div className="investment-card-identity">
           <h2 className="investment-card-name">{account.name}</h2>
-          <Tag color={editable ? "default" : "blue"}>{investmentAccountKindLabel[account.kind]}</Tag>
+          {editable ? (
+            <Tag>{investmentAccountKindLabel[account.kind]}</Tag>
+          ) : (
+            // What "integrada" means is one hover/tap away, not a permanent alert.
+            <Tooltip title="Saldos e posições vêm da instituição. Registre aportes, resgates e rendimentos para conciliá-los com o extrato, sem alterar o saldo informado.">
+              <Tag color="blue" tabIndex={0}>
+                {investmentAccountKindLabel[account.kind]}
+              </Tag>
+            </Tooltip>
+          )}
           {!account.active && <Tag>Inativa</Tag>}
         </div>
         <div className="investment-card-actions">
@@ -109,17 +127,19 @@ export function InvestmentAccountCard({
       </header>
 
       <div className="investment-card-body">
-        {!editable && (
-          <Alert
-            type="info"
-            showIcon
-            message="Conta integrada"
-            description="Saldos e posições vêm da instituição. Registre aportes, resgates e rendimentos para conciliá-los com o extrato, sem alterar o saldo informado."
-          />
-        )}
         <InvestmentFigures
           figures={[
             { label: "Valor atual", value: formatBRL(currentValue) },
+            {
+              label: "Rendimento líquido",
+              value: <InvestmentYieldValue gain={yieldAggregate.gain} percent={yieldAggregate.percent} />,
+              hint: "Já descontados IR, IOF e taxas das posições que têm rendimento conhecido.",
+            },
+            {
+              label: "IR/Taxas",
+              value: formatBRL(cost),
+              hint: "Taxas e impostos das movimentações, mais IR e IOF informados pela instituição.",
+            },
             {
               label: "Aportes",
               value: formatBRL(movements.deposits),
@@ -142,31 +162,13 @@ export function InvestmentAccountCard({
         <InvestmentPositionsTable
           positions={positions}
           portfolios={portfolios}
+          costs={costs}
+          linked={linked}
           onAssignGoal={onAssignGoal}
           onEdit={editable ? onEditPosition : undefined}
           onDelete={editable ? onRemovePosition : undefined}
           busy={busy}
           emptyText="Nenhuma posição nesta conta."
-        />
-
-        <Collapse
-          ghost
-          className="investment-card-operations"
-          items={[
-            {
-              key: "operations",
-              label: `Movimentações (${operations.length})`,
-              children: (
-                <InvestmentOperationsTable
-                  operations={operations}
-                  positions={allPositions}
-                  onEdit={onEditOperation}
-                  onDelete={onRemoveOperation}
-                  busy={busy}
-                />
-              ),
-            },
-          ]}
         />
       </div>
     </section>

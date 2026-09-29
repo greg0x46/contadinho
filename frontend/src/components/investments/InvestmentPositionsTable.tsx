@@ -5,11 +5,19 @@ import { Link } from "react-router-dom";
 import type { InvestmentPortfolio, InvestmentPosition } from "../../api/contracts";
 import { investmentValuationBasisLabel } from "../../presentation/investmentWorkspaceLabels";
 import { formatBRL, formatMoney } from "../../presentation/money";
-import { colors } from "../../theme/tokens";
-import { formatDate, positionYield } from "./investmentFigures";
+import { InvestmentYieldValue } from "./InvestmentFigures";
+import { formatDate, formatQuantity, isZeroBRL, positionYield, type LinkedInvestments } from "./investmentFigures";
 
-function YieldCell({ position }: { position: InvestmentPosition }) {
-  const estimate = positionYield(position);
+function YieldCell({
+  position,
+  linked,
+  cost,
+}: {
+  position: InvestmentPosition;
+  linked: LinkedInvestments;
+  cost: string;
+}) {
+  const estimate = positionYield(position, linked, cost);
   if (!estimate.known) {
     return (
       <Tooltip title={estimate.reason}>
@@ -17,17 +25,20 @@ function YieldCell({ position }: { position: InvestmentPosition }) {
       </Tooltip>
     );
   }
-  const negative = estimate.value.startsWith("-");
   return (
-    <span style={{ color: negative ? colors.error : colors.success, fontVariantNumeric: "tabular-nums" }}>
-      {formatBRL(estimate.value)}
-    </span>
+    <Tooltip title={`Líquido de IR, IOF e taxas · bruto ${formatBRL(estimate.gross)}`}>
+      <span>
+        <InvestmentYieldValue gain={estimate.value} percent={estimate.percent} />
+      </span>
+    </Tooltip>
   );
 }
 
 export function InvestmentPositionsTable({
   positions,
   portfolios,
+  costs,
+  linked,
   accountNameOf,
   showAccount = false,
   onAssignGoal,
@@ -38,6 +49,9 @@ export function InvestmentPositionsTable({
 }: {
   positions: InvestmentPosition[];
   portfolios: InvestmentPortfolio[];
+  /** position_id -> taxas e impostos lançados nas movimentações dessa posição. */
+  costs: Record<string, string>;
+  linked: LinkedInvestments;
   accountNameOf?: (accountId: string) => string;
   showAccount?: boolean;
   onAssignGoal: (position: InvestmentPosition, portfolioId: string | null) => void;
@@ -99,7 +113,13 @@ export function InvestmentPositionsTable({
     {
       title: "Quantidade",
       key: "quantity",
-      render: (_, position) => position.quantity,
+      render: (_, position) => (isZeroBRL(position.quantity) ? "—" : formatQuantity(position.quantity)),
+    },
+    {
+      title: "Custo médio",
+      key: "average_cost",
+      render: (_, position) =>
+        isZeroBRL(position.average_cost) ? "—" : formatBRL(position.average_cost as string),
     },
     {
       title: "Valor atual",
@@ -116,7 +136,16 @@ export function InvestmentPositionsTable({
         </Space>
       ),
     },
-    { title: "Rentabilidade", key: "yield", render: (_, position) => <YieldCell position={position} /> },
+    {
+      title: "IR/Taxas",
+      key: "cost",
+      render: (_, position) => (isZeroBRL(costs[position.id] ?? null) ? "—" : formatBRL(costs[position.id])),
+    },
+    {
+      title: "Rendimento líquido",
+      key: "yield",
+      render: (_, position) => <YieldCell position={position} linked={linked} cost={costs[position.id] ?? "0"} />,
+    },
     {
       title: "Ações",
       key: "actions",
