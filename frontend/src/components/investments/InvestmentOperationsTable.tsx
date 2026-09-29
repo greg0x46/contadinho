@@ -82,6 +82,7 @@ export function InvestmentOperationsTable({
   return (
     <Table<InvestmentOperation>
       aria-label="Movimentações"
+      className="investment-table"
       size="small"
       rowKey="id"
       columns={columns}

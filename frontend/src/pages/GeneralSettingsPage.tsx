@@ -50,6 +50,8 @@ export function GeneralSettingsPage() {
     <PageContainer
       title="Geral"
       subTitle="Preferências gerais do Contadinho"
+      content="Escolha se as compras no cartão de crédito devem contar no mês em que foram realizadas ou no mês em que efetivamente entram na fatura paga. Essa escolha não afeta transações de débito ou outras contas, que não têm essa distinção."
+      compactMobileHeader
     >
       <Card title="Mês das transações de cartão de crédito">
         {loading ? (
@@ -58,11 +60,6 @@ export function GeneralSettingsPage() {
           <Alert type="error" showIcon message={loadError} />
         ) : (
           <Flex vertical gap="middle">
-            <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-              Escolha se as compras no cartão de crédito devem contar no mês em que foram realizadas
-              ou no mês em que efetivamente entram na fatura paga. Essa escolha não afeta transações de
-              débito ou outras contas, que não têm essa distinção.
-            </Typography.Paragraph>
             {saveError && <Alert type="error" showIcon message={saveError} />}
             {saved && <Alert type="success" showIcon message="Preferência salva." closable onClose={() => setSaved(false)} />}
             <Radio.Group
