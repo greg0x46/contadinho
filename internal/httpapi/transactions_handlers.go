@@ -171,27 +171,28 @@ type cardDTO struct {
 }
 
 type transactionItemDTO struct {
-	ID                       string               `json:"id"`
-	ExternalID               string               `json:"external_id"`
-	Origin                   string               `json:"origin"`
-	OccurredAt               *time.Time           `json:"occurred_at"`
-	Description              *string              `json:"description"`
-	Account                  accountSummaryDTO    `json:"account"`
-	SourceCategory           *string              `json:"source_category"`
-	InternalCategory         *internalCategoryDTO `json:"internal_category"`
-	MovementType             *string              `json:"movement_type"`
-	ProviderStatus           *string              `json:"provider_status"`
-	Classification           string               `json:"classification"`
-	Amount                   *string              `json:"amount"`
-	CurrencyCode             *string              `json:"currency_code"`
-	AmountInAccountCurrency  *string              `json:"amount_in_account_currency"`
-	EffectiveMoney           *effectiveMoneyDTO   `json:"effective_money"`
-	InvestmentTransferAmount string               `json:"investment_transfer_amount"`
-	ReportableAmount         *string              `json:"reportable_amount"`
-	Card                     *cardDTO             `json:"card"`
-	Inclusion                inclusionDTO         `json:"inclusion"`
-	TotalsEligibility        totalsEligibilityDTO `json:"totals_eligibility"`
-	GroupKey                 string               `json:"group_key"`
+	ID                         string               `json:"id"`
+	ExternalID                 string               `json:"external_id"`
+	Origin                     string               `json:"origin"`
+	OccurredAt                 *time.Time           `json:"occurred_at"`
+	Description                *string              `json:"description"`
+	Account                    accountSummaryDTO    `json:"account"`
+	SourceCategory             *string              `json:"source_category"`
+	InternalCategory           *internalCategoryDTO `json:"internal_category"`
+	MovementType               *string              `json:"movement_type"`
+	ProviderStatus             *string              `json:"provider_status"`
+	Classification             string               `json:"classification"`
+	Amount                     *string              `json:"amount"`
+	CurrencyCode               *string              `json:"currency_code"`
+	AmountInAccountCurrency    *string              `json:"amount_in_account_currency"`
+	EffectiveMoney             *effectiveMoneyDTO   `json:"effective_money"`
+	InvestmentTransferAmount   string               `json:"investment_transfer_amount"`
+	InvestmentRedemptionAmount string               `json:"investment_redemption_amount"`
+	ReportableAmount           *string              `json:"reportable_amount"`
+	Card                       *cardDTO             `json:"card"`
+	Inclusion                  inclusionDTO         `json:"inclusion"`
+	TotalsEligibility          totalsEligibilityDTO `json:"totals_eligibility"`
+	GroupKey                   string               `json:"group_key"`
 }
 
 func toItemDTO(item transactions.Item) transactionItemDTO {
@@ -213,9 +214,10 @@ func toItemDTO(item transactions.Item) transactionItemDTO {
 			Institution:  item.Account.Institution,
 			CurrencyCode: item.Account.CurrencyCode,
 		},
-		AmountInAccountCurrency:  item.AmountInAccountCurrency,
-		InvestmentTransferAmount: item.InvestmentTransferAmount,
-		ReportableAmount:         item.ReportableAmount,
+		AmountInAccountCurrency:    item.AmountInAccountCurrency,
+		InvestmentTransferAmount:   item.InvestmentTransferAmount,
+		InvestmentRedemptionAmount: item.InvestmentRedemptionAmount,
+		ReportableAmount:           item.ReportableAmount,
 		Inclusion: inclusionDTO{
 			State:     string(item.Inclusion.State),
 			ChangedAt: item.Inclusion.ChangedAt,

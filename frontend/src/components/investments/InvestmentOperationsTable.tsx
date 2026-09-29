@@ -4,7 +4,8 @@ import type { ColumnsType } from "antd/es/table";
 import type { InvestmentOperation, InvestmentPosition } from "../../api/contracts";
 import { investmentOperationKindLabel } from "../../presentation/investmentWorkspaceLabels";
 import { formatBRL } from "../../presentation/money";
-import { formatDate } from "./investmentFigures";
+import { InvestmentRedemptionBreakdown } from "./InvestmentRedemptionBreakdown";
+import { formatDate } from "./investmentFormatting";
 
 export function InvestmentOperationsTable({
   operations,
@@ -37,13 +38,16 @@ export function InvestmentOperationsTable({
       title: "Posição",
       key: "position",
       render: (_, operation) =>
-        operation.position_id ? positionName.get(operation.position_id) ?? "Posição removida" : "Só caixa",
+        operation.position_id ? positionName.get(operation.position_id) ?? "Posição removida" : operation.kind === "redemption" ? "Conta integrada" : "Só caixa",
     },
     {
       title: "Valor",
       key: "amount",
       render: (_, operation) => (
-        <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatBRL(operation.amount)}</span>
+        <Space direction="vertical" size={0}>
+          <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatBRL(operation.amount)}</span>
+          <InvestmentRedemptionBreakdown operation={operation} />
+        </Space>
       ),
     },
     {

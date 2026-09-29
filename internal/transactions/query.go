@@ -78,8 +78,9 @@ type view struct {
 	// card transaction — the date it's actually paid (see effectiveDate).
 	// Deciding period membership is all it does: period below buckets, and
 	// Query sorts, by the purchase date regardless of basis.
-	effectiveAt        *time.Time
-	investmentTransfer decimal.Decimal
+	effectiveAt           *time.Time
+	investmentTransfer    decimal.Decimal
+	redemptionReplacement decimal.Decimal
 }
 
 // viewSelect is the one column list and join shape every view in this
@@ -108,6 +109,10 @@ func fetchAllViews(ctx context.Context, q Querier, query QueryRequest) ([]view, 
 	if err != nil {
 		return nil, fmt.Errorf("read investment reconciliations: %w", err)
 	}
+	redemptions, err := investments.ReconciledRedemptionAmounts(ctx, q, nil)
+	if err != nil {
+		return nil, err
+	}
 	periodBasis, err := settings.GetTransactionsPeriodBasis(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("read transactions period basis preference: %w", err)
@@ -134,6 +139,7 @@ func fetchAllViews(ctx context.Context, q Querier, query QueryRequest) ([]view, 
 			return nil, err
 		}
 		v.applyInvestmentTransfer(transfers[r.id])
+		v.applyRedemptionReplacement(redemptions[r.id])
 		views = append(views, v)
 	}
 	if err := rows.Err(); err != nil {
@@ -155,11 +161,22 @@ func (v *view) applyInvestmentTransfer(amount decimal.Decimal) {
 	}
 }
 
+func (v *view) applyRedemptionReplacement(amount decimal.Decimal) {
+	if v.effective == nil || !amount.IsPositive() {
+		return
+	}
+	v.redemptionReplacement = decimal.Min(amount, v.effective.Value.Abs().Sub(v.investmentTransfer))
+	if v.included && v.reportableAmount().IsZero() {
+		reason := money.ReasonInvestmentTransfer
+		v.included, v.reason = false, &reason
+	}
+}
+
 func (v view) reportableAmount() decimal.Decimal {
 	if v.effective == nil {
 		return decimal.Zero
 	}
-	return v.effective.Value.Abs().Sub(v.investmentTransfer)
+	return v.effective.Value.Abs().Sub(v.investmentTransfer).Sub(v.redemptionReplacement)
 }
 
 // fetchBillDueDates loads every synced bill's due date, keyed by
@@ -630,10 +647,11 @@ func toItem(v view) Item {
 			Origin:    stringOr(r.inclusionOrigin, "manual"),
 			RuleName:  r.inclusionRuleName,
 		},
-		Card:                     parseCardInfo(r.creditCardMetadata),
-		TotalsEligibility:        TotalsEligibility{Included: v.included, Reason: v.reason},
-		GroupKey:                 v.period.Key,
-		InvestmentTransferAmount: money.CanonicalDecimal(v.investmentTransfer),
+		Card:                       parseCardInfo(r.creditCardMetadata),
+		TotalsEligibility:          TotalsEligibility{Included: v.included, Reason: v.reason},
+		GroupKey:                   v.period.Key,
+		InvestmentTransferAmount:   money.CanonicalDecimal(v.investmentTransfer),
+		InvestmentRedemptionAmount: money.CanonicalDecimal(v.redemptionReplacement),
 	}
 	if r.amount != nil {
 		s := money.CanonicalDecimal(*r.amount)

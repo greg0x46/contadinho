@@ -15,6 +15,7 @@ export const investmentOperationKindLabel: Record<InvestmentOperationKind, strin
   initial_balance: "Saldo inicial",
   deposit: "Aporte em caixa",
   withdrawal: "Resgate da caixa",
+  redemption: "Resgate de investimento",
   buy: "Compra",
   sell: "Venda",
   income: "Rendimento",

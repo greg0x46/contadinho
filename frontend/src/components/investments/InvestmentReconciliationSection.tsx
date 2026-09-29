@@ -17,6 +17,7 @@ import { formatBRL } from "../../presentation/money";
 import { sumDecimals, subtractDecimals, isPositiveDecimal, isZeroDecimal } from "../../presentation/decimal";
 import { investmentOperationKindLabel } from "../../presentation/investmentWorkspaceLabels";
 import { InvestmentOperationForm } from "./InvestmentOperationForm";
+import { InvestmentRedemptionBreakdown } from "./InvestmentRedemptionBreakdown";
 
 function absolute(value: string): string { return value.replace(/^-/, ""); }
 const positive = isPositiveDecimal;
@@ -67,7 +68,7 @@ export function InvestmentReconciliationSection({ transaction }: { transaction: 
   // The panel sits in every BRL transaction drawer. The ledger is only
   // fetched when the person opens the link drawer, or when the transaction
   // already has links to list (the item itself says how much is allocated).
-  const workspace = useInvestmentWorkspace({ enabled: open || isPositiveDecimal(transaction.investment_transfer_amount) });
+  const workspace = useInvestmentWorkspace({ enabled: open || isPositiveDecimal(transaction.investment_transfer_amount) || isPositiveDecimal(transaction.investment_redemption_amount) });
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [amount, setAmount] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -90,7 +91,7 @@ export function InvestmentReconciliationSection({ transaction }: { transaction: 
   const remaining = fullValue === null ? "0.00" : subtractDecimals(fullValue, linkedAmount);
   const available = positive(remaining) ? remaining : "0.00";
   const direction = transaction.classification === "outflow" ? "deposit" : transaction.classification === "inflow" ? "withdrawal" : null;
-  const compatibleKinds: InvestmentOperationKind[] = direction === "deposit" ? ["deposit", "fee", "tax"] : direction === "withdrawal" ? ["withdrawal", "income"] : [];
+  const compatibleKinds: InvestmentOperationKind[] = direction === "deposit" ? ["deposit", "fee", "tax"] : direction === "withdrawal" ? ["redemption", "withdrawal", "income"] : [];
   const accountById = new Map(workspace.accounts.map((account) => [account.id, account]));
   const positionById = new Map(workspace.positions.map((position) => [position.id, position]));
   const linkedToOperation = (operationId: string) =>
@@ -102,7 +103,7 @@ export function InvestmentReconciliationSection({ transaction }: { transaction: 
 
   const operationCandidates: Candidate[] = workspace.operations
     .filter((operation) => operation.source === "manual" && compatibleKinds.includes(operation.kind))
-    .filter((operation) => accountById.get(operation.account_id)?.currency_code === "BRL")
+    .filter((operation) => (accountById.get(operation.account_id)?.currency_code === "BRL" || accountById.get(operation.account_id)?.kind === "integrated"))
     .map((operation) => ({
       key: `operation:${operation.id}`,
       label: operationLabel(operation, accountById.get(operation.account_id)?.name ?? "Conta não encontrada",
@@ -164,6 +165,11 @@ export function InvestmentReconciliationSection({ transaction }: { transaction: 
     }
     if (positive(subtractDecimals(value, available))) {
       setError("O valor vinculado não pode ser maior que o saldo disponível desta transação.");
+      return;
+    }
+    const selectedOperation = workspace.operations.find((operation) => operation.id === selected.operationId);
+    if (selectedOperation?.kind === "redemption" && !isZeroDecimal(subtractDecimals(value, selectedOperation.amount))) {
+      setError("Vincule o valor líquido integral deste resgate.");
       return;
     }
     setError(null);
@@ -251,6 +257,7 @@ export function InvestmentReconciliationSection({ transaction }: { transaction: 
                         : "Movimentação não encontrada"}
                     </span>
                     <Typography.Text type="secondary">{formatBRL(link.amount)} vinculado</Typography.Text>
+                    {operation && <InvestmentRedemptionBreakdown operation={operation} />}
                   </Space>
                 </List.Item>
               );
@@ -345,10 +352,11 @@ export function InvestmentReconciliationSection({ transaction }: { transaction: 
         open={newOperationOpen}
         operation={null}
         initial={{
-          kind: direction ?? "deposit",
+          kind: direction === "withdrawal" ? "redemption" : direction ?? "deposit",
           occurred_on: operationDate(transaction),
           amount: amount ?? undefined,
         }}
+        expectedNetAmount={amount ?? undefined}
         allowedKinds={compatibleKinds}
         accounts={workspace.accounts}
         positions={workspace.positions}

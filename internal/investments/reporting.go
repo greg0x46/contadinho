@@ -69,6 +69,38 @@ func ReconciledTransactionAmount(ctx context.Context, q Querier, financialTransa
 	return total, rows.Err()
 }
 
+// ReconciledRedemptionAmounts returns net bank parcels replaced by the detailed
+// redemption entries. These are not principal transfers: the composition is
+// emitted separately, including when fees exceed income.
+func ReconciledRedemptionAmounts(ctx context.Context, q Querier, transactionID *string) (map[string]decimal.Decimal, error) {
+	query := `SELECT r.financial_transaction_id, r.amount
+        FROM investment_reconciliations r JOIN investment_operations o ON o.id = r.operation_id
+        WHERE o.kind = 'redemption' AND r.financial_transaction_id IS NOT NULL`
+	args := []any{}
+	if transactionID != nil {
+		query += " AND r.financial_transaction_id = ?"
+		args = append(args, *transactionID)
+	}
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := map[string]decimal.Decimal{}
+	for rows.Next() {
+		var id, raw string
+		if err := rows.Scan(&id, &raw); err != nil {
+			return nil, err
+		}
+		amount, err := decimal.NewFromString(raw)
+		if err != nil {
+			return nil, err
+		}
+		result[id] = result[id].Add(amount)
+	}
+	return result, rows.Err()
+}
+
 // ManualNetWorth is the manual investment asset contribution: manual
 // holdings at their latest manual valuation (or their replayed cost basis)
 // plus book cash only when that cash is not already represented by a linked
@@ -104,7 +136,7 @@ func ManualNetWorth(ctx context.Context, q Querier) (decimal.Decimal, error) {
 // an exchange of cash for an asset, not spending.
 func ManualReportingEntries(ctx context.Context, q Querier) ([]ManualReportingEntry, error) {
 	rows, err := q.QueryContext(ctx, `
-		SELECT o.id, o.account_id, o.kind, o.occurred_on, o.amount, o.fees, o.taxes,
+		SELECT o.id, o.account_id, o.kind, o.occurred_on, o.amount, o.fees, o.taxes, o.principal_amount, o.income_amount,
 		       r.financial_transaction_id, r.amount
 		FROM investment_operations o
 		LEFT JOIN investment_reconciliations r ON r.operation_id = o.id
@@ -116,15 +148,16 @@ func ManualReportingEntries(ctx context.Context, q Querier) ([]ManualReportingEn
 	defer rows.Close()
 
 	type reportOperation struct {
-		id, accountID, kindRaw, occurredRaw, amountRaw, feesRaw, taxesRaw string
+		id, accountID, kindRaw, occurredRaw, amountRaw, feesRaw, taxesRaw, principalRaw, incomeRaw string
 	}
 	operations := []reportOperation{}
 	seen := map[string]bool{}
 	linkedByOperation := map[string]decimal.Decimal{}
+	bankByOperation := map[string]string{}
 	for rows.Next() {
 		var op reportOperation
 		var financialTransactionID, linkedRaw sql.NullString
-		if err := rows.Scan(&op.id, &op.accountID, &op.kindRaw, &op.occurredRaw, &op.amountRaw, &op.feesRaw, &op.taxesRaw,
+		if err := rows.Scan(&op.id, &op.accountID, &op.kindRaw, &op.occurredRaw, &op.amountRaw, &op.feesRaw, &op.taxesRaw, &op.principalRaw, &op.incomeRaw,
 			&financialTransactionID, &linkedRaw); err != nil {
 			return nil, err
 		}
@@ -138,6 +171,7 @@ func ManualReportingEntries(ctx context.Context, q Querier) ([]ManualReportingEn
 				return nil, err
 			}
 			linkedByOperation[op.id] = linkedByOperation[op.id].Add(linked)
+			bankByOperation[op.id] = financialTransactionID.String
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -167,7 +201,13 @@ func ManualReportingEntries(ctx context.Context, q Querier) ([]ManualReportingEn
 		kind := OperationKind(raw.kindRaw)
 		add := func(entryID string, entryKind OperationKind, signed decimal.Decimal) {
 			if !signed.IsZero() {
-				entries = append(entries, ManualReportingEntry{ID: entryID, AccountID: raw.accountID, Kind: entryKind, OccurredOn: occurredOn, Amount: signed})
+				entry := ManualReportingEntry{ID: entryID, AccountID: raw.accountID, Kind: entryKind, OccurredOn: occurredOn, Amount: signed}
+				if kind == OperationRedemption {
+					if bankID, ok := bankByOperation[raw.id]; ok {
+						entry.FinancialTransactionID = &bankID
+					}
+				}
+				entries = append(entries, entry)
 			}
 		}
 		switch kind {
@@ -181,6 +221,21 @@ func ManualReportingEntries(ctx context.Context, q Querier) ([]ManualReportingEn
 			if remaining.IsPositive() {
 				add(raw.id, kind, remaining.Neg())
 			}
+		case OperationRedemption:
+			principal, err := parse(raw.principalRaw)
+			if err != nil {
+				return nil, err
+			}
+			income, err := parse(raw.incomeRaw)
+			if err != nil {
+				return nil, err
+			}
+			// The bank's linked net parcel is suppressed separately, so these
+			// components remain identical before and after reconciliation.
+			add(raw.id+":principal", OperationWithdrawal, principal.Neg())
+			add(raw.id+":income", OperationIncome, income)
+			add(raw.id+":fee", OperationFee, fees.Neg())
+			add(raw.id+":tax", OperationTax, taxes.Neg())
 		case OperationBuy, OperationSell:
 			// A trade itself changes asset composition. Its explicit costs are
 			// reportable, independent of the trade principal.

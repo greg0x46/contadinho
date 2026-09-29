@@ -108,7 +108,7 @@ func getReconciliation(ctx context.Context, q Querier, id string) (Reconciliatio
 // point, so none of them ever crosses the bank boundary.
 func reconcilableKind(kind OperationKind) bool {
 	switch kind {
-	case OperationDeposit, OperationWithdrawal, OperationIncome, OperationFee, OperationTax:
+	case OperationDeposit, OperationWithdrawal, OperationRedemption, OperationIncome, OperationFee, OperationTax:
 		return true
 	default:
 		return false
@@ -320,6 +320,9 @@ func createReconciliation(ctx context.Context, tx *sql.Tx, in ReconciliationInpu
 	operation, err := GetOperation(ctx, tx, operationID)
 	if err != nil {
 		return Reconciliation{}, err
+	}
+	if operation.Kind == OperationRedemption && (transactionID == nil || investmentTransactionID != nil || !in.Amount.Equal(operation.Amount)) {
+		return Reconciliation{}, ErrInvalidReconciliationLink
 	}
 	if !reconcilableKind(operation.Kind) {
 		return Reconciliation{}, ErrInvalidReconciliationLink

@@ -1,3 +1,4 @@
+import { depositOperation } from "../test/investmentWorkspaceFixtures";
 import { syncedPosition } from "../test/investmentWorkspaceFixtures";
 import { describe, expect, it } from "vitest";
 
@@ -636,6 +637,7 @@ const timelineResponse = (
     },
     first_negative: null,
   },
+  period_totals: { income: "0", expense: "100", result: "-100" },
   monthly_breakdown: monthlyBreakdown,
   category_breakdown: [],
   simulation: null,
@@ -841,5 +843,18 @@ describe("investment account id contracts", () => {
 describe("Imported investment currencies", () => {
   it("preserves the provider currency without treating it as BRL", () => {
     expect(parseInvestmentPosition({ ...syncedPosition, currency_code: "USD" }).currency_code).toBe("USD");
+  });
+});
+
+
+describe("detailed redemption contract", () => {
+  it("reads the decomposition and rejects a missing component", () => {
+    const payload = { ...depositOperation, kind: "redemption", amount: "1075",
+      principal_amount: "1000", income_amount: "100", fees: "5", taxes: "20" };
+    expect(parseInvestmentOperation(payload)).toMatchObject({
+      kind: "redemption", principal_amount: "1000", income_amount: "100", amount: "1075",
+    });
+    const incomplete = Object.fromEntries(Object.entries(payload).filter(([key]) => key !== "principal_amount"));
+    expect(() => parseInvestmentOperation(incomplete)).toThrow();
   });
 });

@@ -32,7 +32,7 @@ var (
 		"currency_code", "closed", "linked_investment_id", "notes", "valuation_basis",
 	}
 	investmentOperationResponseKeys = []string{
-		"id", "account_id", "position_id", "transfer_id", "kind", "occurred_on", "amount", "quantity",
+		"id", "account_id", "position_id", "transfer_id", "kind", "occurred_on", "amount", "principal_amount", "income_amount", "quantity",
 		"unit_price", "fees", "taxes", "notes", "source", "is_editable", "created_at", "updated_at",
 	}
 	investmentReconciliationResponseKeys = []string{
@@ -885,4 +885,34 @@ func TestInvestmentIdentityConflictsOverHTTP(t *testing.T) {
 	}, http.StatusConflict); slug != "investment-asset-already-exists" {
 		t.Errorf("rename onto another asset slug = %q", slug)
 	}
+}
+
+func TestDetailedRedemptionOverHTTP(t *testing.T) {
+	srv, _ := newTestServer(t)
+	account := investmentID(t, createCustodyAccount(t, srv, "Corretora"))
+	position := investmentCall(t, srv, http.MethodPost, "/api/investment-positions", map[string]any{
+		"account_id": account, "name": "CDB", "asset_type": "CDB",
+		"initial_quantity": "2", "initial_unit_cost": "1000", "occurred_on": "2026-01-01",
+	}, http.StatusCreated)
+	positionID := investmentID(t, position)
+	body := map[string]any{
+		"account_id": account, "position_id": positionID, "kind": "redemption",
+		"occurred_on": "2026-01-02", "principal_amount": "1000", "income_amount": "100",
+		"fees": "5", "taxes": "20", "amount": "9999",
+	}
+	created := investmentCall(t, srv, http.MethodPost, "/api/investment-operations", body, http.StatusCreated)
+	assertInvestmentKeys(t, "redemption", created, investmentOperationResponseKeys)
+	assertMoney(t, "net", created["amount"], "1075")
+	assertMoney(t, "principal", created["principal_amount"], "1000")
+	assertMoney(t, "income", created["income_amount"], "100")
+	id := investmentID(t, created)
+	fetched := investmentCall(t, srv, http.MethodGet, "/api/investment-positions/"+positionID, nil, http.StatusOK)
+	assertMoney(t, "remaining quantity", fetched["quantity"], "1")
+	assertMoney(t, "remaining value", fetched["current_value"], "1000")
+	body["principal_amount"] = "500"
+	updated := investmentCall(t, srv, http.MethodPut, "/api/investment-operations/"+id, body, http.StatusOK)
+	assertMoney(t, "updated net", updated["amount"], "575")
+	investmentCall(t, srv, http.MethodDelete, "/api/investment-operations/"+id, nil, http.StatusNoContent)
+	fetched = investmentCall(t, srv, http.MethodGet, "/api/investment-positions/"+positionID, nil, http.StatusOK)
+	assertMoney(t, "restored quantity", fetched["quantity"], "2")
 }

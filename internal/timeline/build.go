@@ -261,38 +261,50 @@ func BuildSeries(ctx context.Context, q Querier, params BuildParams) (Series, er
 	if err != nil {
 		return Series{}, err
 	}
-	// Investment-account income/costs belong in financial reports but do not
-	// change the bank-cash anchor. Linked portions are already represented by
-	// their bank entries, and are removed by the investment reporting helper.
-	if len(params.AccountIDs) == 0 && len(params.CategoryIDs) == 0 && len(params.CardNumbers) == 0 {
-		manual, err := investments.ManualReportingEntries(ctx, q)
-		if err != nil {
-			return Series{}, err
-		}
-		for _, movement := range manual {
-			reportable := movement.Amount
-			entry := Entry{Date: movement.OccurredOn, Amount: decimal.Zero,
-				ReportableAmount: &reportable, Tier: TierRealizado, Source: SourceInvestment,
-				SourceRefID: movement.ID, EventKey: "investment:" + movement.ID,
-				CategoryName: noCategoryName}
-			switch movement.Kind {
-			case investments.OperationDeposit, investments.OperationWithdrawal:
-				reportable = decimal.Zero
-				entry.InvestmentTransferAmount = movement.Amount.Abs()
-				entry.InvestmentTransferKind = string(movement.Kind)
-				entry.Description = "Resgate de investimento"
-				if movement.Kind == investments.OperationDeposit {
-					entry.Description = "Aporte em investimento"
-				}
-			case investments.OperationIncome:
-				entry.Description = "Rendimento de investimento"
-			case investments.OperationTax:
-				entry.Description = "Imposto sobre investimento"
-			default:
-				entry.Description = "Custo de investimento"
+	// Detailed redemptions replace the linked bank parcel in reporting.
+	// They inherit its date and filters, but never move bank cash again.
+	bankEntries := map[string]Entry{}
+	for _, entry := range entries {
+		bankEntries[entry.SourceRefID] = entry
+	}
+	unfiltered := len(params.AccountIDs) == 0 && len(params.CategoryIDs) == 0 && len(params.CardNumbers) == 0
+	manual, err := investments.ManualReportingEntries(ctx, q)
+	if err != nil {
+		return Series{}, err
+	}
+	for _, movement := range manual {
+		reportable := movement.Amount
+		entry := Entry{Date: movement.OccurredOn, Amount: decimal.Zero,
+			ReportableAmount: &reportable, Tier: TierRealizado, Source: SourceInvestment,
+			SourceRefID: movement.ID, EventKey: "investment:" + movement.ID,
+			CategoryName: noCategoryName}
+		if movement.FinancialTransactionID != nil {
+			bank, ok := bankEntries[*movement.FinancialTransactionID]
+			if !ok {
+				continue
 			}
-			entries = append(entries, entry)
+			entry.Date, entry.Tier = bank.Date, bank.Tier
+			entry.CategoryID, entry.CategoryName = bank.CategoryID, bank.CategoryName
+		} else if !unfiltered {
+			continue
 		}
+		switch movement.Kind {
+		case investments.OperationDeposit, investments.OperationWithdrawal:
+			reportable = decimal.Zero
+			entry.InvestmentTransferAmount = movement.Amount.Abs()
+			entry.InvestmentTransferKind = string(movement.Kind)
+			entry.Description = "Resgate de investimento"
+			if movement.Kind == investments.OperationDeposit {
+				entry.Description = "Aporte em investimento"
+			}
+		case investments.OperationIncome:
+			entry.Description = "Rendimento de investimento"
+		case investments.OperationTax:
+			entry.Description = "Imposto sobre investimento"
+		default:
+			entry.Description = "Custo de investimento"
+		}
+		entries = append(entries, entry)
 	}
 	selection := projections.SelectionActive
 	if len(params.ScenarioIDs) > 0 {

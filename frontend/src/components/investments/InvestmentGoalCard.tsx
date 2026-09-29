@@ -9,7 +9,7 @@ import type {
 import { formatBRL, sumBRL } from "../../presentation/money";
 import { InvestmentFigures } from "./InvestmentFigures";
 import { InvestmentPositionsTable } from "./InvestmentPositionsTable";
-import { formatDate, goalMovements, latestDate } from "./investmentFigures";
+import { formatDate, goalMovements, latestDate } from "./investmentFormatting";
 
 export function InvestmentGoalCard({
   portfolio,

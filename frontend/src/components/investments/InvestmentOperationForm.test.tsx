@@ -87,3 +87,51 @@ describe("InvestmentOperationForm", () => {
     expect(onSubmit.mock.calls[0]![0]).toMatchObject({ quantity: "20", unit_price: "100", amount: "1995" });
   });
 });
+
+describe("resgate detalhado", () => {
+  it("calculates the net and submits the four components without a client-priced amount", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = show({ initial: {
+      kind: "redemption", position_id: manualPosition.id,
+      principal_amount: "1000", income_amount: "100", fees: "5", taxes: "20",
+    } });
+    expect(screen.getByText("Valor bruto: R$ 1.100,00")).toBeVisible();
+    expect(screen.getByText("Valor líquido: R$ 1.075,00")).toBeVisible();
+    expect(screen.queryByLabelText("Quantidade")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Salvar" }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "redemption", position_id: manualPosition.id, principal_amount: "1000",
+      income_amount: "100", fees: "5", taxes: "20", amount: undefined,
+    }));
+  });
+
+  it("keeps a mismatching net available for correction before linking", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = show({ expectedNetAmount: "1075", initial: {
+      kind: "redemption", position_id: manualPosition.id,
+      principal_amount: "1000", income_amount: "100",
+    } });
+    await user.click(screen.getByRole("button", { name: "Salvar" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText("O valor líquido deve ser igual ao valor a vincular do extrato.")).toBeVisible();
+    await user.clear(screen.getByLabelText("Impostos"));
+    await user.type(screen.getByLabelText("Impostos"), "25");
+    await user.click(screen.getByRole("button", { name: "Salvar" }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("reloads the decomposition when editing and rejects a nonpositive net", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = show({ operation: {
+      ...buyOperation, kind: "redemption", principal_amount: "1000", income_amount: "100",
+      fees: "5", taxes: "20", amount: "1075", quantity: null, unit_price: null,
+    } });
+    expect(screen.getByLabelText("Aporte resgatado")).toHaveValue("1000,00");
+    expect(screen.getByLabelText("Rendimento bruto")).toHaveValue("100,00");
+    await user.clear(screen.getByLabelText("Impostos"));
+    await user.type(screen.getByLabelText("Impostos"), "1100");
+    await user.click(screen.getByRole("button", { name: "Salvar" }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText(/valor líquido maiores que zero/)).toBeVisible();
+  });
+});

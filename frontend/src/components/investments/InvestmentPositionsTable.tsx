@@ -6,7 +6,7 @@ import type { InvestmentPortfolio, InvestmentPosition } from "../../api/contract
 import { investmentValuationBasisLabel } from "../../presentation/investmentWorkspaceLabels";
 import { formatBRL, formatMoney } from "../../presentation/money";
 import { colors } from "../../theme/tokens";
-import { formatDate, positionYield } from "./investmentFigures";
+import { formatDate, positionYield } from "./investmentFormatting";
 
 function YieldCell({ position }: { position: InvestmentPosition }) {
   const estimate = positionYield(position);

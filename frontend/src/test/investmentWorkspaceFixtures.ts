@@ -122,6 +122,8 @@ export const depositOperation: InvestmentOperation = {
   account_id: manualAccountId,
   position_id: null,
   transfer_id: null,
+  principal_amount: "0",
+  income_amount: "0",
   kind: "deposit",
   occurred_on: "2026-09-01",
   amount: "2000.00",

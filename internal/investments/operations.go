@@ -22,7 +22,7 @@ var ErrOperationHasReconciliations = errors.New("investment operation has reconc
 // operationColumns is the column order scanOperation expects.
 const operationColumns = `
 	id, account_id, position_id, transfer_id, kind, occurred_on, amount, quantity,
-	unit_price, fees, taxes, notes, source, created_at, updated_at`
+	unit_price, fees, taxes, notes, source, created_at, updated_at, principal_amount, income_amount`
 
 // operationOrder is the replay order. Listing shares it so what the user
 // reads back is the same sequence the ledger was computed from.
@@ -257,6 +257,7 @@ func CreateOperations(ctx context.Context, conn *sql.DB, inputs []OperationInput
 	err := mutateLedger(ctx, conn, func(tx *sql.Tx) ([]string, error) {
 		accounts := []string{}
 		for _, in := range inputs {
+			in = normalizeOperationInput(in)
 			if err := validateOperationAccount(ctx, tx, in); err != nil {
 				return nil, err
 			}
@@ -267,11 +268,11 @@ func CreateOperations(ctx context.Context, conn *sql.DB, inputs []OperationInput
 			now := db.FormatTime(time.Now())
 			if _, err := tx.ExecContext(ctx, `INSERT INTO investment_operations (
     id, account_id, position_id, kind, occurred_on, amount, quantity, unit_price,
-    fees, taxes, notes, source, created_at, updated_at
-   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?)`,
+    fees, taxes, notes, source, created_at, updated_at, principal_amount, income_amount
+   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?, ?, ?)`,
 				id, in.AccountID, nullableString(in.PositionID), string(in.Kind), formatDate(in.OccurredOn),
 				money.CanonicalDecimal(in.Amount), nullableDecimal(in.Quantity), nullableDecimal(in.UnitPrice),
-				money.CanonicalDecimal(in.Fees), money.CanonicalDecimal(in.Taxes), nullableString(trimOptional(in.Notes)), now, now); err != nil {
+				money.CanonicalDecimal(in.Fees), money.CanonicalDecimal(in.Taxes), nullableString(trimOptional(in.Notes)), now, now, money.CanonicalDecimal(in.PrincipalAmount), money.CanonicalDecimal(in.IncomeAmount)); err != nil {
 				return nil, err
 			}
 			ids = append(ids, id)
@@ -300,6 +301,13 @@ func CreateOperations(ctx context.Context, conn *sql.DB, inputs []OperationInput
 	return result, nil
 }
 
+func normalizeOperationInput(in OperationInput) OperationInput {
+	if in.Kind == OperationRedemption {
+		in.Amount = in.PrincipalAmount.Add(in.IncomeAmount).Sub(in.Fees).Sub(in.Taxes)
+	}
+	return in
+}
+
 func validateOperationAccount(ctx context.Context, q Querier, in OperationInput) error {
 	account, err := getRawAccount(ctx, q, in.AccountID)
 	if err != nil {
@@ -308,14 +316,18 @@ func validateOperationAccount(ctx context.Context, q Querier, in OperationInput)
 	if account.Kind == AccountKindIntegrated && (!reconcilableKind(in.Kind) || in.PositionID != nil) {
 		return ErrIntegratedReadOnly
 	}
+	if in.Kind == OperationRedemption && account.Kind == AccountKindManual && in.PositionID == nil {
+		return ErrInvalidInput
+	}
 	return validateOperationShape(Operation{AccountID: in.AccountID, PositionID: in.PositionID,
 		Kind: in.Kind, OccurredOn: in.OccurredOn, Amount: in.Amount, Quantity: in.Quantity,
-		UnitPrice: in.UnitPrice, Fees: in.Fees, Taxes: in.Taxes})
+		UnitPrice: in.UnitPrice, Fees: in.Fees, Taxes: in.Taxes, PrincipalAmount: in.PrincipalAmount, IncomeAmount: in.IncomeAmount})
 }
 
 // UpdateOperation rewrites a manual operation in place, keeping created_at so
 // the correction stays where it was in the replay order.
 func UpdateOperation(ctx context.Context, conn *sql.DB, id string, in OperationInput) (Operation, error) {
+	in = normalizeOperationInput(in)
 	if !in.Kind.Valid() {
 		return Operation{}, ErrInvalidInput
 	}
@@ -336,6 +348,15 @@ func UpdateOperation(ctx context.Context, conn *sql.DB, id string, in OperationI
 		if err := requirePositionOfAccount(ctx, tx, in.AccountID, in.PositionID); err != nil {
 			return nil, err
 		}
+		if current.Kind == OperationRedemption || in.Kind == OperationRedemption {
+			var linked bool
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM investment_reconciliations WHERE operation_id = ?)`, id).Scan(&linked); err != nil {
+				return nil, err
+			}
+			if linked {
+				return nil, ErrOperationHasReconciliations
+			}
+		}
 		updated := current
 		updated.AccountID = in.AccountID
 		updated.PositionID = in.PositionID
@@ -350,12 +371,12 @@ func UpdateOperation(ctx context.Context, conn *sql.DB, id string, in OperationI
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE investment_operations
 			SET account_id = ?, position_id = ?, kind = ?, occurred_on = ?, amount = ?,
-			    quantity = ?, unit_price = ?, fees = ?, taxes = ?, notes = ?, updated_at = ?
+			    quantity = ?, unit_price = ?, fees = ?, taxes = ?, notes = ?, updated_at = ?, principal_amount = ?, income_amount = ?
 			WHERE id = ? AND source = 'manual'`,
 			in.AccountID, nullableString(in.PositionID), string(in.Kind), formatDate(in.OccurredOn),
 			money.CanonicalDecimal(in.Amount), nullableDecimal(in.Quantity), nullableDecimal(in.UnitPrice),
 			money.CanonicalDecimal(in.Fees), money.CanonicalDecimal(in.Taxes),
-			nullableString(trimOptional(in.Notes)), db.FormatTime(time.Now()), id); err != nil {
+			nullableString(trimOptional(in.Notes)), db.FormatTime(time.Now()), money.CanonicalDecimal(in.PrincipalAmount), money.CanonicalDecimal(in.IncomeAmount), id); err != nil {
 			return nil, err
 		}
 		return []string{in.AccountID, current.AccountID}, nil

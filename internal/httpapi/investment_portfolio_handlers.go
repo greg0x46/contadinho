@@ -265,39 +265,43 @@ func investmentPositionToDTO(p investments.Position) investmentPositionDTO {
 }
 
 type investmentOperationDTO struct {
-	ID         string    `json:"id"`
-	AccountID  string    `json:"account_id"`
-	PositionID *string   `json:"position_id"`
-	TransferID *string   `json:"transfer_id"`
-	Kind       string    `json:"kind"`
-	OccurredOn string    `json:"occurred_on"`
-	Amount     string    `json:"amount"`
-	Quantity   *string   `json:"quantity"`
-	UnitPrice  *string   `json:"unit_price"`
-	Fees       string    `json:"fees"`
-	Taxes      string    `json:"taxes"`
-	Notes      *string   `json:"notes"`
-	Source     string    `json:"source"`
-	IsEditable bool      `json:"is_editable"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID              string    `json:"id"`
+	AccountID       string    `json:"account_id"`
+	PositionID      *string   `json:"position_id"`
+	TransferID      *string   `json:"transfer_id"`
+	Kind            string    `json:"kind"`
+	OccurredOn      string    `json:"occurred_on"`
+	Amount          string    `json:"amount"`
+	PrincipalAmount string    `json:"principal_amount"`
+	IncomeAmount    string    `json:"income_amount"`
+	Quantity        *string   `json:"quantity"`
+	UnitPrice       *string   `json:"unit_price"`
+	Fees            string    `json:"fees"`
+	Taxes           string    `json:"taxes"`
+	Notes           *string   `json:"notes"`
+	Source          string    `json:"source"`
+	IsEditable      bool      `json:"is_editable"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 func investmentOperationToDTO(op investments.Operation) investmentOperationDTO {
 	return investmentOperationDTO{
-		ID:         op.ID,
-		AccountID:  op.AccountID,
-		PositionID: op.PositionID,
-		TransferID: op.TransferID,
-		Kind:       string(op.Kind),
-		OccurredOn: investments.Day(op.OccurredOn).Format(investmentDateLayout),
-		Amount:     money.CanonicalDecimal(op.Amount),
-		Quantity:   optionalMoney(op.Quantity),
-		UnitPrice:  optionalMoney(op.UnitPrice),
-		Fees:       money.CanonicalDecimal(op.Fees),
-		Taxes:      money.CanonicalDecimal(op.Taxes),
-		Notes:      op.Notes,
-		Source:     op.Source,
+		ID:              op.ID,
+		AccountID:       op.AccountID,
+		PositionID:      op.PositionID,
+		TransferID:      op.TransferID,
+		Kind:            string(op.Kind),
+		OccurredOn:      investments.Day(op.OccurredOn).Format(investmentDateLayout),
+		Amount:          money.CanonicalDecimal(op.Amount),
+		PrincipalAmount: money.CanonicalDecimal(op.PrincipalAmount),
+		IncomeAmount:    money.CanonicalDecimal(op.IncomeAmount),
+		Quantity:        optionalMoney(op.Quantity),
+		UnitPrice:       optionalMoney(op.UnitPrice),
+		Fees:            money.CanonicalDecimal(op.Fees),
+		Taxes:           money.CanonicalDecimal(op.Taxes),
+		Notes:           op.Notes,
+		Source:          op.Source,
 		// is_editable is the domain's answer, not a re-derivation: an imported
 		// movement is read-only no matter what this layer thinks.
 		IsEditable: op.IsEditable,
@@ -476,7 +480,7 @@ func writeInvestmentProblem(w http.ResponseWriter, err error) {
 	case errors.Is(err, investments.ErrOperationHasReconciliations):
 		writeProblem(w, http.StatusConflict, "investment-operation-has-reconciliations",
 			"Movimentação vinculada a lançamento",
-			"Desfaça os vínculos com lançamentos bancários antes de excluir esta movimentação.")
+			"Desfaça os vínculos com lançamentos bancários antes de alterar ou excluir esta movimentação.")
 	case errors.Is(err, investments.ErrNegativeCash):
 		writeProblem(w, http.StatusConflict, "investment-negative-cash",
 			"Caixa ficaria negativo",
@@ -971,16 +975,18 @@ func handleDeleteInvestmentPosition(conn *sql.DB) http.HandlerFunc {
 // --------------------------------------------------------------- operations
 
 type investmentOperationRequest struct {
-	AccountID  string            `json:"account_id"`
-	PositionID *string           `json:"position_id"`
-	Kind       string            `json:"kind"`
-	OccurredOn *string           `json:"occurred_on"`
-	Amount     investmentDecimal `json:"amount"`
-	Quantity   investmentDecimal `json:"quantity"`
-	UnitPrice  investmentDecimal `json:"unit_price"`
-	Fees       investmentDecimal `json:"fees"`
-	Taxes      investmentDecimal `json:"taxes"`
-	Notes      *string           `json:"notes"`
+	AccountID       string            `json:"account_id"`
+	PositionID      *string           `json:"position_id"`
+	Kind            string            `json:"kind"`
+	OccurredOn      *string           `json:"occurred_on"`
+	Amount          investmentDecimal `json:"amount"`
+	PrincipalAmount investmentDecimal `json:"principal_amount"`
+	IncomeAmount    investmentDecimal `json:"income_amount"`
+	Quantity        investmentDecimal `json:"quantity"`
+	UnitPrice       investmentDecimal `json:"unit_price"`
+	Fees            investmentDecimal `json:"fees"`
+	Taxes           investmentDecimal `json:"taxes"`
+	Notes           *string           `json:"notes"`
 }
 
 func (req investmentOperationRequest) toInput() (investments.OperationInput, bool) {
@@ -993,16 +999,18 @@ func (req investmentOperationRequest) toInput() (investments.OperationInput, boo
 		amount = req.Quantity.value.Mul(req.UnitPrice.value)
 	}
 	return investments.OperationInput{
-		AccountID:  req.AccountID,
-		PositionID: investmentOptionalID(req.PositionID),
-		Kind:       investments.OperationKind(req.Kind),
-		OccurredOn: day,
-		Amount:     amount,
-		Quantity:   req.Quantity.pointer(),
-		UnitPrice:  req.UnitPrice.pointer(),
-		Fees:       req.Fees.orZero(),
-		Taxes:      req.Taxes.orZero(),
-		Notes:      req.Notes,
+		AccountID:       req.AccountID,
+		PositionID:      investmentOptionalID(req.PositionID),
+		Kind:            investments.OperationKind(req.Kind),
+		OccurredOn:      day,
+		Amount:          amount,
+		PrincipalAmount: req.PrincipalAmount.orZero(),
+		IncomeAmount:    req.IncomeAmount.orZero(),
+		Quantity:        req.Quantity.pointer(),
+		UnitPrice:       req.UnitPrice.pointer(),
+		Fees:            req.Fees.orZero(),
+		Taxes:           req.Taxes.orZero(),
+		Notes:           req.Notes,
 	}, true
 }
 

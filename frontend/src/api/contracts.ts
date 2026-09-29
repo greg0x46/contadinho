@@ -177,6 +177,7 @@ export interface TransactionItem {
    * amount itself remains in effective_money.
    */
   investment_transfer_amount: string;
+  investment_redemption_amount: string;
   /** Amount that can be reported after currency normalization, if known. */
   reportable_amount: string | null;
   card: {
@@ -504,7 +505,7 @@ export function parseTransactionItem(value: unknown): TransactionItem {
     "inclusion",
     "totals_eligibility",
     "group_key",
-  ], ["investment_transfer_amount", "reportable_amount"]);
+  ], ["investment_transfer_amount", "investment_redemption_amount", "reportable_amount"]);
   const account = requiredRecord(item.account, ["id", "name", "institution", "currency_code"]);
   const eligibility = requiredRecord(item.totals_eligibility, ["included", "reason"]);
   const inclusion = requiredRecord(item.inclusion, [
@@ -590,6 +591,7 @@ export function parseTransactionItem(value: unknown): TransactionItem {
     // Older persisted fixtures and servers predate investment allocation.
     // Treat their absence as an empty allocation while real API responses
     // always carry both fields.
+    investment_redemption_amount: item.investment_redemption_amount === undefined ? "0" : decimal(item.investment_redemption_amount),
     investment_transfer_amount:
       item.investment_transfer_amount === undefined ? "0" : decimal(item.investment_transfer_amount),
     reportable_amount:
@@ -2639,6 +2641,7 @@ export const investmentOperationKinds = [
   "initial_balance",
   "deposit",
   "withdrawal",
+  "redemption",
   "buy",
   "sell",
   "income",
@@ -2661,6 +2664,8 @@ export interface InvestmentOperation {
   kind: InvestmentOperationKind;
   occurred_on: string;
   amount: string;
+  principal_amount: string;
+  income_amount: string;
   quantity: string | null;
   unit_price: string | null;
   fees: string | null;
@@ -2678,6 +2683,8 @@ export interface InvestmentOperationWrite {
   kind: InvestmentOperationKind;
   occurred_on: string;
   amount?: string;
+  principal_amount?: string;
+  income_amount?: string;
   quantity?: string | null;
   unit_price?: string | null;
   fees?: string | null;
@@ -2705,7 +2712,7 @@ const investmentOperationKeys = [
 ] as const;
 
 export function parseInvestmentOperation(value: unknown): InvestmentOperation {
-  const item = requiredRecord(value, investmentOperationKeys, "Movimentação de carteira inválida.");
+  const item = requiredRecordWithOptionalKeys(value, investmentOperationKeys, ["principal_amount", "income_amount"], "Movimentação de carteira inválida.");
   if (
     typeof item.id !== "string" ||
     !isUuid(item.id) ||
@@ -2731,6 +2738,8 @@ export function parseInvestmentOperation(value: unknown): InvestmentOperation {
     kind: item.kind as InvestmentOperationKind,
     occurred_on: item.occurred_on,
     amount: decimal(item.amount),
+    principal_amount: decimal(item.principal_amount ?? (item.kind === "redemption" ? undefined : "0")),
+    income_amount: decimal(item.income_amount ?? (item.kind === "redemption" ? undefined : "0")),
     quantity: nullableDecimal(item.quantity),
     unit_price: nullableDecimal(item.unit_price),
     fees: nullableDecimal(item.fees),

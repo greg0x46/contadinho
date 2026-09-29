@@ -62,3 +62,19 @@ func TestInvestmentAllocationSeparatesReportingFromCash(t *testing.T) {
 		})
 	}
 }
+
+func TestRedemptionReplacementPreservesCashAndUnmatchedRemainder(t *testing.T) {
+	v := view{classification: money.Inflow, included: true,
+		effective: &money.EffectiveMoney{Value: decimal.RequireFromString("1125"), CurrencyCode: "BRL"}}
+	v.applyRedemptionReplacement(decimal.RequireFromString("1075"))
+	item := toItem(v)
+	if item.EffectiveMoney.Value != "1125" || item.ReportableAmount == nil ||
+		*item.ReportableAmount != "50" || item.InvestmentTransferAmount != "0" || !item.TotalsEligibility.MovesCash() {
+		t.Fatalf("replacement changed principal or cash: %+v", item)
+	}
+	v.applyRedemptionReplacement(decimal.RequireFromString("2000"))
+	item = toItem(v)
+	if *item.ReportableAmount != "0" || !item.TotalsEligibility.MovesCash() {
+		t.Fatalf("provider correction: %+v", item)
+	}
+}

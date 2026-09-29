@@ -51,6 +51,7 @@ const (
 	OperationInitialBalance OperationKind = "initial_balance"
 	OperationDeposit        OperationKind = "deposit"
 	OperationWithdrawal     OperationKind = "withdrawal"
+	OperationRedemption     OperationKind = "redemption"
 	OperationBuy            OperationKind = "buy"
 	OperationSell           OperationKind = "sell"
 	OperationIncome         OperationKind = "income"
@@ -63,7 +64,7 @@ const (
 
 func (k OperationKind) Valid() bool {
 	switch k {
-	case OperationInitialBalance, OperationDeposit, OperationWithdrawal,
+	case OperationInitialBalance, OperationDeposit, OperationWithdrawal, OperationRedemption,
 		OperationBuy, OperationSell, OperationIncome, OperationFee,
 		OperationTax, OperationValuation, OperationTransferOut, OperationTransferIn:
 		return true
@@ -151,22 +152,24 @@ type Position struct {
 }
 
 type Operation struct {
-	ID         string
-	AccountID  string
-	PositionID *string
-	TransferID *string
-	Kind       OperationKind
-	OccurredOn time.Time
-	Amount     decimal.Decimal
-	Quantity   *decimal.Decimal
-	UnitPrice  *decimal.Decimal
-	Fees       decimal.Decimal
-	Taxes      decimal.Decimal
-	Notes      *string
-	Source     string
-	IsEditable bool
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID              string
+	AccountID       string
+	PositionID      *string
+	TransferID      *string
+	Kind            OperationKind
+	OccurredOn      time.Time
+	Amount          decimal.Decimal
+	PrincipalAmount decimal.Decimal
+	IncomeAmount    decimal.Decimal
+	Quantity        *decimal.Decimal
+	UnitPrice       *decimal.Decimal
+	Fees            decimal.Decimal
+	Taxes           decimal.Decimal
+	Notes           *string
+	Source          string
+	IsEditable      bool
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type Reconciliation struct {
@@ -218,16 +221,18 @@ type PositionUpdate struct {
 }
 
 type OperationInput struct {
-	AccountID  string
-	PositionID *string
-	Kind       OperationKind
-	OccurredOn time.Time
-	Amount     decimal.Decimal
-	Quantity   *decimal.Decimal
-	UnitPrice  *decimal.Decimal
-	Fees       decimal.Decimal
-	Taxes      decimal.Decimal
-	Notes      *string
+	AccountID       string
+	PositionID      *string
+	Kind            OperationKind
+	OccurredOn      time.Time
+	Amount          decimal.Decimal
+	PrincipalAmount decimal.Decimal
+	IncomeAmount    decimal.Decimal
+	Quantity        *decimal.Decimal
+	UnitPrice       *decimal.Decimal
+	Fees            decimal.Decimal
+	Taxes           decimal.Decimal
+	Notes           *string
 }
 
 type TransferInput struct {
@@ -280,11 +285,13 @@ type Summary struct {
 // It never changes the cash curve, which is why consumers must keep it
 // distinct from actual financial_transactions.
 type ManualReportingEntry struct {
-	ID         string
-	AccountID  string
-	Kind       OperationKind
-	OccurredOn time.Time
-	Amount     decimal.Decimal
+	// Detailed redemptions replace a bank parcel when linked.
+	FinancialTransactionID *string
+	ID                     string
+	AccountID              string
+	Kind                   OperationKind
+	OccurredOn             time.Time
+	Amount                 decimal.Decimal
 }
 
 type ManualReporting struct {

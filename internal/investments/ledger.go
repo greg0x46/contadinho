@@ -109,6 +109,9 @@ func validateOperationShape(op Operation) error {
 		op.Fees.IsNegative() || op.Taxes.IsNegative() {
 		return ErrInvalidInput
 	}
+	if op.Kind != OperationRedemption && (!op.PrincipalAmount.IsZero() || !op.IncomeAmount.IsZero()) {
+		return ErrInvalidInput
+	}
 	hasPosition := op.PositionID != nil && *op.PositionID != ""
 	hasQuantity := op.Quantity != nil
 	hasUnitPrice := op.UnitPrice != nil
@@ -132,6 +135,9 @@ func validateOperationShape(op Operation) error {
 		valid = !hasQuantity && !hasUnitPrice && op.Fees.IsZero() && op.Taxes.IsZero() && op.Amount.IsPositive()
 	case OperationDeposit, OperationWithdrawal, OperationIncome, OperationFee, OperationTax:
 		valid = !hasPosition && op.Amount.IsPositive() && noExtras()
+	case OperationRedemption:
+		valid = !hasQuantity && !hasUnitPrice && op.PrincipalAmount.IsPositive() && !op.IncomeAmount.IsNegative() && op.Amount.IsPositive() &&
+			op.Amount.Equal(op.PrincipalAmount.Add(op.IncomeAmount).Sub(op.Fees).Sub(op.Taxes))
 	case OperationBuy, OperationSell:
 		valid = hasPosition && hasQuantity && op.Amount.IsPositive()
 	case OperationTransferOut, OperationTransferIn:
@@ -222,6 +228,24 @@ func applyOperation(ledger *accountLedger, op Operation) error {
 		ledger.cash = ledger.cash.Add(op.Amount)
 	case OperationWithdrawal:
 		ledger.cash = ledger.cash.Sub(op.Amount)
+	case OperationRedemption:
+		p, err := position()
+		if err != nil {
+			return err
+		}
+		if !p.totalCost.IsPositive() || p.totalCost.LessThan(op.PrincipalAmount) {
+			return fmt.Errorf("operation %s: %w", op.ID, ErrNegativePosition)
+		}
+		remainingCost := p.totalCost.Sub(op.PrincipalAmount)
+		if remainingCost.IsZero() {
+			p.quantity = decimal.Zero
+		} else {
+			p.quantity = p.quantity.Mul(remainingCost).Div(p.totalCost)
+			if !p.quantity.IsPositive() {
+				return ErrInvalidInput
+			}
+		}
+		p.totalCost = remainingCost
 	case OperationBuy:
 		p, err := position()
 		if err != nil {
@@ -286,10 +310,11 @@ func scanOperation(row interface{ Scan(...any) error }) (Operation, error) {
 		positionID, transferID, quantityRaw, unitPriceRaw, notesRaw sql.NullString
 		occurredOnRaw, amountRaw, feesRaw, taxesRaw                 string
 		createdAtRaw, updatedAtRaw                                  string
+		principalRaw, incomeRaw                                     string
 	)
 	if err := row.Scan(&op.ID, &op.AccountID, &positionID, &transferID, &op.Kind, &occurredOnRaw, &amountRaw,
 		&quantityRaw, &unitPriceRaw, &feesRaw, &taxesRaw, &notesRaw, &op.Source,
-		&createdAtRaw, &updatedAtRaw); err != nil {
+		&createdAtRaw, &updatedAtRaw, &principalRaw, &incomeRaw); err != nil {
 		return Operation{}, err
 	}
 	if positionID.Valid {
@@ -312,7 +337,7 @@ func scanOperation(row interface{ Scan(...any) error }) (Operation, error) {
 		raw string
 		dst *decimal.Decimal
 	}{
-		{amountRaw, &op.Amount}, {feesRaw, &op.Fees}, {taxesRaw, &op.Taxes},
+		{principalRaw, &op.PrincipalAmount}, {incomeRaw, &op.IncomeAmount}, {amountRaw, &op.Amount}, {feesRaw, &op.Fees}, {taxesRaw, &op.Taxes},
 	} {
 		if *item.dst, err = decimal.NewFromString(item.raw); err != nil {
 			return Operation{}, err

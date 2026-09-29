@@ -10,6 +10,7 @@ import type {
   InvestmentPosition,
 } from "../../api/contracts";
 import { isZeroDecimal, multiplyDecimals, subtractDecimals, sumDecimals } from "../../presentation/decimal";
+import { formatBRL } from "../../presentation/money";
 import { investmentOperationKindLabel } from "../../presentation/investmentWorkspaceLabels";
 
 type Draft = {
@@ -18,6 +19,8 @@ type Draft = {
   kind: InvestmentOperationKind;
   occurredOn: Dayjs;
   amount: string | null;
+  principal: string | null;
+  income: string | null;
   quantity: string | null;
   unitPrice: string | null;
   fees: string | null;
@@ -32,10 +35,12 @@ function blankDraft(accounts: InvestmentAccount[], initial?: Partial<InvestmentO
     kind: initial?.kind ?? "deposit",
     occurredOn: initial?.occurred_on ? dayjs(initial.occurred_on) : dayjs(),
     amount: initial?.amount ?? null,
+    principal: initial?.principal_amount ?? null,
+    income: initial?.income_amount ?? "0",
     quantity: initial?.quantity ?? null,
     unitPrice: initial?.unit_price ?? null,
-    fees: initial?.fees ?? null,
-    taxes: initial?.taxes ?? null,
+    fees: initial?.fees ?? "0",
+    taxes: initial?.taxes ?? "0",
     notes: initial?.notes ?? "",
   };
 }
@@ -52,6 +57,8 @@ function draftFrom(
     kind: operation.kind,
     occurredOn: dayjs(operation.occurred_on),
     amount: isDerivedAmount(operation) ? null : operation.amount,
+    principal: operation.principal_amount,
+    income: operation.income_amount,
     quantity: operation.quantity,
     unitPrice: operation.unit_price,
     fees: operation.fees,
@@ -100,6 +107,7 @@ export function InvestmentOperationForm({
   onCancel,
   onSubmitCompound,
   allowedKinds,
+  expectedNetAmount,
 }: {
   open: boolean;
   operation: InvestmentOperation | null;
@@ -112,6 +120,7 @@ export function InvestmentOperationForm({
   onCancel: () => void;
   onSubmitCompound?: (writes: InvestmentOperationWrite[]) => void;
   allowedKinds?: InvestmentOperationKind[];
+  expectedNetAmount?: string;
 }) {
   const [draft, setDraft] = useState<Draft>(() => draftFrom(operation, accounts, initial ?? undefined));
   const [error, setError] = useState<string | null>(null);
@@ -121,8 +130,12 @@ export function InvestmentOperationForm({
   const [amountTouched, setAmountTouched] = useState(false);
   const integrated = accounts.find((account) => account.id === draft.accountId)?.kind === "integrated";
   const isEditing = operation !== null;
+  const isRedemption = draft.kind === "redemption";
+  const gross = sumDecimals([draft.principal ?? "0", draft.income ?? "0"]);
+  const net = subtractDecimals(gross, sumDecimals([draft.fees ?? "0", draft.taxes ?? "0"]));
+
   const isTrade = tradeKinds.includes(draft.kind) || (draft.kind === "initial_balance" && draft.positionId !== null);
-  const needsPosition = kindsNeedingPosition.includes(draft.kind) || (draft.kind === "initial_balance" && draft.positionId !== null);
+  const needsPosition = (isRedemption && !integrated) || kindsNeedingPosition.includes(draft.kind) || (draft.kind === "initial_balance" && draft.positionId !== null);
 
   // Callers pass `initial` as a fresh literal on every render and `accounts`
   // changes identity on every refetch. Neither should wipe what the person
@@ -167,7 +180,7 @@ export function InvestmentOperationForm({
     }));
 
   const setDecimal = (
-    field: "amount" | "quantity" | "unitPrice" | "fees" | "taxes",
+    field: "amount" | "principal" | "income" | "quantity" | "unitPrice" | "fees" | "taxes",
     value: string | number | null,
   ) => {
     const next = value === null ? null : String(value);
@@ -189,7 +202,7 @@ export function InvestmentOperationForm({
       setError("Informe quantidade e preço unitário maiores que zero.");
       return;
     }
-    if (!isTrade && draft.kind !== "valuation" && !greaterThanZero(draft.amount)) {
+    if (!isRedemption && !isTrade && draft.kind !== "valuation" && !greaterThanZero(draft.amount)) {
       setError("Informe um valor maior que zero.");
       return;
     }
@@ -201,17 +214,29 @@ export function InvestmentOperationForm({
       setError("Taxas e impostos não podem ser negativos.");
       return;
     }
+    if (isRedemption) {
+      if (!greaterThanZero(draft.principal) || draft.income === null || isNegative(draft.income) || !greaterThanZero(net)) {
+        setError("Informe o aporte resgatado e um valor líquido maiores que zero, com rendimento não negativo.");
+        return;
+      }
+      if (expectedNetAmount !== undefined && !isZeroDecimal(subtractDecimals(net, expectedNetAmount))) {
+        setError("O valor líquido deve ser igual ao valor a vincular do extrato.");
+        return;
+      }
+    }
     setError(null);
     const write: InvestmentOperationWrite = {
       account_id: draft.accountId,
       position_id: needsPosition ? draft.positionId : null,
       kind: draft.kind,
       occurred_on: draft.occurredOn.format("YYYY-MM-DD"),
-      amount: draft.amount ?? undefined,
+      amount: isRedemption ? undefined : draft.amount ?? undefined,
+      principal_amount: isRedemption ? draft.principal! : undefined,
+      income_amount: isRedemption ? draft.income! : undefined,
       quantity: isTrade ? draft.quantity : null,
       unit_price: isTrade ? draft.unitPrice : null,
-      fees: isTrade ? draft.fees : null,
-      taxes: isTrade ? draft.taxes : null,
+      fees: isTrade || isRedemption ? draft.fees : null,
+      taxes: isTrade || isRedemption ? draft.taxes : null,
       notes: draft.notes.trim() || null,
     };
     if (funding && isTrade && draft.kind === "buy" && onSubmitCompound && !isEditing) {
@@ -266,7 +291,7 @@ export function InvestmentOperationForm({
           <Select
             id="investment-operation-kind"
             value={draft.kind}
-            options={kindOptions.filter(({ value }) => (!allowedKinds || allowedKinds.includes(value)) && (!integrated || ["deposit", "withdrawal", "income", "fee", "tax"].includes(value)))}
+            options={kindOptions.filter(({ value }) => (!allowedKinds || allowedKinds.includes(value)) && (!integrated || ["deposit", "withdrawal", "redemption", "income", "fee", "tax"].includes(value)))}
             disabled={isEditing}
             onChange={(value: InvestmentOperationKind) =>
               setDraft((current) => ({ ...current, kind: value }))
@@ -303,7 +328,40 @@ export function InvestmentOperationForm({
             onChange={(value) => value && setDraft((current) => ({ ...current, occurredOn: value }))}
           />
         </div>
-        {isTrade ? (
+        {isRedemption ? (
+          <>
+            {([
+              ["principal", "Aporte resgatado"],
+              ["income", "Rendimento bruto"],
+              ["fees", "Taxas"],
+              ["taxes", "Impostos"],
+            ] as const).map(([field, label]) => (
+              <div className="filter-field" key={field}>
+                <label htmlFor={`investment-operation-${field}`}>{label}</label>
+                <InputNumber
+                  id={`investment-operation-${field}`}
+                  style={{ width: "100%" }}
+                  min="0"
+                  step="0.01"
+                  stringMode
+                  decimalSeparator=","
+                  value={draft[field]}
+                  onChange={(value) => setDecimal(field, value)}
+                />
+              </div>
+            ))}
+            <Typography.Text>Valor bruto: {formatBRL(gross)}</Typography.Text>
+            <Typography.Text strong>Valor líquido: {formatBRL(net)}</Typography.Text>
+            {expectedNetAmount !== undefined && (
+              <Typography.Text type={isZeroDecimal(subtractDecimals(net, expectedNetAmount)) ? "success" : "warning"}>
+                Valor a vincular no extrato: {formatBRL(expectedNetAmount)}
+              </Typography.Text>
+            )}
+            {!integrated && <Typography.Text type="secondary">
+              O aporte resgatado reduz o custo da posição. A quantidade restante é calculada proporcionalmente.
+            </Typography.Text>}
+          </>
+        ) : isTrade ? (
           <>
             <Flex gap="middle" wrap>
               <div className="filter-field" style={{ flex: 1, minWidth: 150 }}>

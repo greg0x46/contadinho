@@ -117,27 +117,28 @@ type CardInfo struct {
 // derived field (classification, effective money, eligibility, group key)
 // already resolved so the HTTP layer never has to re-run domain logic.
 type Item struct {
-	ID                       string
-	ExternalID               string
-	Origin                   string
-	OccurredAt               *time.Time
-	Description              *string
-	Account                  AccountSummary
-	SourceCategory           *string
-	InternalCategory         *InternalCategory
-	MovementType             *string
-	ProviderStatus           *string
-	Classification           money.Classification
-	Amount                   *string
-	CurrencyCode             *string
-	AmountInAccountCurrency  *string
-	EffectiveMoney           *EffectiveMoneyView
-	InvestmentTransferAmount string
-	ReportableAmount         *string
-	Card                     *CardInfo
-	Inclusion                Inclusion
-	TotalsEligibility        TotalsEligibility
-	GroupKey                 string
+	ID                         string
+	ExternalID                 string
+	Origin                     string
+	OccurredAt                 *time.Time
+	Description                *string
+	Account                    AccountSummary
+	SourceCategory             *string
+	InternalCategory           *InternalCategory
+	MovementType               *string
+	ProviderStatus             *string
+	Classification             money.Classification
+	Amount                     *string
+	CurrencyCode               *string
+	AmountInAccountCurrency    *string
+	EffectiveMoney             *EffectiveMoneyView
+	InvestmentTransferAmount   string
+	InvestmentRedemptionAmount string
+	ReportableAmount           *string
+	Card                       *CardInfo
+	Inclusion                  Inclusion
+	TotalsEligibility          TotalsEligibility
+	GroupKey                   string
 }
 
 type CurrencyTotals struct {

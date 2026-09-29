@@ -5,7 +5,7 @@ import * as api from "../../api/investmentPortfolio";
 import * as legacyApi from "../../api/investments";
 import { QueryTestProvider } from "../../test/QueryTestProvider";
 import { transactionResult } from "../../test/transactionFixtures";
-import { depositOperation, integratedAccount, manualAccount, summary, syncedPosition } from "../../test/investmentWorkspaceFixtures";
+import { depositOperation, integratedAccount, manualAccount, manualPosition, summary, syncedPosition } from "../../test/investmentWorkspaceFixtures";
 import type { InvestmentTransaction, TransactionItem } from "../../api/contracts";
 import { InvestmentReconciliationSection } from "./InvestmentReconciliationSection";
 
@@ -116,4 +116,43 @@ describe("investment reconciliation",()=>{
   expect(screen.queryByRole("button",{name:"Vincular a investimento"})).not.toBeInTheDocument();
   expect(screen.getByText(/não está disponível em reais/)).toBeVisible();
  });
+ it("creates a detailed redemption from a bank inflow with the exact net parcel", async () => {
+  vi.mocked(api.listInvestmentPositions).mockResolvedValue([manualPosition]);
+  vi.mocked(api.createInvestmentOperations).mockResolvedValue([]);
+  const user = userEvent.setup();
+  show({...transaction, classification: "inflow", effective_money: {value:"1075", currency_code:"BRL", source:"account_currency"}});
+  await user.click(await screen.findByRole("button", {name:"Vincular a investimento"}));
+  await user.click(screen.getByRole("button", {name:"Nova movimentação"}));
+  await user.click(screen.getByLabelText("Posição"));
+  const menu = document.querySelector(".ant-select-dropdown:not(.ant-select-dropdown-hidden)")!;
+  await user.click(within(menu as HTMLElement).getByText(manualPosition.name));
+  await user.type(screen.getByLabelText("Aporte resgatado"), "1000");
+  await user.clear(screen.getByLabelText("Rendimento bruto"));
+  await user.type(screen.getByLabelText("Rendimento bruto"), "100");
+  await user.clear(screen.getByLabelText("Taxas"));
+  await user.type(screen.getByLabelText("Taxas"), "5");
+  await user.clear(screen.getByLabelText("Impostos"));
+  await user.type(screen.getByLabelText("Impostos"), "20");
+  await user.click(screen.getByRole("button", {name:"Salvar"}));
+  await waitFor(() => expect(api.createInvestmentOperations).toHaveBeenCalledWith({
+    operations: [expect.objectContaining({kind:"redemption", principal_amount:"1000", income_amount:"100", fees:"5", taxes:"20", position_id:manualPosition.id})],
+    reconciliation: {financial_transaction_id:transaction.id, financial_investment_transaction_id:null, amount:"1075.00"},
+  }));
+ });
+
+ it("shows an existing detailed redemption without opening the linking drawer", async () => {
+  const redemption = {...operation, kind:"redemption" as const, amount:"1075",
+    principal_amount:"1000", income_amount:"100", fees:"5", taxes:"20"};
+  vi.mocked(api.listInvestmentOperations).mockResolvedValue([redemption]);
+  vi.mocked(api.listInvestmentReconciliations).mockResolvedValue([{
+    id:"link", operation_id:redemption.id, financial_transaction_id:transaction.id,
+    financial_investment_transaction_id:null, amount:"1075", created_at:"2026-07-17T12:00:00Z",
+  }]);
+  show({...transaction, classification:"inflow", investment_transfer_amount:"0", investment_redemption_amount:"1075",
+    reportable_amount:"0", effective_money:{value:"1075",currency_code:"BRL",source:"account_currency"}});
+  expect(await screen.findByText(/Aporte R\$ 1\.000,00 · Rendimento bruto R\$ 100,00/)).toBeVisible();
+  expect(screen.getByText(/Taxas R\$ 5,00 · Impostos R\$ 20,00/)).toBeVisible();
+  expect(screen.getByRole("button", {name:"Desvincular"})).toBeVisible();
+ });
+
 });

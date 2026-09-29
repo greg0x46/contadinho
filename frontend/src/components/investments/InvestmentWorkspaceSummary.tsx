@@ -3,7 +3,7 @@ import { Alert, Card } from "antd";
 import type { InvestmentOperation, InvestmentSummary } from "../../api/contracts";
 import { formatBRL } from "../../presentation/money";
 import { InvestmentFigures } from "./InvestmentFigures";
-import { accountMovements } from "./investmentFigures";
+import { accountMovements } from "./investmentFormatting";
 
 export function InvestmentWorkspaceSummary({
   summary,

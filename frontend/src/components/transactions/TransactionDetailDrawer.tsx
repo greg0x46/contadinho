@@ -18,7 +18,7 @@ import {
   inclusionOriginLabel,
 } from "../../presentation/transactionStatus";
 import { InvestmentReconciliationSection } from "../investments/InvestmentReconciliationSection";
-import { isZeroBRL } from "../investments/investmentFigures";
+import { isZeroBRL } from "../investments/investmentFormatting";
 import { TransactionReconciliationSection } from "./TransactionReconciliationSection";
 
 function detailValue(item: TransactionItem): string {

@@ -12,7 +12,7 @@ import { formatBRL, sumBRL } from "../../presentation/money";
 import { InvestmentFigures } from "./InvestmentFigures";
 import { InvestmentOperationsTable } from "./InvestmentOperationsTable";
 import { InvestmentPositionsTable } from "./InvestmentPositionsTable";
-import { accountMovements, formatDate, latestDate } from "./investmentFigures";
+import { accountMovements, formatDate, latestDate } from "./investmentFormatting";
 
 export function InvestmentAccountCard({
   account,

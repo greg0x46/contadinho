@@ -28,6 +28,10 @@ func GetItem(ctx context.Context, q Querier, id string) (item Item, found bool, 
 	if err != nil {
 		return Item{}, false, err
 	}
+	redemptions, err := investments.ReconciledRedemptionAmounts(ctx, q, &id)
+	if err != nil {
+		return Item{}, false, err
+	}
 	periodBasis, err := settings.GetTransactionsPeriodBasis(ctx, q)
 	if err != nil {
 		return Item{}, false, fmt.Errorf("read transactions period basis preference: %w", err)
@@ -64,5 +68,6 @@ func GetItem(ctx context.Context, q Querier, id string) (item Item, found bool, 
 		return Item{}, false, err
 	}
 	v.applyInvestmentTransfer(transfer)
+	v.applyRedemptionReplacement(redemptions[id])
 	return toItem(v), true, nil
 }

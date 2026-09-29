@@ -553,6 +553,18 @@ func TestPostgresInvestmentLedger(t *testing.T) {
 	if _, err = investments.UpdateOperation(ctx, conn, operations[0].ID, investments.OperationInput{AccountID: account.ID, Kind: investments.OperationDeposit, OccurredOn: day(1), Amount: dec("500")}); !errors.Is(err, investments.ErrNegativeCash) {
 		t.Fatalf("correction = %v", err)
 	}
+	redemption, err := investments.CreateOperation(ctx, conn, investments.OperationInput{
+		AccountID: account.ID, PositionID: &position.ID, Kind: investments.OperationRedemption,
+		OccurredOn: day(2), PrincipalAmount: dec("500"), IncomeAmount: dec("50"), Fees: dec("2"), Taxes: dec("8"),
+	})
+	if err != nil || !redemption.Amount.Equal(dec("540")) {
+		t.Fatalf("redemption=%+v err=%v", redemption, err)
+	}
+	position, err = investments.GetPosition(ctx, conn, position.ID)
+	if err != nil || !position.Quantity.Equal(dec("5")) || !position.TotalCost.Equal(dec("500")) {
+		t.Fatalf("redeemed position=%+v err=%v", position, err)
+	}
+
 }
 
 // TestTransferCarriesCostAsOfItsDate: a transfer dated between two purchases
