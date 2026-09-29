@@ -1,0 +1,16 @@
+/* Expanded body of a scenario row — see StandaloneScenarioCard.tsx. */
+
+.scenario-panel {
+  padding: 0.75rem;
+}
+
+.scenario-panel-counts {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.scenario-panel-new-transaction {
+  margin-top: 0.75rem;
+}

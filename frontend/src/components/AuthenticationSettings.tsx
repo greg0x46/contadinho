@@ -28,8 +28,8 @@ export function AuthenticationSettings() {
       setError(err instanceof Error ? err.message : "Não foi possível alterar a autenticação.");
     } finally { setBusy(false); }
   };
-  if (isLoading || !session) return <Card title="Acesso" style={{ marginBottom: 24 }}><Skeleton active /></Card>;
-  if (!session.authentication_enabled) return <Card title="Acesso" style={{ marginBottom: 24 }}>
+  if (isLoading || !session) return <Card title="Acesso"><Skeleton active /></Card>;
+  if (!session.authentication_enabled) return <Card title="Acesso">
     <Flex vertical gap="middle" style={{ maxWidth: 560 }}>
       {error && <Alert type="error" message={error} showIcon />}
       <Alert
@@ -48,7 +48,7 @@ export function AuthenticationSettings() {
       </Button>
     </Flex>
   </Card>;
-  return <Card title="Acesso" style={{ marginBottom: 24 }}>
+  return <Card title="Acesso">
     <form onSubmit={(event) => {
       event.preventDefault();
       if (password !== confirmation) { setError("As senhas não coincidem."); return; }

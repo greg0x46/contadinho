@@ -12,6 +12,7 @@ export function HomePage() {
   return (
     <Page
       title="Início"
+      compactMobileHeader
       context={
         <PeriodNavigator
           id="home-period"

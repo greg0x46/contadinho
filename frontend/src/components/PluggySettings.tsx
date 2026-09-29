@@ -1,4 +1,4 @@
-import { Alert, Button, Card, Flex, Input } from "antd";
+import { Alert, Button, Flex, Input } from "antd";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../api/transport";
@@ -21,7 +21,7 @@ export function PluggySettings() {
     } catch (err) { setError(err instanceof Error ? err.message : "Não foi possível salvar."); }
     finally { setBusy(false); }
   };
-  return <Card title="Credenciais da Pluggy" style={{ marginBottom: 24 }}>
+  return (
     <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
       <Flex vertical gap="middle" style={{ maxWidth: 440 }}>
         <p>Preencha para configurar ou substituir as credenciais. Os valores salvos não são exibidos.</p>
@@ -36,5 +36,5 @@ export function PluggySettings() {
         <Button htmlType="submit" loading={busy}>Salvar credenciais</Button>
       </Flex>
     </form>
-  </Card>;
+  );
 }
