@@ -1,3 +1,4 @@
+import { UploadOutlined } from "@ant-design/icons";
 import { Alert, Button } from "antd";
 import { useNavigate } from "react-router-dom";
 
@@ -5,12 +6,14 @@ import type { Account } from "../api/contracts";
 import { AccountsSummary } from "../components/accounts/AccountsSummary";
 import { BankAccountList } from "../components/accounts/BankAccountList";
 import { CreditCardList } from "../components/accounts/CreditCardList";
-import { Page } from "../components/layout";
+import { BottomActionBar, Page } from "../components/layout";
+import { useCompactScreen } from "../components/shared/useCompactScreen";
 import { useAccounts } from "../hooks/useAccounts";
 
 export function AccountsPage() {
   const accounts = useAccounts();
   const navigate = useNavigate();
+  const compact = useCompactScreen();
 
   const openDetail = (account: Account) => navigate(`/contas-e-cartoes/${account.id}`);
   // Accounts with no type at all are bank accounts for display purposes:
@@ -19,12 +22,22 @@ export function AccountsPage() {
   const bank = accounts.accounts.filter((account) => account.account_type !== "CREDIT");
   const credit = accounts.accounts.filter((account) => account.account_type === "CREDIT");
 
+  // The compact header hides page actions on a phone, so the import action
+  // moves to the bottom bar there.
+  const importAction = (
+    <Button icon={<UploadOutlined />} onClick={() => navigate("/contas-e-cartoes/importar")}>
+      Importar extrato
+    </Button>
+  );
+
   return (
     <Page
       title="Contas e cartões"
-      description="Saldo, limite e detalhes de cada conta importada automaticamente da sua instituição financeira"
+      description="Saldos e detalhes das suas contas conectadas e importadas por arquivo"
+      actions={importAction}
       className="accounts-page"
       compactMobileHeader
+      hasBottomActionBar
     >
       {accounts.error && (
         <Alert
@@ -40,6 +53,7 @@ export function AccountsPage() {
         <BankAccountList accounts={bank} isLoading={accounts.isLoading} onOpen={openDetail} />
         <CreditCardList accounts={credit} isLoading={accounts.isLoading} onOpen={openDetail} />
       </div>
+      {compact && <BottomActionBar>{importAction}</BottomActionBar>}
     </Page>
   );
 }

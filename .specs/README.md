@@ -36,7 +36,7 @@ Diferente dos specs de design (próxima seção), estes são **docs vivos** —
 devem ser atualizados sempre que a feature correspondente muda, no mesmo
 commit/PR da mudança. Um `reference.md` desatualizado é pior que nenhum.
 
-Contextos existentes hoje: `sincronizacao-open-banking`, `transacoes`,
+Contextos existentes hoje: `sincronizacao-open-banking`, `importacao-extratos`, `transacoes`,
 `categorias`, `automacao`, `pendencias`, `cenarios`, `recorrencias`,
 `home`, `patrimonio-liquido`, `configuracoes-autenticacao`.
 
@@ -45,7 +45,8 @@ manuais e conciliação de aportes/resgates com o extrato.
 
 ### Specs de design soltos em `.specs/` (`<feature>.md` [+ `<feature>/mN-*.md`])
 
-Nenhum existe no momento — os specs de feature anteriores
+O plano de [importação de extratos](importacao-extratos.md) está em aberto.
+Os specs de feature anteriores
 (`relatorio-financeiro.md` e milestones, `plano-pagamento-e-cenarios-
 projecao.md`) foram removidos por já estarem cobertos pelos `reference.md`
 correspondentes (`contextos/home/`, `contextos/pendencias/`,

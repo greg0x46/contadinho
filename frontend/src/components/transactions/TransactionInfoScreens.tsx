@@ -64,6 +64,7 @@ export function TransactionTechnicalScreen({ item }: { item: TransactionItem }) 
   return (
     <PanelSection>
       <Descriptions column={1} size="small" colon={false}>
+        <Descriptions.Item label="Origem">{item.origin === "manual" ? "Manual" : item.source_provider === "file" ? "Arquivo importado" : "Conexão automática"}</Descriptions.Item>
         <Descriptions.Item label="Identificador externo">{item.external_id}</Descriptions.Item>
         <Descriptions.Item label="Tipo original">{movementTypeLabel(item.movement_type)}</Descriptions.Item>
         <Descriptions.Item label="Valor original">

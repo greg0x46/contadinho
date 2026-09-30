@@ -69,7 +69,11 @@ function initialState(searchParams: URLSearchParams, period: Period): {
   return {
     filters: {
       ...defaults,
+      origin: value("origin") === "manual" || value("origin") === "synced"
+        ? value("origin") as "manual" | "synced" : null,
       card_balance: value("card_balance") === "true" ? true : null,
+      source_provider: value("source_provider") === "file" || value("source_provider") === "pluggy"
+        ? value("source_provider") as "file" | "pluggy" : null,
       credit_card: value("credit_card") === "true" ? true : null,
       date_from: period.from,
       date_to: period.to,

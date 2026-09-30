@@ -34,6 +34,9 @@ func TestCreateManualInsertsAnOriginManualRow(t *testing.T) {
 	if item.Origin != "manual" {
 		t.Errorf("Origin = %q, want manual", item.Origin)
 	}
+	if item.SourceProvider != nil {
+		t.Errorf("SourceProvider = %q, want nil for manual row", *item.SourceProvider)
+	}
 	if item.Classification != "outflow" {
 		t.Errorf("Classification = %q, want outflow", item.Classification)
 	}

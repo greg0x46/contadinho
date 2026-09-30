@@ -22,6 +22,7 @@ import (
 
 type transactionFiltersRequest struct {
 	Origin         *string `json:"origin"`
+	SourceProvider *string `json:"source_provider"`
 	CardBalance    *bool   `json:"card_balance"`
 	CreditCard     *bool   `json:"credit_card"`
 	DateFrom       *string `json:"date_from"`
@@ -96,6 +97,10 @@ func toFilters(req transactionFiltersRequest) (transactions.Filters, *Problem) {
 		return f, invalid("invalid-origin", "Origem inválida", "Use manual ou synced.")
 	}
 	f.Origin = req.Origin
+	if req.SourceProvider != nil && *req.SourceProvider != "file" && *req.SourceProvider != "pluggy" {
+		return f, invalid("invalid-source-provider", "Origem inválida", "Use file ou pluggy.")
+	}
+	f.SourceProvider = req.SourceProvider
 	if req.CardBalance != nil {
 		f.CardBalance = *req.CardBalance
 	}
@@ -203,6 +208,7 @@ type transactionItemDTO struct {
 	ID                       string               `json:"id"`
 	ExternalID               string               `json:"external_id"`
 	Origin                   string               `json:"origin"`
+	SourceProvider           *string              `json:"source_provider"`
 	OccurredAt               *time.Time           `json:"occurred_at"`
 	Description              *string              `json:"description"`
 	Account                  accountSummaryDTO    `json:"account"`
@@ -228,6 +234,7 @@ func toItemDTO(item transactions.Item) transactionItemDTO {
 		ID:             item.ID,
 		ExternalID:     item.ExternalID,
 		Origin:         item.Origin,
+		SourceProvider: item.SourceProvider,
 		OccurredAt:     item.OccurredAt,
 		Description:    item.Description,
 		SourceCategory: item.SourceCategory,

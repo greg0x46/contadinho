@@ -52,6 +52,9 @@ de autenticação independente da hospedagem:
   Pluggy periodicamente em busca de novas transações e dados de conta,
   registrados como execuções de sincronização auditáveis (histórico,
   métricas, falhas) em vez de uma importação caixa-preta.
+- **Importação de extratos** — envie um CSV Flash, confira a prévia por linha
+  e importe para uma conta de arquivo. Reenvios e períodos sobrepostos são
+  reconhecidos, com histórico de importações e avisos para dados inconsistentes.
 - **Transações** — lista de transações pesquisável/filtrável, inclusão/
   exclusão manual (ex.: ignorar um estorno ou uma duplicata) e
   categorização. Lançamentos também podem ser criados à mão numa conta já

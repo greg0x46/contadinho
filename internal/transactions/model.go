@@ -26,6 +26,7 @@ type Querier interface {
 // pair — matching the reference, setting just one has no effect.
 type Filters struct {
 	Origin         *string
+	SourceProvider *string
 	CardBalance    bool
 	CreditCard     bool
 	DateFrom       *money.Date
@@ -40,9 +41,9 @@ type Filters struct {
 	CategoryIDs      []string
 	Classification   *money.Classification
 	ProviderStatuses []string
-	AmountMin      *decimal.Decimal
-	AmountMax      *decimal.Decimal
-	Uncategorized  bool
+	AmountMin        *decimal.Decimal
+	AmountMax        *decimal.Decimal
+	Uncategorized    bool
 }
 
 // QueryRequest mirrors TransactionQuery.
@@ -124,6 +125,7 @@ type Item struct {
 	ID                       string
 	ExternalID               string
 	Origin                   string
+	SourceProvider           *string
 	OccurredAt               *time.Time
 	Description              *string
 	Account                  AccountSummary

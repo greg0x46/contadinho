@@ -47,11 +47,27 @@ func toDataSourceDTO(d datasources.DataSource) dataSourceDTO {
 	}
 }
 
+// getPluggySource is datasources.Get for the Open Banking connections screen:
+// a data source of another provider (the local accounts a statement import
+// creates) is reported as not found, so it can be neither read nor modified
+// through /api/data-sources. Get itself stays provider-agnostic because sync
+// runs need to see file sources to refuse them with their own error.
+func getPluggySource(r *http.Request, conn *sql.DB, id string) (datasources.DataSource, error) {
+	source, err := datasources.Get(r.Context(), conn, id)
+	if err != nil {
+		return datasources.DataSource{}, err
+	}
+	if source.Provider != datasources.ProviderPluggy {
+		return datasources.DataSource{}, datasources.ErrNotFound
+	}
+	return source, nil
+}
+
 // handleGetDataSource backs the Location header handleCreateDataSource sets,
 // and gives a client a way to re-read one connection without listing them all.
 func handleGetDataSource(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		source, err := datasources.Get(r.Context(), conn, r.PathValue("id"))
+		source, err := getPluggySource(r, conn, r.PathValue("id"))
 		if errors.Is(err, datasources.ErrNotFound) {
 			writeProblem(w, 404, "data-source-not-found", "Conexão não encontrada", "")
 			return
@@ -66,7 +82,7 @@ func handleGetDataSource(conn *sql.DB) http.HandlerFunc {
 
 func handleListDataSources(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		sources, err := datasources.List(r.Context(), conn)
+		sources, err := datasources.ListByProvider(r.Context(), conn, datasources.ProviderPluggy)
 		if err != nil {
 			writeProblem(w, 503, "data-sources-unavailable", "Conexões temporariamente indisponíveis", "Tente novamente em instantes.")
 			return
@@ -129,7 +145,18 @@ func handleUpdateDataSource(conn *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		source, err := datasources.Update(r.Context(), conn, r.PathValue("id"), trimmedLabel(req.Label), req.IsActive)
+		// Provider never changes after creation, so checking it up front cannot
+		// race with the update below.
+		id := r.PathValue("id")
+		if _, err := getPluggySource(r, conn, id); errors.Is(err, datasources.ErrNotFound) {
+			writeProblem(w, 404, "data-source-not-found", "Conexão não encontrada", "")
+			return
+		} else if err != nil {
+			writeProblem(w, 503, "data-sources-unavailable", "Conexões temporariamente indisponíveis", "Tente novamente em instantes.")
+			return
+		}
+
+		source, err := datasources.Update(r.Context(), conn, id, trimmedLabel(req.Label), req.IsActive)
 		if errors.Is(err, datasources.ErrNotFound) {
 			writeProblem(w, 404, "data-source-not-found", "Conexão não encontrada", "")
 			return

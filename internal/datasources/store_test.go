@@ -74,6 +74,25 @@ func TestCreateStoresAnEmptyLabelAsNoLabel(t *testing.T) {
 	}
 }
 
+func TestListActiveOnlyReturnsPluggyConnections(t *testing.T) {
+	conn := newConn(t)
+	ctx := context.Background()
+	pluggy, err := datasources.Create(ctx, conn, datasources.ProviderPluggy, "item-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := datasources.Create(ctx, conn, datasources.ProviderFile, "local-account-1", nil); err != nil {
+		t.Fatal(err)
+	}
+	sources, err := datasources.ListActive(ctx, conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) != 1 || sources[0].ID != pluggy.ID {
+		t.Fatalf("active sync sources = %+v, want only Pluggy", sources)
+	}
+}
+
 // Re-adding the same item would give its accounts a second identity rather
 // than a second connection, so it has to be a typed conflict the API can turn
 // into a 409 rather than a generic failure.
@@ -172,5 +191,51 @@ func TestListActiveExcludesRetiredConnectionsButListKeepsThem(t *testing.T) {
 	}
 	if len(active) != 1 || active[0].ExternalItemID != "item-2" {
 		t.Errorf("ListActive = %+v, want only the still-active connection", active)
+	}
+}
+
+// List keeps returning every provider (it is the unfiltered primitive), while
+// ListByProvider is what the connections screen uses to leave out the local
+// accounts a statement import creates.
+func TestListByProviderFiltersOutOtherProviders(t *testing.T) {
+	conn := newConn(t)
+	ctx := context.Background()
+	pluggy, err := datasources.Create(ctx, conn, datasources.ProviderPluggy, "item-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := datasources.Create(ctx, conn, datasources.ProviderFile, "local-account-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A retired connection is still a connection, so it stays in the list.
+	retired, err := datasources.Create(ctx, conn, datasources.ProviderPluggy, "item-2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := datasources.Update(ctx, conn, retired.ID, nil, boolp(false)); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := datasources.ListByProvider(ctx, conn, datasources.ProviderPluggy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ID != pluggy.ID || got[1].ID != retired.ID {
+		t.Fatalf("ListByProvider(pluggy) = %+v, want both Pluggy connections oldest first", got)
+	}
+	got, err = datasources.ListByProvider(ctx, conn, datasources.ProviderFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != file.ID {
+		t.Fatalf("ListByProvider(file) = %+v, want only the file source", got)
+	}
+	all, err := datasources.List(ctx, conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("List returned %d data sources, want all 3 regardless of provider", len(all))
 	}
 }

@@ -26,6 +26,7 @@ type row struct {
 	accountID               string
 	externalID              string
 	origin                  string
+	sourceProvider          *string
 	description             *string
 	amount                  *decimal.Decimal
 	amountInAccountCurrency *decimal.Decimal
@@ -89,7 +90,7 @@ type view struct {
 // DeleteManual) disappear from the ledger, totals, and GetItem alike.
 const viewSelect = `
 	SELECT
-		ft.id, ft.account_id, ft.external_id, ft.origin, ft.description, ft.amount,
+		ft.id, ft.account_id, ft.external_id, ft.origin, ds.provider, ft.description, ft.amount,
 		ft.amount_in_account_currency, ft.currency_code, ft.occurred_at,
 		ft.provider_status, ft.movement_type, ft.source_category, ft.credit_card_metadata,
 		fa.name, fa.institution, fa.currency_code, fa.account_type,
@@ -98,6 +99,7 @@ const viewSelect = `
 		cat.id, cat.name, cat.kind, cat.is_active, cat.icon, cat.color
 	FROM financial_transactions ft
 	JOIN financial_accounts fa ON fa.id = ft.account_id
+	LEFT JOIN data_sources ds ON ds.id = ft.source_id
 	LEFT JOIN transaction_inclusion_decisions tid ON tid.transaction_id = ft.id
 	LEFT JOIN transaction_category_decisions tcd ON tcd.transaction_id = ft.id
 	LEFT JOIN categories cat ON cat.id = tcd.category_id
@@ -196,6 +198,7 @@ func scanRow(rows *sql.Rows) (row, error) {
 	var (
 		r                          row
 		externalID                 sql.NullString
+		sourceProvider             sql.NullString
 		amount, amountAcct         sql.NullString
 		currencyCode               sql.NullString
 		occurredAt                 sql.NullString
@@ -223,7 +226,7 @@ func scanRow(rows *sql.Rows) (row, error) {
 		categoryColor              sql.NullString
 	)
 	err := rows.Scan(
-		&r.id, &r.accountID, &externalID, &r.origin, &description, &amount,
+		&r.id, &r.accountID, &externalID, &r.origin, &sourceProvider, &description, &amount,
 		&amountAcct, &currencyCode, &occurredAt,
 		&providerStatus, &movementType, &sourceCategory, &creditCardMetadata,
 		&accountName, &accountInstitution, &accountCurrencyCode, &accountType,
@@ -236,6 +239,7 @@ func scanRow(rows *sql.Rows) (row, error) {
 	}
 
 	r.externalID = externalID.String
+	r.sourceProvider = nullString(sourceProvider)
 	r.description = nullString(description)
 	r.currencyCode = nullString(currencyCode)
 	r.providerStatus = nullString(providerStatus)
@@ -376,6 +380,9 @@ func effectiveDate(r row, periodBasis string, billDueDates map[string]time.Time)
 // already-built view instead of as SQL predicates.
 func matches(v view, f Filters, bounds *dateBounds) bool {
 	if f.Origin != nil && v.row.origin != *f.Origin {
+		return false
+	}
+	if f.SourceProvider != nil && (v.row.sourceProvider == nil || *v.row.sourceProvider != *f.SourceProvider) {
 		return false
 	}
 	if f.CreditCard && (v.row.accountType == nil || *v.row.accountType != "CREDIT") {
@@ -619,6 +626,7 @@ func toItem(v view) Item {
 		ID:             r.id,
 		ExternalID:     r.externalID,
 		Origin:         r.origin,
+		SourceProvider: r.sourceProvider,
 		OccurredAt:     r.occurredAt,
 		Description:    r.description,
 		SourceCategory: r.sourceCategory,
