@@ -19,6 +19,7 @@ import { formatBRL } from "../../presentation/money";
 import { classificationLabel } from "../../presentation/transactionStatus";
 
 type Movement = "all" | "inflow" | "outflow";
+type ImportSource = "all" | "file" | "pluggy" | "manual";
 
 /** The chip: one name, or how many were picked ("3 contas"). */
 const chipSummary =
@@ -123,6 +124,26 @@ export function TransactionFilters({
         formatActive: () => "Fatura atual",
       },
       {
+        key: "origin",
+        label: "Origem",
+        type: "segmented",
+        placement: "advanced",
+        options: [{ value: "manual", label: "Manual" }],
+        formatActive: () => "Manual",
+      },
+      {
+        key: "source_provider",
+        label: "Origem",
+        type: "segmented",
+        placement: "advanced",
+        options: [
+          { value: "all", label: "Todas" },
+          { value: "file", label: "Arquivo" },
+          { value: "pluggy", label: "Conexão automática" },
+        ],
+        formatActive: (value) => value === "file" ? "Arquivo" : "Conexão automática",
+      },
+      {
         key: "account_ids",
         label: "Conta",
         type: "multiselect",
@@ -182,6 +203,7 @@ export function TransactionFilters({
         onApply({
           ...next,
           description: next.description?.trim() || null,
+          source_provider: (next.source_provider as string | null) === "all" ? null : next.source_provider,
           classification:
             (next.classification as string | null) === "all"
               ? null
@@ -226,6 +248,21 @@ export function TransactionFilters({
           </FilterSection>
 
           <FilterSection title="Organização">
+            <SegmentedControl<ImportSource>
+              id="filter-source_provider"
+              label="Origem"
+              value={draft.origin === "manual" ? "manual" : draft.source_provider === "file" || draft.source_provider === "pluggy" ? draft.source_provider : "all"}
+              options={[
+                { value: "all", label: "Todas" },
+                { value: "file", label: "Arquivo" },
+                { value: "pluggy", label: "Conexão automática" },
+                { value: "manual", label: "Manual" },
+              ]}
+              onChange={(value) => {
+                set("origin", value === "manual" ? "manual" : null);
+                set("source_provider", value === "file" || value === "pluggy" ? value : null);
+              }}
+            />
             <FilterField id="filter-account_ids" label="Conta">
               <FilterCombobox
                 multiple

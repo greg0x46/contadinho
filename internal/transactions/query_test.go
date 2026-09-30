@@ -108,6 +108,35 @@ func TestQueryFilterByAccount(t *testing.T) {
 	}
 }
 
+func TestQueryExposesAndFiltersSourceProvider(t *testing.T) {
+	f := newFixture(t)
+	f.exec(`UPDATE data_sources SET provider = 'file' WHERE id = ?`, f.sourceID)
+	acc := f.addAccount(account{CurrencyCode: strp("BRL")})
+	id := f.addTransaction(txn{AccountID: acc, Amount: strp("-10.00"), CurrencyCode: strp("BRL")})
+	file := "file"
+	result, err := transactions.Query(context.Background(), f.conn, transactions.QueryRequest{
+		Timezone: "UTC", GroupBy: money.GroupNone, Page: 1, PageSize: 50,
+		Filters: transactions.Filters{SourceProvider: &file},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 1 || result.Items[0].ID != id || result.Items[0].SourceProvider == nil || *result.Items[0].SourceProvider != "file" {
+		t.Fatalf("file items = %+v", result.Items)
+	}
+	pluggy := "pluggy"
+	result, err = transactions.Query(context.Background(), f.conn, transactions.QueryRequest{
+		Timezone: "UTC", GroupBy: money.GroupNone, Page: 1, PageSize: 50,
+		Filters: transactions.Filters{SourceProvider: &pluggy},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Page.TotalItems != 0 {
+		t.Fatalf("pluggy filter returned %d file items", result.Page.TotalItems)
+	}
+}
+
 func TestQueryFilterByCategoriesAndStatuses(t *testing.T) {
 	f := newFixture(t)
 	acc := f.addAccount(account{CurrencyCode: strp("BRL")})

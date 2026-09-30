@@ -5,7 +5,39 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"contadinho-go/internal/db"
 )
+
+func TestSyncRunsRejectFileSources(t *testing.T) {
+	srv, conn := newTestServer(t)
+	now := db.FormatTime(time.Now())
+	if _, err := conn.Exec(`INSERT INTO data_sources (id, provider, external_item_id, created_at, updated_at)
+		VALUES ('file-source', 'file', 'local-1', ?, ?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/sync-runs", map[string]any{"source_id": "file-source"})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("file sync status = %d, want 409", resp.StatusCode)
+	}
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/sync-runs", nil)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("all sync status = %d, want 409 without Pluggy sources", resp.StatusCode)
+	}
+	if _, err := conn.Exec(`INSERT INTO sync_runs (id, source_id, run_type, status, started_at, finished_at)
+		VALUES ('file-run', 'file-source', 'file_import', 'completed', ?, ?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/sync-runs", nil)
+	var runs []map[string]any
+	decodeJSON(t, resp, &runs)
+	if len(runs) != 0 {
+		t.Fatalf("sync history includes file import: %+v", runs)
+	}
+}
 
 // registerConnection adds a Pluggy connection over HTTP and returns its id —
 // the setup every sync-run test needs now that the item id lives in
@@ -241,5 +273,63 @@ func TestCreatedConnectionIsReadableAtItsLocation(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != 404 {
 		t.Errorf("unknown connection status = %d, want 404", resp.StatusCode)
+	}
+}
+
+// File sources are the local accounts a statement import creates. The Open
+// Banking connections screen must not list them (they cannot be synced and
+// their external id is an internal uuid) nor read or modify them by id, while
+// sync runs keep seeing them so they can be refused with their own 409.
+func TestDataSourcesEndpointsOnlyExposePluggyConnections(t *testing.T) {
+	srv, conn := newTestServer(t)
+	now := db.FormatTime(time.Now())
+	if _, err := conn.Exec(`INSERT INTO data_sources (id, provider, external_item_id, label, created_at, updated_at)
+		VALUES ('file-source', 'file', 'local-1', 'Conta do arquivo', ?, ?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	pluggyID := registerConnection(t, srv, "item-1", nil)
+
+	resp := doJSON(t, http.MethodGet, srv.URL+"/api/data-sources", nil)
+	var listed []map[string]any
+	decodeJSON(t, resp, &listed)
+	if len(listed) != 1 || listed[0]["id"] != pluggyID || listed[0]["provider"] != "pluggy" {
+		t.Fatalf("list = %+v, want only the Pluggy connection", listed)
+	}
+
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/data-sources/"+pluggyID, nil)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET pluggy status = %d, want 200", resp.StatusCode)
+	}
+
+	resp = doJSON(t, http.MethodGet, srv.URL+"/api/data-sources/file-source", nil)
+	var problem map[string]any
+	decodeJSON(t, resp, &problem)
+	if resp.StatusCode != http.StatusNotFound || problem["type"] != "/problems/data-source-not-found" {
+		t.Errorf("GET file source: status=%d body=%+v, want 404 data-source-not-found", resp.StatusCode, problem)
+	}
+
+	resp = doJSON(t, http.MethodPatch, srv.URL+"/api/data-sources/file-source",
+		map[string]any{"label": "Renomeada", "is_active": false})
+	problem = nil
+	decodeJSON(t, resp, &problem)
+	if resp.StatusCode != http.StatusNotFound || problem["type"] != "/problems/data-source-not-found" {
+		t.Errorf("PATCH file source: status=%d body=%+v, want 404 data-source-not-found", resp.StatusCode, problem)
+	}
+	// The refused PATCH must not have touched the row.
+	var label sql.NullString
+	var active int
+	if err := conn.QueryRow(`SELECT label, is_active FROM data_sources WHERE id = 'file-source'`).Scan(&label, &active); err != nil {
+		t.Fatal(err)
+	}
+	if label.String != "Conta do arquivo" || active != 1 {
+		t.Errorf("file source after refused PATCH: label=%q is_active=%d, want unchanged", label.String, active)
+	}
+
+	// Sync runs still resolve the file source and refuse it themselves.
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/sync-runs", map[string]any{"source_id": "file-source"})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Errorf("sync of file source status = %d, want 409", resp.StatusCode)
 	}
 }

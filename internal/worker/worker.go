@@ -53,9 +53,11 @@ func ClaimNextRun(ctx context.Context, conn *sql.DB, workerID string) (syncRunID
 	defer tx.Rollback()
 
 	err = tx.QueryRowContext(ctx, `
-		SELECT id, source_id FROM sync_runs
-		WHERE status = 'in_progress' AND worker_id IS NULL
-		ORDER BY started_at, id LIMIT 1`,
+		SELECT sr.id, sr.source_id FROM sync_runs sr
+		JOIN data_sources ds ON ds.id = sr.source_id
+		WHERE sr.status = 'in_progress' AND sr.worker_id IS NULL
+		  AND sr.run_type = 'sync' AND ds.provider = 'pluggy'
+		ORDER BY sr.started_at, sr.id LIMIT 1`,
 	).Scan(&syncRunID, &sourceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", "", false, nil
@@ -116,6 +118,9 @@ func ProcessClaim(ctx context.Context, conn *sql.DB, secrets *settings.Secrets, 
 	source, err := datasources.Get(ctx, conn, sourceID)
 	if err != nil {
 		return fmt.Errorf("resolve data source %s: %w", sourceID, err)
+	}
+	if source.Provider != datasources.ProviderPluggy {
+		return fmt.Errorf("source %s is not a Pluggy connection", sourceID)
 	}
 	// The connection can be deactivated after ClaimNextRun claims this run
 	// but before we get here — ClaimNextRun only looks at unclaimed rows, so

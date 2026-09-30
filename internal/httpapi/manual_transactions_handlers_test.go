@@ -27,6 +27,9 @@ func TestManualTransactionLifecycleOverHTTP(t *testing.T) {
 	if item["origin"] != "manual" {
 		t.Errorf("origin = %v, want manual", item["origin"])
 	}
+	if _, ok := item["source_provider"]; !ok || item["source_provider"] != nil {
+		t.Errorf("source_provider = %v, want explicit null for manual", item["source_provider"])
+	}
 	if item["classification"] != "outflow" {
 		t.Errorf("classification = %v, want outflow", item["classification"])
 	}
