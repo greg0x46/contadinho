@@ -64,17 +64,72 @@ Não inclui apuração fiscal, posições vendidas, câmbio nas operações manu
 agendamento de aportes recorrentes. A cotação automática é opcional e está
 descrita em [Cotação automática](#cotação-automática).
 
+## Classificação e catálogo de ativos
+
+O cadastro organiza o ativo por **classe financeira** (`asset_class`) e
+**tipo de instrumento** (`asset_type`), independentemente da instituição ou
+do serviço de cotação:
+
+| Classe | Tipos disponíveis |
+| --- | --- |
+| Renda fixa (`fixed_income`) | Título público, CDB, RDB, LCI, LCA, debênture, CRI, CRA, poupança, fundo e ETF de renda fixa |
+| Renda variável (`variable_income`) | Ação, unit, BDR de ação, FII, Fiagro, fundo e ETF de ações |
+| Multimercado (`multimarket`) | Fundo multimercado |
+| Cambial (`currency`) | Fundo cambial e moeda estrangeira |
+| Criptoativos (`crypto`) | Criptomoeda, stablecoin, token e ETF de criptoativos |
+| Outros (`other`) | COE, derivativo, ouro e ETF de commodities |
+
+PGBL e VGBL podem ser classificados em renda fixa, renda variável ou
+multimercado conforme a exposição do plano. Todas as classes permitem
+descrever outro tipo. Tipos antigos ou importados são preservados; a migration
+classifica descrições reconhecíveis e deixa fundos e ETFs de exposição
+desconhecida em Outros para o usuário revisar.
+
+A API fornece as opções em `GET /api/investment-asset-classification`, usado
+pelo formulário. Tipos conhecidos incompatíveis com a classe são recusados.
+
+O catálogo inicial é opcional e pode ser criado com:
+
+```sh
+go run ./cmd/contadinho seed investment-assets
+# Usa CONTADINHO_DB; também aceita -db caminho-ou-DSN depois de investment-assets.
+```
+
+A seed insere 27 ativos conhecidos: ações brasileiras, uma unit, FIIs, ETFs
+de ações/renda fixa/criptoativos, BDRs e BTC, ETH, SOL e USDC. É executada em
+uma transação e pode ser repetida: preserva ativos existentes, seus nomes,
+classes e preferências de cotação, inclusive códigos equivalentes como
+`PETR4.SA`. Os ativos ficam disponíveis para seleção em novas posições mesmo
+quando ainda não há nenhuma posição deles. Não são criados contas, saldos,
+operações ou preços, e a seed não faz chamadas externas.
+
+CDBs e títulos públicos são tipos disponíveis; cada emissão/vencimento deve
+ser cadastrado como um instrumento próprio. O catálogo é uma conveniência de
+cadastro, sem ranking ou recomendação de investimento.
+
+Referências: [características dos investimentos (CVM)](https://www.gov.br/investidor/pt-br/investir/antes-de-investir/entenda-as-caracteristicas-dos-investimentos),
+[classes de fundos (ANBIMA)](https://developers.anbima.com.br/en/documentacao/fundos/apis-de-fundos/),
+[instrumentos negociados (B3, maio de 2026)](https://www.b3.com.br/pt_br/noticias/levantamento-realizado-no-datawise-aponta-acoes-fundos-imobiliarios-etfs-e-bdrs-mais-negociados-em-maio.htm),
+[ETFs de diferentes exposições (B3)](https://b3.com.br/pt_br/noticias/b3-ultrapassa-marca-de-200-etfs-listados-e-estoque-financeiro-dobra-em-um-ano.htm),
+[Ether](https://ethereum.org/developers/docs/intro-to-ether),
+[Solana](https://solana.com/learn/introduction-to-solana-tokens) e
+[USDC](https://www.circle.com/usdc).
+
 ## Cotação automática
 
 Um ativo com **cotação automática** tem o preço das suas posições manuais
-buscado automaticamente. O ativo não escolhe um provedor, e sim o **mercado**
-do instrumento, guardado em `quote_source`: `b3` (ações, units, FIIs, ETFs,
+buscado automaticamente. O formulário oferece um botão liga/desliga e deriva
+o **mercado** do tipo de instrumento, guardado em `quote_source`: `b3` (ações, units, FIIs, ETFs,
 BDRs e mercado fracionário) ou `crypto` (criptomoedas, cotadas em reais).
 `quote_symbol` é o símbolo canônico do instrumento naquele mercado, sem
 formato de provedor. Quem cadastra informa só o **código** do ativo (`ticker`)
-e escolhe o mercado; com `quote_symbol` vazio, o símbolo é derivado do código
+e escolhe classe/tipo; com `quote_symbol` vazio, o símbolo é derivado do código
 ao salvar e gravado no ativo. Ele só precisa ser informado quando o código
 cotado difere do código do ativo.
+
+Um ETF de renda fixa ou de criptoativos negociado na B3 usa `quote_source=b3`
+e mantém sua classe financeira. Para tipos sem cotação suportada, o formulário
+orienta usar avaliações manuais ou valores da instituição integrada.
 
 - **B3:** `petr4`, `PETR4.SA` e `BVMF:PETR4` viram `PETR4`.
 - **Cripto:** `btc`, `BTC-USD` e `BTC/BRL` viram `BTC`.

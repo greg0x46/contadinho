@@ -302,7 +302,7 @@ manualmente) depois do horário do dia não é repetida. Vazio desabilita.
 
 ### Cotações automáticas
 
-Ativos de investimento marcados com um mercado (B3 ou criptomoeda) têm o preço
+Ativos de investimento com cotação automática habilitada têm o preço
 das posições manuais buscado automaticamente. A busca é opt-in: defina
 `CONTADINHO_QUOTES_SCHEDULE` (mesmo formato da sincronização) para rodar uma vez
 por dia e na subida do processo. Os provedores são tentados em ordem, com
@@ -318,6 +318,19 @@ Por padrão o Yahoo Finance é a fonte principal dos dois mercados; a brapi é o
 fallback da B3 e a CoinGecko, o de criptomoedas. O token da brapi, opcional, é
 configurado na interface. Detalhes na
 [referência de investimentos](.specs/contextos/investimentos/reference.md#cotação-automática).
+
+O cadastro usa classe financeira (renda fixa, renda variável, multimercado,
+cambial, criptoativos ou outros) e tipo de instrumento. O mercado da cotação é
+derivado do tipo; ETFs de renda fixa e de criptoativos podem usar preços da B3.
+
+Para carregar um catálogo inicial opcional com 27 ativos conhecidos:
+
+```sh
+go run ./cmd/contadinho seed investment-assets
+```
+
+O comando usa `CONTADINHO_DB` ou aceita `-db caminho-ou-DSN`. Pode ser repetido
+sem duplicar ou sobrescrever cadastros e não cria posições ou saldos.
 
 ### Rodar para desenvolvimento local
 

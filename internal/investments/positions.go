@@ -448,6 +448,14 @@ func UpdatePosition(ctx context.Context, conn *sql.DB, id string, in PositionUpd
 	if name == "" || assetType == "" || current.AssetID == nil {
 		return Position{}, ErrInvalidInput
 	}
+	asset, err := GetAsset(ctx, tx, *current.AssetID)
+	if err != nil {
+		return Position{}, err
+	}
+	assetClass := asset.AssetClass
+	if assetType != asset.AssetType {
+		assetClass = InferAssetClass(assetType)
+	}
 	// The asset is shared by every position of the same instrument, so the
 	// new identity must not collide with another catalog entry: the UNIQUE
 	// index would refuse it anyway, but as a storage error, not a conflict.
@@ -458,9 +466,9 @@ func UpdatePosition(ctx context.Context, conn *sql.DB, id string, in PositionUpd
 		return Position{}, ErrAssetAlreadyExists
 	}
 	if _, err := tx.ExecContext(ctx, `
-		UPDATE investment_assets SET canonical_key = ?, name = ?, ticker = ?, asset_type = ?, updated_at = ?
+		UPDATE investment_assets SET canonical_key = ?, name = ?, ticker = ?, asset_type = ?, asset_class = ?, updated_at = ?
 		WHERE id = ?`,
-		key, name, nullableString(trimOptional(in.Ticker)), assetType,
+		key, name, nullableString(trimOptional(in.Ticker)), assetType, assetClass,
 		db.FormatTime(time.Now()), *current.AssetID); err != nil {
 		return Position{}, err
 	}
