@@ -4,8 +4,9 @@ import { apiFetch } from "../api/transport";
 
 // Modeled directly on PluggySettings.tsx: a write-only credential form for
 // PUT /api/settings/quotes. Unlike Pluggy's client id/secret, the brapi
-// token is optional — internal/quotes' BrapiConnector sends requests
-// unauthenticated when it is unset — so the field is not required here.
+// token is optional — the brapi provider (a B3 fallback behind Yahoo Finance)
+// sends requests unauthenticated when it is unset — so the field is not
+// required here.
 export function QuotesSettings() {
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
@@ -31,13 +32,16 @@ export function QuotesSettings() {
     }
   };
   return (
-    <Card title="Cotações automáticas — brapi" style={{ marginBottom: 24 }}>
+    <Card title="Cotações automáticas — token da brapi (opcional)" style={{ marginBottom: 24 }}>
       <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
         <Flex vertical gap="middle" style={{ maxWidth: 440 }}>
           <p>
-            Token opcional da brapi, usado para cotar automaticamente ativos de B3 mantidos em
-            posições manuais. Sem token, apenas um conjunto restrito de tickers responde. O valor
-            salvo não é exibido novamente.
+            Por padrão, a cotação automática de posições manuais usa o Yahoo Finance como fonte principal;
+            a brapi (B3) e a CoinGecko (criptomoedas) são usadas quando ele falha.
+          </p>
+          <p>
+            O token da brapi só importa nesse fallback da B3: sem ele, apenas um conjunto restrito
+            de tickers responde. O valor salvo não é exibido novamente.
           </p>
           {error && <Alert type="error" message={error} />}
           {saved && <Alert type="success" message="Token salvo." />}

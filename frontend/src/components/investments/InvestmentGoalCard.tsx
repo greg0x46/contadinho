@@ -1,4 +1,4 @@
-import { Button, Popconfirm, Progress, Tag } from "antd";
+import { Progress, Tag } from "antd";
 
 import type {
   InvestmentOperation,
@@ -7,8 +7,9 @@ import type {
   InvestmentSummaryPortfolio,
 } from "../../api/contracts";
 import { formatBRL, sumBRL } from "../../presentation/money";
+import { ActionsMenu, type ActionsMenuItem } from "../shared/ActionsMenu";
 import { InvestmentFigures, InvestmentYieldValue } from "./InvestmentFigures";
-import { InvestmentPositionsTable } from "./InvestmentPositionsTable";
+import { InvestmentPositionList } from "./InvestmentPositionList";
 import {
   aggregateYield,
   costsByPosition,
@@ -61,6 +62,21 @@ export function InvestmentGoalCard({
   const yieldAggregate = aggregateYield(positions, linked, costs);
   const cost = groupCost(operations, positions, linked);
 
+  const menuItems = (target: InvestmentPortfolio): ActionsMenuItem[] => [
+    { key: "edit", label: "Editar objetivo", onClick: () => onEdit(target) },
+    {
+      key: "remove",
+      label: "Remover objetivo",
+      danger: true,
+      disabled: busy,
+      onClick: () => onRemove(target),
+      confirm: {
+        title: "Remover objetivo",
+        description: "As posições continuam onde estão; elas apenas deixam de ter objetivo.",
+      },
+    },
+  ];
+
   return (
     <section className="investment-card" aria-label={portfolio?.name ?? "Sem objetivo"}>
       <header className="investment-card-header">
@@ -69,23 +85,12 @@ export function InvestmentGoalCard({
           <Tag>Agrupamento</Tag>
         </div>
         {portfolio && (
-          <div className="investment-card-actions">
-            <Button size="small" onClick={() => onEdit(portfolio)}>
-              Editar objetivo
-            </Button>
-            <Popconfirm
-              title="Remover objetivo"
-              description="As posições continuam onde estão; elas apenas deixam de ter objetivo."
-              okText="Remover"
-              cancelText="Cancelar"
-              okButtonProps={{ danger: true }}
-              onConfirm={() => onRemove(portfolio)}
-            >
-              <Button size="small" danger disabled={busy}>
-                Remover objetivo
-              </Button>
-            </Popconfirm>
-          </div>
+          <ActionsMenu
+            className="investment-card-menu"
+            label={`Ações de ${portfolio.name}`}
+            size="middle"
+            items={menuItems(portfolio)}
+          />
         )}
       </header>
 
@@ -129,7 +134,7 @@ export function InvestmentGoalCard({
           </div>
         )}
 
-        <InvestmentPositionsTable
+        <InvestmentPositionList
           positions={positions}
           portfolios={portfolios}
           costs={costs}

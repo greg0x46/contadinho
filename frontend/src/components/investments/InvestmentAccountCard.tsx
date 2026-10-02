@@ -1,4 +1,4 @@
-import { Button, Popconfirm, Tag, Tooltip } from "antd";
+import { Tag, Tooltip } from "antd";
 
 import type {
   InvestmentAccount,
@@ -9,8 +9,9 @@ import type {
 } from "../../api/contracts";
 import { investmentAccountKindLabel } from "../../presentation/investmentWorkspaceLabels";
 import { formatBRL, sumBRL } from "../../presentation/money";
+import { ActionsMenu, type ActionsMenuItem } from "../shared/ActionsMenu";
 import { InvestmentFigures, InvestmentYieldValue } from "./InvestmentFigures";
-import { InvestmentPositionsTable } from "./InvestmentPositionsTable";
+import { InvestmentPositionList } from "./InvestmentPositionList";
 import {
   accountMovements,
   aggregateYield,
@@ -71,6 +72,32 @@ export function InvestmentAccountCard({
   const yieldAggregate = aggregateYield(positions, linked, costs);
   const cost = groupCost(operations, allPositions, linked);
 
+  const menuItems: ActionsMenuItem[] = editable
+    ? [
+        { key: "operation", label: "Registrar movimentação", onClick: () => onNewOperation(account) },
+        { key: "position", label: "Nova posição", onClick: () => onNewPosition(account) },
+        { key: "edit", label: "Editar conta", onClick: () => onRename(account) },
+        {
+          key: "remove",
+          label: "Remover conta",
+          danger: true,
+          disabled: busy,
+          onClick: () => onRemove(account),
+          confirm: {
+            title: "Remover conta de custódia",
+            description: "Só é possível remover uma conta sem posições nem movimentações.",
+          },
+        },
+      ]
+    : [
+        { key: "operation", label: "Registrar movimentação", onClick: () => onNewOperation(account) },
+        {
+          key: "edit",
+          label: account.financial_account_id === null ? "Vincular caixa da corretora" : "Caixa da corretora",
+          onClick: () => onRename(account),
+        },
+      ];
+
   return (
     <section className="investment-card" aria-label={account.name}>
       <header className="investment-card-header">
@@ -88,42 +115,7 @@ export function InvestmentAccountCard({
           )}
           {!account.active && <Tag>Inativa</Tag>}
         </div>
-        <div className="investment-card-actions">
-          {editable ? (
-            <>
-              <Button size="small" onClick={() => onNewOperation(account)}>
-                Registrar movimentação
-              </Button>
-              <Button size="small" onClick={() => onNewPosition(account)}>
-                Nova posição
-              </Button>
-              <Button size="small" onClick={() => onRename(account)}>
-                Editar conta
-              </Button>
-              <Popconfirm
-                title="Remover conta de custódia"
-                description="Só é possível remover uma conta sem posições nem movimentações."
-                okText="Remover"
-                cancelText="Cancelar"
-                okButtonProps={{ danger: true }}
-                onConfirm={() => onRemove(account)}
-              >
-                <Button size="small" danger disabled={busy}>
-                  Remover conta
-                </Button>
-              </Popconfirm>
-            </>
-          ) : (
-            <>
-              <Button size="small" onClick={() => onNewOperation(account)}>
-                Registrar movimentação
-              </Button>
-              <Button size="small" onClick={() => onRename(account)}>
-                {account.financial_account_id === null ? "Vincular caixa da corretora" : "Caixa da corretora"}
-              </Button>
-            </>
-          )}
-        </div>
+        <ActionsMenu className="investment-card-menu" label={`Ações de ${account.name}`} size="middle" items={menuItems} />
       </header>
 
       <div className="investment-card-body">
@@ -159,7 +151,7 @@ export function InvestmentAccountCard({
           ]}
         />
 
-        <InvestmentPositionsTable
+        <InvestmentPositionList
           positions={positions}
           portfolios={portfolios}
           costs={costs}

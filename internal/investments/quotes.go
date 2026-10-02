@@ -13,8 +13,8 @@ import (
 	"contadinho-go/internal/money"
 )
 
-// Quote sources. A connector key (internal/quotes' registry, e.g. "brapi")
-// is also a valid source; these are the ones this package writes itself.
+// Quote sources written by investments. Market data provider names are also
+// stored as sources; those names are defined in internal/marketdata.
 const (
 	QuoteSourcePluggy = "pluggy"
 	// QuoteSourceIssue is the unit price a fixed income title was bought at

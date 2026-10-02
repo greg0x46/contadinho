@@ -112,11 +112,10 @@ type Asset struct {
 	Ticker       *string
 	AssetType    string
 	CurrencyCode string
-	// QuoteSource/QuoteSymbol are set together or left nil together: an
-	// optional pointer at a connector in internal/quotes (e.g. "coingecko")
-	// and the symbol to ask it for (e.g. "bitcoin"). Only relevant for
-	// manual positions of this asset — a synced position already carries its
-	// own provider quote and never reads these.
+	// QuoteSource stores the market ("b3" or "crypto"); QuoteSymbol stores
+	// its provider-neutral symbol ("PETR4" or "BTC"). Only relevant for manual
+	// positions of this asset — a synced position already carries its own
+	// provider quote and never reads these.
 	QuoteSource *string
 	QuoteSymbol *string
 	CreatedAt   time.Time

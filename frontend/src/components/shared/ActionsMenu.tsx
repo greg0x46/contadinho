@@ -65,6 +65,7 @@ export function ActionsMenu({
       cancelText="Cancelar"
       okButtonProps={{ danger: true }}
       placement="bottomRight"
+      overlayClassName="actions-menu-confirm"
       onConfirm={() => {
         confirming?.onClick();
         setConfirming(null);

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -399,6 +400,15 @@ type manualSeries struct {
 	// checkpoints is the holding's value after the last operation of each
 	// day that has one; valued is false while no valuation priced it.
 	checkpoints []manualCheckpoint
+	// quotes is the asset's price series, loaded only when the asset has a
+	// quote connector configured: a holding the user asked to be priced
+	// automatically is valued on any day from quantity × that day's price,
+	// not only on the days a valuation operation happens to exist.
+	quotes   []AssetQuote
+	timeline quantityTimeline
+	// humanValuations are the days a person typed a valuation, which a
+	// connector's price never overrides.
+	humanValuations map[string]bool
 }
 
 type manualCheckpoint struct {
@@ -408,8 +418,12 @@ type manualCheckpoint struct {
 }
 
 func loadManualSeries(ctx context.Context, q Querier, positionID string) (*manualSeries, error) {
-	var accountID string
-	err := q.QueryRowContext(ctx, `SELECT account_id FROM investment_positions WHERE id = ?`, positionID).Scan(&accountID)
+	var accountID, assetID string
+	var quoteSource sql.NullString
+	err := q.QueryRowContext(ctx, `
+		SELECT p.account_id, p.asset_id, a.quote_source
+		FROM investment_positions p JOIN investment_assets a ON a.id = p.asset_id
+		WHERE p.id = ?`, positionID).Scan(&accountID, &assetID, &quoteSource)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrPositionNotFound
 	}
@@ -433,7 +447,7 @@ func loadManualSeries(ctx context.Context, q Querier, positionID string) (*manua
 		return nil, err
 	}
 
-	s := &manualSeries{}
+	s := &manualSeries{humanValuations: map[string]bool{}}
 	ledger := newAccountLedger()
 	for i, op := range operations {
 		if err := applyOperation(&ledger, op); err != nil {
@@ -442,6 +456,9 @@ func loadManualSeries(ctx context.Context, q Querier, positionID string) (*manua
 		if op.PositionID != nil && *op.PositionID == positionID {
 			if event, ok := manualFlow(op); ok {
 				s.events = append(s.events, event)
+			}
+			if op.Kind == OperationValuation && !isAutoQuoteNote(op.Notes) {
+				s.humanValuations[formatDate(op.OccurredOn)] = true
 			}
 		}
 		lastOfDay := i == len(operations)-1 || !operations[i+1].OccurredOn.Equal(op.OccurredOn)
@@ -454,7 +471,19 @@ func loadManualSeries(ctx context.Context, q Querier, positionID string) (*manua
 		}
 		s.checkpoints = append(s.checkpoints, checkpoint)
 	}
+	if quoteSource.Valid && quoteSource.String != "" {
+		quotes, err := ListAssetQuotes(ctx, q, assetID, nil)
+		if err != nil {
+			return nil, err
+		}
+		s.quotes = quotes
+		s.timeline = newQuantityTimeline(s.events)
+	}
 	return s, nil
+}
+
+func isAutoQuoteNote(notes *string) bool {
+	return notes != nil && strings.HasPrefix(*notes, AutoQuoteMarker)
 }
 
 // manualFlow is the money an operation moved into (+) or out of (−) the
@@ -481,12 +510,34 @@ func manualFlow(op Operation) (flowEvent, bool) {
 }
 
 func (s *manualSeries) value(d time.Time) (decimal.Decimal, bool) {
+	if value, ok := s.quotedValue(d); ok {
+		return value, true
+	}
 	i := sort.Search(len(s.checkpoints), func(i int) bool { return s.checkpoints[i].day.After(d) })
 	if i == 0 {
 		return decimal.Zero, true
 	}
 	checkpoint := s.checkpoints[i-1]
 	return checkpoint.value, checkpoint.valued
+}
+
+// quotedValue is the units held at the end of d times the asset's price that
+// day. It declines — and the ledger's own valuation answers instead — when
+// the asset has no price series, a person valued the holding on d, nothing
+// was held, or no quote is recent enough to price d.
+func (s *manualSeries) quotedValue(d time.Time) (decimal.Decimal, bool) {
+	if len(s.quotes) == 0 || s.humanValuations[formatDate(d)] {
+		return decimal.Zero, false
+	}
+	held := s.timeline.at(d)
+	if !held.IsPositive() {
+		return decimal.Zero, false
+	}
+	price, ok := priceOn(s.quotes, d)
+	if !ok {
+		return decimal.Zero, false
+	}
+	return held.Mul(price), true
 }
 
 func (s *manualSeries) flows(from, to time.Time) decimal.Decimal { return sumFlows(s.events, from, to) }

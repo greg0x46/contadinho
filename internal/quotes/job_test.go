@@ -13,6 +13,7 @@ import (
 
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/investments"
+	"contadinho-go/internal/marketdata"
 )
 
 // fakeConnector is an in-memory Connector: no HTTP at all, so job tests
@@ -23,15 +24,24 @@ type fakeConnector struct {
 	err    error
 }
 
-func (f *fakeConnector) FetchPrice(_ context.Context, symbol string) (decimal.Decimal, error) {
+func (f *fakeConnector) Name() string { return marketdata.ProviderYahoo }
+func (f *fakeConnector) Supports(market marketdata.Market) bool {
+	return market == marketdata.MarketCrypto
+}
+func (f *fakeConnector) Quote(_ context.Context, instrument marketdata.Instrument) (marketdata.Quote, error) {
+	symbol := instrument.Symbol
 	if f.err != nil {
-		return decimal.Decimal{}, f.err
+		return marketdata.Quote{}, f.err
 	}
 	price, ok := f.prices[symbol]
 	if !ok {
-		return decimal.Decimal{}, fmt.Errorf("fake connector: no price for %q", symbol)
+		return marketdata.Quote{}, fmt.Errorf("fake connector: no price for %q", symbol)
 	}
-	return price, nil
+	return marketdata.Quote{Price: price, Currency: "BRL"}, nil
+}
+
+func (f *fakeConnector) History(context.Context, marketdata.Instrument, time.Time, time.Time) (marketdata.History, error) {
+	return marketdata.History{}, fmt.Errorf("not used")
 }
 
 // newJobTestConn mirrors internal/investments' bookFixture: a real migrated
@@ -110,13 +120,13 @@ func onlyValuation(t *testing.T, ops []investments.Operation) *investments.Opera
 func TestRefreshAllInsertsOnFirstRun(t *testing.T) {
 	ctx := context.Background()
 	conn := newJobTestConn(t)
-	asset := mustCreateQuotedAsset(t, ctx, conn, "Bitcoin", "Criptoativo", SourceCoinGecko, "bitcoin")
+	asset := mustCreateQuotedAsset(t, ctx, conn, "Bitcoin", "Criptoativo", string(marketdata.MarketCrypto), "BTC")
 	position := mustCreateManualPosition(t, ctx, conn, "Corretora A", asset, 2)
 
-	registry := Registry{SourceCoinGecko: &fakeConnector{prices: map[string]decimal.Decimal{"bitcoin": decimal.NewFromInt(100000)}}}
+	service := marketdata.New(&fakeConnector{prices: map[string]decimal.Decimal{"BTC": decimal.NewFromInt(100000)}})
 	today := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
 
-	summary, err := RefreshAll(ctx, conn, registry, today)
+	summary, err := RefreshAll(ctx, conn, service, today)
 	if err != nil {
 		t.Fatalf("RefreshAll: %v", err)
 	}
@@ -148,12 +158,12 @@ func TestRefreshAllInsertsOnFirstRun(t *testing.T) {
 func TestRefreshAllUpdatesInPlaceOnSecondRunSameDay(t *testing.T) {
 	ctx := context.Background()
 	conn := newJobTestConn(t)
-	asset := mustCreateQuotedAsset(t, ctx, conn, "Bitcoin", "Criptoativo", SourceCoinGecko, "bitcoin")
+	asset := mustCreateQuotedAsset(t, ctx, conn, "Bitcoin", "Criptoativo", string(marketdata.MarketCrypto), "BTC")
 	position := mustCreateManualPosition(t, ctx, conn, "Corretora A", asset, 2)
 	today := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
 
-	registry := Registry{SourceCoinGecko: &fakeConnector{prices: map[string]decimal.Decimal{"bitcoin": decimal.NewFromInt(100000)}}}
-	if _, err := RefreshAll(ctx, conn, registry, today); err != nil {
+	service := marketdata.New(&fakeConnector{prices: map[string]decimal.Decimal{"BTC": decimal.NewFromInt(100000)}})
+	if _, err := RefreshAll(ctx, conn, service, today); err != nil {
 		t.Fatalf("first RefreshAll: %v", err)
 	}
 	first := onlyValuation(t, listPositionOperations(t, ctx, conn, position.ID))
@@ -162,8 +172,8 @@ func TestRefreshAllUpdatesInPlaceOnSecondRunSameDay(t *testing.T) {
 	}
 	firstID, firstCreatedAt := first.ID, first.CreatedAt
 
-	registry = Registry{SourceCoinGecko: &fakeConnector{prices: map[string]decimal.Decimal{"bitcoin": decimal.NewFromInt(150000)}}}
-	summary, err := RefreshAll(ctx, conn, registry, today)
+	service = marketdata.New(&fakeConnector{prices: map[string]decimal.Decimal{"BTC": decimal.NewFromInt(150000)}})
+	summary, err := RefreshAll(ctx, conn, service, today)
 	if err != nil {
 		t.Fatalf("second RefreshAll: %v", err)
 	}
@@ -193,7 +203,7 @@ func TestRefreshAllUpdatesInPlaceOnSecondRunSameDay(t *testing.T) {
 func TestRefreshAllSkipsWhenHumanValuationExistsToday(t *testing.T) {
 	ctx := context.Background()
 	conn := newJobTestConn(t)
-	asset := mustCreateQuotedAsset(t, ctx, conn, "Bitcoin", "Criptoativo", SourceCoinGecko, "bitcoin")
+	asset := mustCreateQuotedAsset(t, ctx, conn, "Bitcoin", "Criptoativo", string(marketdata.MarketCrypto), "BTC")
 	position := mustCreateManualPosition(t, ctx, conn, "Corretora A", asset, 2)
 	today := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
 
@@ -204,8 +214,8 @@ func TestRefreshAllSkipsWhenHumanValuationExistsToday(t *testing.T) {
 		t.Fatalf("human valuation: %v", err)
 	}
 
-	registry := Registry{SourceCoinGecko: &fakeConnector{prices: map[string]decimal.Decimal{"bitcoin": decimal.NewFromInt(100000)}}}
-	summary, err := RefreshAll(ctx, conn, registry, today)
+	service := marketdata.New(&fakeConnector{prices: map[string]decimal.Decimal{"BTC": decimal.NewFromInt(100000)}})
+	summary, err := RefreshAll(ctx, conn, service, today)
 	if err != nil {
 		t.Fatalf("RefreshAll: %v", err)
 	}
@@ -228,7 +238,7 @@ func TestRefreshAllSkipsWhenHumanValuationExistsToday(t *testing.T) {
 func TestRefreshAllSkipsClosedPosition(t *testing.T) {
 	ctx := context.Background()
 	conn := newJobTestConn(t)
-	asset := mustCreateQuotedAsset(t, ctx, conn, "Bitcoin", "Criptoativo", SourceCoinGecko, "bitcoin")
+	asset := mustCreateQuotedAsset(t, ctx, conn, "Bitcoin", "Criptoativo", string(marketdata.MarketCrypto), "BTC")
 	account, err := investments.CreateAccount(ctx, conn, investments.AccountInput{Name: "Corretora A"})
 	if err != nil {
 		t.Fatalf("CreateAccount: %v", err)
@@ -249,8 +259,8 @@ func TestRefreshAllSkipsClosedPosition(t *testing.T) {
 		t.Fatalf("expected a zero-quantity position, got %+v", position)
 	}
 
-	registry := Registry{SourceCoinGecko: &fakeConnector{prices: map[string]decimal.Decimal{"bitcoin": decimal.NewFromInt(100000)}}}
-	summary, err := RefreshAll(ctx, conn, registry, time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC))
+	service := marketdata.New(&fakeConnector{prices: map[string]decimal.Decimal{"BTC": decimal.NewFromInt(100000)}})
+	summary, err := RefreshAll(ctx, conn, service, time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("RefreshAll: %v", err)
 	}
@@ -265,17 +275,17 @@ func TestRefreshAllSkipsClosedPosition(t *testing.T) {
 func TestRefreshAllOneAssetFailureDoesNotBlockAnother(t *testing.T) {
 	ctx := context.Background()
 	conn := newJobTestConn(t)
-	broken := mustCreateQuotedAsset(t, ctx, conn, "Moeda Quebrada", "Criptoativo", SourceCoinGecko, "broken-coin")
+	broken := mustCreateQuotedAsset(t, ctx, conn, "Moeda Quebrada", "Criptoativo", string(marketdata.MarketCrypto), "BROKEN")
 	brokenPosition := mustCreateManualPosition(t, ctx, conn, "Corretora A", broken, 1)
-	ok := mustCreateQuotedAsset(t, ctx, conn, "Bitcoin", "Criptoativo", SourceCoinGecko, "bitcoin")
+	ok := mustCreateQuotedAsset(t, ctx, conn, "Bitcoin", "Criptoativo", string(marketdata.MarketCrypto), "BTC")
 	okPosition := mustCreateManualPosition(t, ctx, conn, "Corretora B", ok, 1)
 
-	registry := Registry{SourceCoinGecko: &fakeConnector{
-		// No entry for "broken-coin": the fake connector errors on it.
-		prices: map[string]decimal.Decimal{"bitcoin": decimal.NewFromInt(100000)},
-	}}
+	service := marketdata.New(&fakeConnector{
+		// No entry for "BROKEN": the fake connector errors on it.
+		prices: map[string]decimal.Decimal{"BTC": decimal.NewFromInt(100000)},
+	})
 	today := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
-	summary, err := RefreshAll(ctx, conn, registry, today)
+	summary, err := RefreshAll(ctx, conn, service, today)
 	if err != nil {
 		t.Fatalf("RefreshAll: %v", err)
 	}
@@ -297,13 +307,13 @@ func TestRefreshAllOneAssetFailureDoesNotBlockAnother(t *testing.T) {
 func TestRefreshAllPricesSameAssetHeldInDifferentAccounts(t *testing.T) {
 	ctx := context.Background()
 	conn := newJobTestConn(t)
-	asset := mustCreateQuotedAsset(t, ctx, conn, "Bitcoin", "Criptoativo", SourceCoinGecko, "bitcoin")
+	asset := mustCreateQuotedAsset(t, ctx, conn, "Bitcoin", "Criptoativo", string(marketdata.MarketCrypto), "BTC")
 	first := mustCreateManualPosition(t, ctx, conn, "Corretora A", asset, 1)
 	second := mustCreateManualPosition(t, ctx, conn, "Corretora B", asset, 3)
 
-	registry := Registry{SourceCoinGecko: &fakeConnector{prices: map[string]decimal.Decimal{"bitcoin": decimal.NewFromInt(100000)}}}
+	service := marketdata.New(&fakeConnector{prices: map[string]decimal.Decimal{"BTC": decimal.NewFromInt(100000)}})
 	today := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
-	summary, err := RefreshAll(ctx, conn, registry, today)
+	summary, err := RefreshAll(ctx, conn, service, today)
 	if err != nil {
 		t.Fatalf("RefreshAll: %v", err)
 	}
