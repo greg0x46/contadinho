@@ -6,15 +6,25 @@ import { useEffect, useState } from "react";
 import type { InvestmentAsset, InvestmentAssetWrite } from "../api/contracts";
 import { useInvestmentAssets } from "../hooks/useInvestmentAssets";
 
+// A cotação automática é escolhida pelo mercado do instrumento, não por um
+// provedor: o backend tenta os provedores configurados em ordem, com fallback.
 const quoteSourceOptions = [
   { value: "", label: "Nenhuma" },
-  { value: "coingecko", label: "CoinGecko" },
-  { value: "brapi", label: "brapi" },
+  { value: "b3", label: "B3 (ações, FIIs, ETFs, BDRs)" },
+  { value: "crypto", label: "Criptomoeda" },
 ];
 
+// Quem cadastra só informa o código do ativo e escolhe o mercado; o código
+// para cotação é derivado do código do ativo. O campo abaixo só é necessário
+// quando o código cotado no mercado difere do código do ativo.
 const quoteSymbolPlaceholder: Record<string, string> = {
-  coingecko: "Ex.: bitcoin (id do ativo na CoinGecko)",
-  brapi: "Ex.: PETR4 (ticker na B3)",
+  b3: "PETR4",
+  crypto: "BTC",
+};
+
+const quoteSymbolHint: Record<string, string> = {
+  b3: "Em branco, usa o código do ativo. Informe só quando o código na B3 for diferente (ex.: PETR4; petr4, PETR4.SA ou BVMF:PETR4 também valem).",
+  crypto: "Em branco, usa o código do ativo. Informe só quando o código da criptomoeda for diferente (ex.: BTC; btc, BTC-USD ou BTC/BRL também valem). Cotada em reais.",
 };
 
 type AssetDraft = {
@@ -94,13 +104,19 @@ export function InvestmentAssetSettings() {
       return;
     }
     const quoteSource = draft.quoteSource.trim();
-    const quoteSymbol = draft.quoteSymbol.trim();
-    if (quoteSource !== "" && quoteSymbol === "") {
-      setFormError("Informe o símbolo usado pela fonte de cotação escolhida.");
+    // O código para cotação vem pré-preenchido com o que o sistema derivou do
+    // código antigo. Se o código mudou e o campo não foi tocado, ele deixa de
+    // valer: enviar vazio faz o sistema derivar de novo do código novo.
+    const tickerChanged =
+      editing !== null && (editing.ticker ?? "").trim().toLowerCase() !== draft.ticker.trim().toLowerCase();
+    const symbolUntouched = editing !== null && draft.quoteSymbol.trim() === (editing.quote_symbol ?? "");
+    const quoteSymbol = tickerChanged && symbolUntouched ? "" : draft.quoteSymbol.trim();
+    if (quoteSource !== "" && quoteSymbol === "" && draft.ticker.trim() === "") {
+      setFormError("Informe o código do ativo, como PETR4 ou BTC, para buscar a cotação.");
       return;
     }
     if (quoteSource === "" && quoteSymbol !== "") {
-      setFormError("Escolha uma fonte de cotação para o símbolo informado.");
+      setFormError("Escolha o mercado da cotação automática para o código informado.");
       return;
     }
 
@@ -253,7 +269,9 @@ export function InvestmentAssetSettings() {
             />
           </div>
           <div className="filter-field">
-            <label htmlFor="investment-asset-ticker">Código (opcional)</label>
+            <label htmlFor="investment-asset-ticker">
+              {draft.quoteSource === "" ? "Código (opcional)" : "Código"}
+            </label>
             <Input
               id="investment-asset-ticker"
               value={draft.ticker}
@@ -281,7 +299,7 @@ export function InvestmentAssetSettings() {
             />
           </div>
           <div className="filter-field">
-            <label htmlFor="investment-asset-quote-source">Fonte de cotação</label>
+            <label htmlFor="investment-asset-quote-source">Cotação automática</label>
             <Select
               id="investment-asset-quote-source"
               value={draft.quoteSource}
@@ -291,13 +309,16 @@ export function InvestmentAssetSettings() {
           </div>
           {draft.quoteSource !== "" && (
             <div className="filter-field">
-              <label htmlFor="investment-asset-quote-symbol">Símbolo</label>
+              <label htmlFor="investment-asset-quote-symbol">Código para cotação (opcional)</label>
               <Input
                 id="investment-asset-quote-symbol"
                 value={draft.quoteSymbol}
                 placeholder={quoteSymbolPlaceholder[draft.quoteSource]}
                 onChange={(event) => setDraft((current) => ({ ...current, quoteSymbol: event.target.value }))}
               />
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {quoteSymbolHint[draft.quoteSource]}
+              </Typography.Text>
             </div>
           )}
         </Flex>

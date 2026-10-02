@@ -19,6 +19,7 @@ import (
 	"contadinho-go/internal/categories"
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/httpapi"
+	"contadinho-go/internal/marketdata"
 	"contadinho-go/internal/payables"
 	"contadinho-go/internal/pluggy"
 	"contadinho-go/internal/quotes"
@@ -57,9 +58,12 @@ func main() {
 		log.Fatal(err)
 	}
 	// Opt-in and independent of the sync schedule above: unset means no
-	// automatic quoting, so a fresh install never starts hitting CoinGecko
-	// or brapi on its own.
+	// automatic quoting, so a fresh install never starts market requests.
 	quotesSchedule, quotesScheduled, err := quotes.ParseSchedule(os.Getenv("CONTADINHO_QUOTES_SCHEDULE"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	quoteProviders, err := marketdata.ParseProviders(os.Getenv("CONTADINHO_QUOTES_PROVIDERS"))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -116,6 +120,10 @@ func main() {
 	}
 
 	secrets := settings.NewSecrets(master)
+	marketService, err := marketdata.NewDefault(marketdata.Config{Providers: quoteProviders, BrapiToken: quotes.BrapiToken(conn, secrets)})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -131,7 +139,7 @@ func main() {
 
 	if quotesScheduled {
 		log.Printf("quote refresh scheduled daily at %02d:%02d %s", quotesSchedule.Hour, quotesSchedule.Minute, quotesSchedule.Location)
-		go quotes.RunSchedule(ctx, conn, secrets, quotesSchedule)
+		go quotes.RunSchedule(ctx, conn, marketService, quotesSchedule)
 	}
 
 	handler := httpapi.NewServer(conn, frontend, secrets, config)

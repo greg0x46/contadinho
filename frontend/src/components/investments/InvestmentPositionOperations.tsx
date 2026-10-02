@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { InvestmentOperation, InvestmentOperationWrite } from "../../api/contracts";
 import { useInvestmentWorkspace } from "../../hooks/useInvestmentWorkspace";
 import { InvestmentOperationForm } from "./InvestmentOperationForm";
-import { InvestmentOperationsTable } from "./InvestmentOperationsTable";
+import { InvestmentOperationList } from "./InvestmentOperationList";
 
 /**
  * The movimentações of the position backed by this synced investment. They
@@ -47,7 +47,7 @@ export function InvestmentPositionOperations({ investmentId }: { investmentId: s
   return (
     <Card title={`Movimentações registradas (${operations.length})`}>
       {actionError && <p role="alert">{actionError}</p>}
-      <InvestmentOperationsTable
+      <InvestmentOperationList
         operations={operations}
         positions={workspace.positions}
         onEdit={(operation) => {

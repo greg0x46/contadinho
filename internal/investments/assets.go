@@ -91,13 +91,11 @@ func GetAsset(ctx context.Context, q Querier, id string) (Asset, error) {
 	return asset, err
 }
 
-// normalizeAssetInput also enforces that QuoteSource and QuoteSymbol are
-// either both set or both empty: a connector key with no symbol to ask it
-// for (or vice versa) can never be dispatched by internal/quotes, so it is
-// rejected here rather than stored half-configured. Whether a non-empty
-// QuoteSource actually names a connector this build knows about is validated
-// one layer up, in internal/httpapi, which can import internal/quotes
-// without this package depending on it in return.
+// normalizeAssetInput also enforces the shape of the quote configuration: a
+// QuoteSymbol needs a QuoteSource, and a QuoteSource needs something to ask it
+// for — the symbol if one was given, else the ticker. An incomplete
+// instrument is rejected rather than stored half-configured. The HTTP layer
+// checks that QuoteSource names a known market and canonicalizes its symbol.
 func normalizeAssetInput(in AssetInput) (AssetInput, string, error) {
 	name := strings.TrimSpace(in.Name)
 	assetType := strings.TrimSpace(in.AssetType)
@@ -114,7 +112,10 @@ func normalizeAssetInput(in AssetInput) (AssetInput, string, error) {
 	}
 	quoteSource := trimOptional(in.QuoteSource)
 	quoteSymbol := trimOptional(in.QuoteSymbol)
-	if (quoteSource == nil) != (quoteSymbol == nil) {
+	// A source needs something to ask it for: the symbol when one was given
+	// (an explicit override), else the ticker, which internal/quotes turns
+	// into whatever the source expects. A symbol with no source is orphaned.
+	if (quoteSource == nil && quoteSymbol != nil) || (quoteSource != nil && quoteSymbol == nil && ticker == nil) {
 		return AssetInput{}, "", ErrInvalidInput
 	}
 	if name == "" || assetType == "" || !validCurrency {
