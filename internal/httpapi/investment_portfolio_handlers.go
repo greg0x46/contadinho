@@ -185,15 +185,16 @@ type investmentPortfolioDTO struct {
 }
 
 type investmentAssetDTO struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Ticker       *string   `json:"ticker"`
-	AssetType    string    `json:"asset_type"`
-	CurrencyCode string    `json:"currency_code"`
-	QuoteSource  *string   `json:"quote_source"`
-	QuoteSymbol  *string   `json:"quote_symbol"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID           string                 `json:"id"`
+	Name         string                 `json:"name"`
+	Ticker       *string                `json:"ticker"`
+	AssetType    string                 `json:"asset_type"`
+	AssetClass   investments.AssetClass `json:"asset_class"`
+	CurrencyCode string                 `json:"currency_code"`
+	QuoteSource  *string                `json:"quote_source"`
+	QuoteSymbol  *string                `json:"quote_symbol"`
+	CreatedAt    time.Time              `json:"created_at"`
+	UpdatedAt    time.Time              `json:"updated_at"`
 }
 
 func investmentAssetToDTO(asset investments.Asset) investmentAssetDTO {
@@ -202,6 +203,7 @@ func investmentAssetToDTO(asset investments.Asset) investmentAssetDTO {
 		Name:         asset.Name,
 		Ticker:       asset.Ticker,
 		AssetType:    asset.AssetType,
+		AssetClass:   asset.AssetClass,
 		CurrencyCode: asset.CurrencyCode,
 		QuoteSource:  asset.QuoteSource,
 		QuoteSymbol:  asset.QuoteSymbol,
@@ -758,17 +760,18 @@ func handleDeleteInvestmentPortfolio(conn *sql.DB) http.HandlerFunc {
 // ------------------------------------------------------------------- assets
 
 type investmentAssetRequest struct {
-	Name         string  `json:"name"`
-	Ticker       *string `json:"ticker"`
-	AssetType    string  `json:"asset_type"`
-	CurrencyCode string  `json:"currency_code"`
-	QuoteSource  *string `json:"quote_source"`
-	QuoteSymbol  *string `json:"quote_symbol"`
+	Name         string                 `json:"name"`
+	Ticker       *string                `json:"ticker"`
+	AssetType    string                 `json:"asset_type"`
+	AssetClass   investments.AssetClass `json:"asset_class"`
+	CurrencyCode string                 `json:"currency_code"`
+	QuoteSource  *string                `json:"quote_source"`
+	QuoteSymbol  *string                `json:"quote_symbol"`
 }
 
 func (req investmentAssetRequest) toInput() investments.AssetInput {
 	return investments.AssetInput{
-		Name: req.Name, Ticker: req.Ticker, AssetType: req.AssetType, CurrencyCode: req.CurrencyCode,
+		Name: req.Name, Ticker: req.Ticker, AssetType: req.AssetType, AssetClass: req.AssetClass, CurrencyCode: req.CurrencyCode,
 		QuoteSource: req.QuoteSource, QuoteSymbol: req.QuoteSymbol,
 	}
 }
@@ -832,6 +835,10 @@ func handleListInvestmentAssets(conn *sql.DB) http.HandlerFunc {
 		}
 		writeInvestmentItems(w, items)
 	}
+}
+
+func handleInvestmentAssetClassification(w http.ResponseWriter, r *http.Request) {
+	writeInvestmentItems(w, investments.AssetClassification())
 }
 
 func handleCreateInvestmentAsset(conn *sql.DB) http.HandlerFunc {

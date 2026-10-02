@@ -111,6 +111,7 @@ type Asset struct {
 	Name         string
 	Ticker       *string
 	AssetType    string
+	AssetClass   AssetClass
 	CurrencyCode string
 	// QuoteSource stores the market ("b3" or "crypto"); QuoteSymbol stores
 	// its provider-neutral symbol ("PETR4" or "BTC"). Only relevant for manual
@@ -126,6 +127,7 @@ type AssetInput struct {
 	Name         string
 	Ticker       *string
 	AssetType    string
+	AssetClass   AssetClass
 	CurrencyCode string
 	QuoteSource  *string
 	QuoteSymbol  *string

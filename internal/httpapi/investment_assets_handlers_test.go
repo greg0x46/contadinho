@@ -6,7 +6,7 @@ import (
 )
 
 var investmentAssetResponseKeys = []string{
-	"id", "name", "ticker", "asset_type", "currency_code", "quote_source", "quote_symbol", "created_at", "updated_at",
+	"id", "name", "ticker", "asset_type", "asset_class", "currency_code", "quote_source", "quote_symbol", "created_at", "updated_at",
 }
 
 func TestInvestmentAssetLifecycleOverHTTP(t *testing.T) {
@@ -74,6 +74,26 @@ func TestInvestmentAssetValidationAndMissingRecords(t *testing.T) {
 		"/api/investment-assets/33333333-3333-4333-8333-333333333333", nil, http.StatusNotFound)
 	if problem != "investment-asset-not-found" {
 		t.Errorf("missing problem = %q", problem)
+	}
+}
+
+func TestInvestmentAssetFinancialClassificationOverHTTP(t *testing.T) {
+	srv, _ := newTestServer(t)
+	classes := investmentItems(t, srv, "/api/investment-asset-classification")
+	if len(classes) != 6 {
+		t.Fatalf("classification = %+v, want six financial classes", classes)
+	}
+	created := investmentCall(t, srv, http.MethodPost, "/api/investment-assets", map[string]any{
+		"name": "ETF cripto", "ticker": "HASH11", "asset_type": "ETF de criptoativos", "asset_class": "crypto",
+		"currency_code": "BRL", "quote_source": "b3",
+	}, http.StatusCreated)
+	if created["asset_class"] != "crypto" || created["quote_source"] != "b3" {
+		t.Fatalf("created = %+v", created)
+	}
+	for _, class := range []string{"provider", "variable_income"} {
+		investmentProblem(t, srv, http.MethodPost, "/api/investment-assets", map[string]any{
+			"name": "CDB", "asset_type": "CDB", "asset_class": class,
+		}, http.StatusBadRequest)
 	}
 }
 

@@ -2415,11 +2415,43 @@ export function parseInvestmentAccountList(value: unknown): InvestmentAccount[] 
   return parseInvestmentListEnvelope(value, parseInvestmentAccount, "Lista de contas de investimento inválida.");
 }
 
+export const investmentAssetClasses = ["fixed_income", "variable_income", "multimarket", "currency", "crypto", "other"] as const;
+export type InvestmentAssetClass = typeof investmentAssetClasses[number];
+
+function isInvestmentAssetClass(value: unknown): value is InvestmentAssetClass {
+  return investmentAssetClasses.some((item) => item === value);
+}
+
+export interface InvestmentAssetClassDefinition {
+  asset_class: InvestmentAssetClass;
+  label: string;
+  types: { name: string; quote_market: "b3" | "crypto" | null }[];
+}
+
+export function parseInvestmentAssetClassification(value: unknown): InvestmentAssetClassDefinition[] {
+  return parseInvestmentListEnvelope(value, (entry) => {
+    const item = requiredRecord(entry, ["asset_class", "label", "types"], "Classificação de ativo inválida.");
+    if (!isInvestmentAssetClass(item.asset_class) || typeof item.label !== "string" || item.label.trim() === "" || !Array.isArray(item.types)) {
+      throw new TypeError("Classificação de ativo inválida.");
+    }
+    const types = item.types.map((entry) => {
+      const type = requiredRecord(entry, ["name", "quote_market"], "Tipo de ativo inválido.");
+      if (typeof type.name !== "string" || type.name.trim() === "" ||
+        (type.quote_market !== null && type.quote_market !== "b3" && type.quote_market !== "crypto")) {
+        throw new TypeError("Tipo de ativo inválido.");
+      }
+      return { name: type.name, quote_market: type.quote_market as "b3" | "crypto" | null };
+    });
+    return { asset_class: item.asset_class, label: item.label, types };
+  }, "Classificação de ativos inválida.");
+}
+
 export interface InvestmentAsset {
   id: string;
   name: string;
   ticker: string | null;
   asset_type: string;
+  asset_class: InvestmentAssetClass;
   currency_code: string;
   quote_source: string | null;
   quote_symbol: string | null;
@@ -2431,6 +2463,7 @@ export interface InvestmentAssetWrite {
   name: string;
   ticker: string | null;
   asset_type: string;
+  asset_class: InvestmentAssetClass;
   currency_code: string;
   quote_source: string | null;
   quote_symbol: string | null;
@@ -2441,6 +2474,7 @@ const investmentAssetKeys = [
   "name",
   "ticker",
   "asset_type",
+  "asset_class",
   "currency_code",
   "quote_source",
   "quote_symbol",
@@ -2458,6 +2492,7 @@ export function parseInvestmentAsset(value: unknown): InvestmentAsset {
     !isNullableString(item.ticker) ||
     typeof item.asset_type !== "string" ||
     item.asset_type.trim() === "" ||
+    !isInvestmentAssetClass(item.asset_class) ||
     typeof item.currency_code !== "string" ||
     !/^[A-Z]{3}$/.test(item.currency_code) ||
     !isNullableString(item.quote_source) ||
@@ -2472,6 +2507,7 @@ export function parseInvestmentAsset(value: unknown): InvestmentAsset {
     name: item.name,
     ticker: item.ticker as string | null,
     asset_type: item.asset_type,
+    asset_class: item.asset_class,
     currency_code: item.currency_code,
     quote_source: item.quote_source as string | null,
     quote_symbol: item.quote_symbol as string | null,

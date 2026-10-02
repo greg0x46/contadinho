@@ -32,13 +32,13 @@ func assetCanonicalKey(name string, ticker *string, assetType string) string {
 // path (ListAssets, GetAsset, ensureAsset's lookup) so a new column is added
 // once instead of drifting across three repeated SELECTs — mirrors
 // operationColumns in operations.go.
-const assetColumns = `id, canonical_key, name, ticker, asset_type, currency_code, quote_source, quote_symbol, created_at, updated_at`
+const assetColumns = `id, canonical_key, name, ticker, asset_type, asset_class, currency_code, quote_source, quote_symbol, created_at, updated_at`
 
 func scanAsset(row interface{ Scan(...any) error }) (Asset, error) {
 	var asset Asset
 	var ticker, quoteSource, quoteSymbol sql.NullString
 	var created, updated string
-	err := row.Scan(&asset.ID, &asset.CanonicalKey, &asset.Name, &ticker, &asset.AssetType, &asset.CurrencyCode,
+	err := row.Scan(&asset.ID, &asset.CanonicalKey, &asset.Name, &ticker, &asset.AssetType, &asset.AssetClass, &asset.CurrencyCode,
 		&quoteSource, &quoteSymbol, &created, &updated)
 	if err != nil {
 		return Asset{}, err
@@ -99,6 +99,13 @@ func GetAsset(ctx context.Context, q Querier, id string) (Asset, error) {
 func normalizeAssetInput(in AssetInput) (AssetInput, string, error) {
 	name := strings.TrimSpace(in.Name)
 	assetType := strings.TrimSpace(in.AssetType)
+	assetClass := AssetClass(strings.TrimSpace(string(in.AssetClass)))
+	if assetClass == "" {
+		assetClass = InferAssetClass(assetType)
+	}
+	if !IsAssetClass(assetClass) || !assetTypeMatchesClass(assetClass, assetType) {
+		return AssetInput{}, "", ErrInvalidInput
+	}
 	ticker := trimOptional(in.Ticker)
 	currency := strings.ToUpper(strings.TrimSpace(in.CurrencyCode))
 	if currency == "" {
@@ -122,7 +129,7 @@ func normalizeAssetInput(in AssetInput) (AssetInput, string, error) {
 		return AssetInput{}, "", ErrInvalidInput
 	}
 	normalized := AssetInput{
-		Name: name, Ticker: ticker, AssetType: assetType, CurrencyCode: currency,
+		Name: name, Ticker: ticker, AssetType: assetType, AssetClass: assetClass, CurrencyCode: currency,
 		QuoteSource: quoteSource, QuoteSymbol: quoteSymbol,
 	}
 	return normalized, assetCanonicalKey(name, ticker, assetType), nil
@@ -151,9 +158,9 @@ func CreateAsset(ctx context.Context, q Querier, in AssetInput) (Asset, error) {
 	now, id := db.FormatTime(time.Now()), uuid.NewString()
 	if _, err := q.ExecContext(ctx, `
 		INSERT INTO investment_assets
-			(id, canonical_key, name, ticker, asset_type, currency_code, quote_source, quote_symbol, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, key, normalized.Name, nullableString(normalized.Ticker), normalized.AssetType,
+			(id, canonical_key, name, ticker, asset_type, asset_class, currency_code, quote_source, quote_symbol, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, key, normalized.Name, nullableString(normalized.Ticker), normalized.AssetType, normalized.AssetClass,
 		normalized.CurrencyCode, nullableString(normalized.QuoteSource), nullableString(normalized.QuoteSymbol),
 		now, now); err != nil {
 		return Asset{}, err
@@ -162,8 +169,12 @@ func CreateAsset(ctx context.Context, q Querier, in AssetInput) (Asset, error) {
 }
 
 func UpdateAsset(ctx context.Context, q Querier, id string, in AssetInput) (Asset, error) {
-	if _, err := GetAsset(ctx, q, id); err != nil {
+	current, err := GetAsset(ctx, q, id)
+	if err != nil {
 		return Asset{}, err
+	}
+	if in.AssetClass == "" && strings.TrimSpace(in.AssetType) == current.AssetType {
+		in.AssetClass = current.AssetClass
 	}
 	normalized, key, err := normalizeAssetInput(in)
 	if err != nil {
@@ -178,10 +189,10 @@ func UpdateAsset(ctx context.Context, q Querier, id string, in AssetInput) (Asse
 	}
 	if _, err := q.ExecContext(ctx, `
 		UPDATE investment_assets
-		SET canonical_key = ?, name = ?, ticker = ?, asset_type = ?, currency_code = ?,
+		SET canonical_key = ?, name = ?, ticker = ?, asset_type = ?, asset_class = ?, currency_code = ?,
 		    quote_source = ?, quote_symbol = ?, updated_at = ?
 		WHERE id = ?`,
-		key, normalized.Name, nullableString(normalized.Ticker), normalized.AssetType,
+		key, normalized.Name, nullableString(normalized.Ticker), normalized.AssetType, normalized.AssetClass,
 		normalized.CurrencyCode, nullableString(normalized.QuoteSource), nullableString(normalized.QuoteSymbol),
 		db.FormatTime(time.Now()), id); err != nil {
 		return Asset{}, err
@@ -233,7 +244,7 @@ func ensureAsset(ctx context.Context, q Querier, rawName string, rawTicker *stri
 		currency = "BRL"
 	}
 	now, id := db.FormatTime(time.Now()), uuid.NewString()
-	_, err = q.ExecContext(ctx, `INSERT INTO investment_assets (id, canonical_key, name, ticker, asset_type, currency_code, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, id, key, name, nullableString(ticker), kind, currency, now, now)
+	_, err = q.ExecContext(ctx, `INSERT INTO investment_assets (id, canonical_key, name, ticker, asset_type, asset_class, currency_code, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, key, name, nullableString(ticker), kind, InferAssetClass(kind), currency, now, now)
 	if err != nil {
 		return Asset{}, err
 	}

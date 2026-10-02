@@ -30,6 +30,12 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "seed" {
+		if err := seedCommand(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "auth" {
 		if err := authCommand(os.Args[2:]); err != nil {
 			log.Fatal(err)

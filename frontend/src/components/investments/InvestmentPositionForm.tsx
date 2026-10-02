@@ -1,6 +1,9 @@
 import { Alert, Button, DatePicker, Drawer, Flex, Input, InputNumber, Select, Typography } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { listInvestmentAssets } from "../../api/investmentPortfolio";
+import { investmentAssetsQueryKey } from "../../hooks/useInvestmentAssets";
 
 import type {
   InvestmentAccount,
@@ -87,6 +90,11 @@ export function InvestmentPositionForm({
   const [draft, setDraft] = useState<Draft>(() => draftFrom(position, accounts));
   const [error, setError] = useState<string | null>(null);
   const isEditing = position !== null;
+  const catalog = useQuery({
+    queryKey: investmentAssetsQueryKey,
+    queryFn: ({ signal }) => listInvestmentAssets(signal),
+    enabled: open && !isEditing,
+  });
 
   useEffect(() => {
     if (open) {
@@ -101,9 +109,10 @@ export function InvestmentPositionForm({
   );
   const accountOptions = editableAccounts.map((account) => ({ value: account.id, label: account.name }));
   const portfolioOptions = portfolios.map((portfolio) => ({ value: portfolio.id, label: portfolio.name }));
-  const assetOptions = Array.from(new Map(
-    positions.filter((item) => item.asset_id !== null).map((item) => [item.asset_id!, item]),
-  ).values()).map((item) => ({ value: item.asset_id!, label: [item.ticker, item.name].filter(Boolean).join(" · ") }));
+  const assetOptions = Array.from(new Map([
+    ...positions.filter((item) => item.asset_id !== null).map((item) => [item.asset_id!, { value: item.asset_id!, label: [item.ticker, item.name].filter(Boolean).join(" · ") }] as const),
+    ...(catalog.data ?? []).map((item) => [item.id, { value: item.id, label: [item.ticker, item.name].filter(Boolean).join(" · ") }] as const),
+  ]).values());
 
   const submit = () => {
     if (draft.name.trim() === "") {
@@ -178,7 +187,7 @@ export function InvestmentPositionForm({
             type="info"
             showIcon
             message="Posição manual em BRL"
-            description="A cotação só muda quando você registrar uma cotação manual. Sem cotação, o valor exibido é o custo acumulado."
+            description="Ativos com cotação automática buscam preços de mercado. Para os demais, registre avaliações manuais; sem avaliação, o valor exibido é o custo acumulado."
           />
         )}
         <div className="filter-field">
@@ -204,8 +213,9 @@ export function InvestmentPositionForm({
               showSearch
               optionFilterProp="label"
               placeholder="Cadastre um novo ativo abaixo"
+              loading={catalog.isLoading}
               onChange={(value: string | undefined) => {
-                const selected = positions.find((item) => item.asset_id === value);
+                const selected = catalog.data?.find((item) => item.id === value) ?? positions.find((item) => item.asset_id === value);
                 setDraft((current) => ({ ...current, assetId: value ?? null,
                   name: selected?.name ?? current.name, ticker: selected?.ticker ?? current.ticker,
                   assetType: selected?.asset_type ?? current.assetType }));

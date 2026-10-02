@@ -4,18 +4,25 @@ import {
   createInvestmentAsset,
   deleteInvestmentAsset,
   listInvestmentAssets,
+  listInvestmentAssetClassification,
   updateInvestmentAsset,
 } from "../api/investmentPortfolio";
-import type { InvestmentAssetWrite } from "../api/contracts";
+import type { InvestmentAssetWrite, InvestmentAssetClassDefinition } from "../api/contracts";
 
 export const investmentAssetsQueryKey = ["investmentAssets"] as const;
 const investmentWorkspaceQueryKey = ["investmentWorkspace"] as const;
+const emptyClassification: InvestmentAssetClassDefinition[] = [];
 
 export function useInvestmentAssets() {
   const queryClient = useQueryClient();
   const assetsQuery = useQuery({
     queryKey: investmentAssetsQueryKey,
     queryFn: ({ signal }) => listInvestmentAssets(signal),
+  });
+  const classificationQuery = useQuery({
+    queryKey: ["investmentAssetClassification"],
+    queryFn: ({ signal }) => listInvestmentAssetClassification(signal),
+    staleTime: Infinity,
   });
 
   const refresh = async () => {
@@ -41,9 +48,10 @@ export function useInvestmentAssets() {
 
   return {
     assets: assetsQuery.data ?? [],
-    isLoading: assetsQuery.isLoading,
-    error: assetsQuery.error,
-    refetch: assetsQuery.refetch,
+    classification: classificationQuery.data ?? emptyClassification,
+    isLoading: assetsQuery.isLoading || classificationQuery.isLoading,
+    error: assetsQuery.error ?? classificationQuery.error,
+    refetch: () => Promise.all([assetsQuery.refetch(), classificationQuery.refetch()]),
     createAsset: createMutation.mutateAsync,
     updateAsset: updateMutation.mutateAsync,
     deleteAsset: deleteMutation.mutateAsync,
