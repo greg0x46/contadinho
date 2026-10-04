@@ -1,4 +1,4 @@
-import { Checkbox } from "antd";
+import { Alert, Button, Checkbox } from "antd";
 import { useMemo, type ReactNode } from "react";
 
 import type {
@@ -13,10 +13,12 @@ import {
 import { FilterCombobox } from "../filters/FilterCombobox";
 import { FilterField, FilterSection } from "../filters/FilterPanel";
 import { MoneyRangeFilter } from "../filters/MoneyRangeFilter";
+import { QuickFilters } from "../filters/QuickFilters";
 import { SegmentedControl } from "../filters/SegmentedControl";
 import { categoryFilterOptions, renderCategoryIcon } from "../../presentation/categoryLabels";
 import { formatBRL } from "../../presentation/money";
 import { classificationLabel } from "../../presentation/transactionStatus";
+import { useCompactScreen } from "../shared/useCompactScreen";
 
 type Movement = "all" | "inflow" | "outflow";
 type ImportSource = "all" | "file" | "pluggy" | "manual";
@@ -58,6 +60,7 @@ export function TransactionFilters({
   facetsLoading = false,
   facetsError = null,
   onRetryFacets,
+  lookupError = null,
   onApply,
   onClear,
   end,
@@ -69,6 +72,8 @@ export function TransactionFilters({
   facetsLoading?: boolean;
   facetsError?: string | null;
   onRetryFacets?: () => void;
+  /** Accounts or categories failed to load: the panel says so instead of listing fewer options in silence. */
+  lookupError?: { message: string; retry: () => void } | null;
   onApply: (filters: Filters) => void;
   onClear: () => void;
   end?: ReactNode;
@@ -82,6 +87,8 @@ export function TransactionFilters({
     [facets],
   );
   const categoryOptions = useMemo(() => categoryFilterOptions(facets?.categories), [facets]);
+  // The phone shares one row between search, filters and grouping: a short placeholder fits.
+  const compact = useCompactScreen();
 
   const config = useMemo<FilterConfig<Filters>[]>(
     () => [
@@ -90,7 +97,7 @@ export function TransactionFilters({
         label: "Descrição",
         type: "text",
         placement: "main",
-        placeholder: "Buscar transações…",
+        placeholder: compact ? "Buscar…" : "Buscar transações…",
         debounceMs: 300,
         formatActive: (value) => `Busca: ${String(value)}`,
       },
@@ -99,6 +106,8 @@ export function TransactionFilters({
         label: "Movimentação",
         type: "segmented",
         placement: "advanced",
+        // Shown by the quick toggles under the toolbar instead.
+        hideChip: true,
         options: [
           { value: "all", label: "Todas" },
           { value: "inflow", label: "Entradas" },
@@ -129,7 +138,7 @@ export function TransactionFilters({
         type: "segmented",
         placement: "advanced",
         options: [{ value: "manual", label: "Manual" }],
-        formatActive: () => "Manual",
+        formatActive: () => "Origem: manual",
       },
       {
         key: "source_provider",
@@ -139,9 +148,9 @@ export function TransactionFilters({
         options: [
           { value: "all", label: "Todas" },
           { value: "file", label: "Arquivo" },
-          { value: "pluggy", label: "Conexão automática" },
+          { value: "pluggy", label: "Banco" },
         ],
-        formatActive: (value) => value === "file" ? "Arquivo" : "Conexão automática",
+        formatActive: (value) => value === "file" ? "Origem: arquivo" : "Origem: banco",
       },
       {
         key: "account_ids",
@@ -167,6 +176,7 @@ export function TransactionFilters({
         label: "Sem categoria",
         type: "boolean",
         placement: "advanced",
+        hideChip: true,
         formatActive: () => "Sem categoria",
       },
       {
@@ -183,7 +193,7 @@ export function TransactionFilters({
               : `Valor: até ${formatBRL(values.amount_max ?? "0")}`,
       },
     ],
-    [accountOptions, categoryOptions],
+    [accountOptions, categoryOptions, compact],
   );
 
   const listProps = {
@@ -196,6 +206,33 @@ export function TransactionFilters({
     <ConfigurableFilters
       label="Filtros de transações"
       end={end}
+      shortcuts={
+        <QuickFilters
+          label="Atalhos de filtro"
+          items={[
+            {
+              key: "inflow",
+              label: "Entradas",
+              pressed: applied.classification === "inflow",
+              onToggle: () =>
+                onApply({ ...applied, classification: applied.classification === "inflow" ? null : "inflow" }),
+            },
+            {
+              key: "outflow",
+              label: "Saídas",
+              pressed: applied.classification === "outflow",
+              onToggle: () =>
+                onApply({ ...applied, classification: applied.classification === "outflow" ? null : "outflow" }),
+            },
+            {
+              key: "uncategorized",
+              label: "Sem categoria",
+              pressed: applied.uncategorized === true,
+              onToggle: () => onApply({ ...applied, uncategorized: applied.uncategorized === true ? null : true }),
+            },
+          ]}
+        />
+      }
       values={applied}
       emptyValues={emptyValues ?? applied}
       config={config}
@@ -216,6 +253,18 @@ export function TransactionFilters({
       onClear={onClear}
       renderAdvanced={({ draft, set, error }) => (
         <>
+          {lookupError && (
+            <Alert
+              type="warning"
+              showIcon
+              message={lookupError.message}
+              action={
+                <Button size="small" onClick={lookupError.retry}>
+                  Tentar novamente
+                </Button>
+              }
+            />
+          )}
           <FilterSection title="Movimentação">
             <SegmentedControl<Movement>
               id="filter-classification"
@@ -255,7 +304,7 @@ export function TransactionFilters({
               options={[
                 { value: "all", label: "Todas" },
                 { value: "file", label: "Arquivo" },
-                { value: "pluggy", label: "Conexão automática" },
+                { value: "pluggy", label: "Banco" },
                 { value: "manual", label: "Manual" },
               ]}
               onChange={(value) => {

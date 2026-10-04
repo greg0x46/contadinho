@@ -1,17 +1,5 @@
-import {
-  Alert,
-  Button,
-  Card,
-  DatePicker,
-  Flex,
-  InputNumber,
-  Modal,
-  Popconfirm,
-  Radio,
-  Tag,
-  Timeline,
-  Typography,
-} from "antd";
+import { PlusOutlined } from "@ant-design/icons";
+import { Alert, Button, DatePicker, Flex, InputNumber, Radio, Skeleton, Typography } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { useState } from "react";
 
@@ -25,23 +13,37 @@ import type {
   ScenarioTransaction,
 } from "../../api/contracts";
 import { usePayablePlan } from "../../hooks/usePayablePlan";
-import { formatOptionalDate } from "../../presentation/dates";
-import { formatBRL } from "../../presentation/money";
+import { calendarParts } from "../../presentation/dates";
+import { errorMessage } from "../../presentation/errors";
+import { formatBRL, subtractBRL, sumBRL } from "../../presentation/money";
 import { payableVocabulary } from "../../presentation/payableLabels";
-import {
-  scenarioTransactionStatusColor,
-  scenarioTransactionStatusDashed,
-  scenarioTransactionStatusLabel,
-} from "../../presentation/scenarioLabels";
+import { scenarioTransactionStatusLabel } from "../../presentation/scenarioLabels";
+import { FormDrawer } from "../forms/FormDrawer";
+import { FormField } from "../forms/FormField";
+import { MoneyInput } from "../forms/MoneyInput";
+import { Section } from "../layout";
+import { Money } from "../shared/Money";
+import { RecordMenu, type RecordMenuItem } from "../shared/RecordMenu";
+import { StatusTag, type StatusTagTone } from "../shared/StatusTag";
 import { TransactionPicker, type PickerTransaction } from "../shared/TransactionPicker";
+import { useConfirm } from "../shared/useConfirm";
+import { useFeedback } from "../shared/useFeedback";
 
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
+/** "20/02", with the year only when it is not the current one — a plan can span years. */
+function formatShortDate(value: string): string {
+  const parts = calendarParts(value);
+  if (parts === null) return "Data inválida";
+  const day = `${String(parts.day).padStart(2, "0")}/${String(parts.month).padStart(2, "0")}`;
+  return parts.year === dayjs().year() ? day : `${day}/${parts.year}`;
 }
 
-function formatProjectedDate(value: string): string {
-  const [year, month, day] = value.split("-");
-  return `${day}/${month}/${year}`;
+/**
+ * Installment descriptions repeat the payable's name ("Parcela 1/12 -
+ * Empréstimo pessoal Itaú"), which the page title already carries; the row
+ * only needs the part that tells installments apart.
+ */
+function installmentLabel(description: string): string {
+  return /^Parcela \d+\/\d+/.exec(description)?.[0] ?? description;
 }
 
 // Money leaves to pay a debt and arrives to settle a receivable; every row
@@ -72,44 +74,35 @@ function installmentRow(installment: ScenarioTransaction, kind: PayableKind): Pi
   };
 }
 
+/**
+ * Only an installment that is off the common path says so: "Planejado" (not
+ * due yet) and "Paga" (settled exactly as planned — the realization under it
+ * already says it) are the defaults and stay unsaid.
+ */
+const installmentStatusTone: Partial<Record<ScenarioTransaction["status"], StatusTagTone>> = {
+  atrasada: "danger",
+  paga_parcialmente: "warning",
+  paga_a_mais: "info",
+};
+
 function realizationLabel(realization: Realization, links: PayableLinkedTransaction[]): string {
   const link = links.find((candidate) => candidate.id === realization.payable_link_id);
   const description = link?.description ?? "Transação vinculada";
-  const date = link ? formatOptionalDate(link.occurred_at) : null;
-  return date ? `${date} · ${description}` : description;
+  return link?.occurred_at ? `${formatShortDate(link.occurred_at)} · ${description}` : description;
 }
 
-// Timeline's color prop only understands "blue"/"red"/"green"/"gray" (or a
-// literal CSS color) — it doesn't share the Tag's semantic palette
-// ("processing"/"success"/...), so installment status needs its own mapping
-// just for the dot.
-const timelineDotColor: Record<ScenarioTransaction["status"], string> = {
-  atrasada: "red",
-  projetada: "gray",
-  paga_parcialmente: "orange",
-  paga: "green",
-  paga_a_mais: "blue",
-};
-
-function AccumulatedDeviationBanner({ value, onTrackMessage }: { value: string; onTrackMessage: string }) {
+/** The plan's overall standing as one quiet line, coloured only when it matters. */
+function PlanNotice({ value, onTrackMessage }: { value: string; onTrackMessage: string }) {
   const isAhead = value.startsWith("-");
   const isOnTrack = !isAhead && Number(value) === 0;
   const magnitude = formatBRL(isAhead ? value.slice(1) : value);
-
-  if (isOnTrack) {
-    return <Alert type="success" showIcon message={onTrackMessage} />;
-  }
-  return (
-    <Alert
-      type={isAhead ? "success" : "warning"}
-      showIcon
-      message={
-        isAhead
-          ? `Adiantado ${magnitude} em relação ao plano até hoje.`
-          : `Atrasado ${magnitude} em relação ao plano até hoje.`
-      }
-    />
-  );
+  const tone = isOnTrack || isAhead ? "good" : "late";
+  const text = isOnTrack
+    ? onTrackMessage
+    : isAhead
+      ? `Adiantado ${magnitude} em relação ao plano até hoje.`
+      : `Atrasado ${magnitude} em relação ao plano até hoje.`;
+  return <p className={`payable-plan-notice payable-plan-notice-${tone}`}>{text}</p>;
 }
 
 // Lets a transaction that was linked standalone (no installment picked at
@@ -132,7 +125,7 @@ function AllocateExistingLinkControl({
 
   if (!open) {
     return (
-      <Button type="link" size="small" onClick={() => setOpen(true)}>
+      <Button type="link" size="small" className="payable-entry-link" onClick={() => setOpen(true)}>
         Alocar a uma parcela
       </Button>
     );
@@ -166,12 +159,10 @@ function AllocateExistingLinkControl({
           onSelect={setInstallmentId}
         />
       </div>
-      <Button type="primary" size="small" loading={submitting} disabled={installmentId === null} onClick={submit}>
+      <Button type="primary" loading={submitting} disabled={installmentId === null} onClick={submit}>
         Alocar
       </Button>
-      <Button size="small" onClick={() => setOpen(false)}>
-        Cancelar
-      </Button>
+      <Button onClick={() => setOpen(false)}>Cancelar</Button>
     </Flex>
   );
 }
@@ -180,16 +171,24 @@ type TimelineEntry =
   | { kind: "installment"; date: string; installment: ScenarioTransaction }
   | { kind: "link"; date: string; link: PayableLinkedTransaction };
 
+/** A destructive or irreversible step waiting for the user's yes, shown in one shared dialog. */
+
 // PayableTimeline replaces what used to be two separate tabs ("Plano de
 // pagamento" and "Transações vinculadas"): a payable's installments and its
 // linked transactions are one story, not two — an installment is settled by
 // the very links shown underneath it, so they read as one chronological
-// timeline instead of forcing the user to cross-reference two tables.
+// list instead of forcing the user to cross-reference two tables.
 // Linking and allocating are also merged into a single "Vincular" action:
 // picking a parcela at link time does both in one step, while leaving the
 // parcela unset still links standalone. The only fork between a debt and a
 // receivable is vocabulary (payableVocabulary, keyed by kind) — the
 // mechanics are identical either way.
+//
+// Each row is one line (date · parcela, amount) plus a lighter status line;
+// what can destroy data (excluir parcela, desalocar, desvincular, reajustar)
+// sits behind a per-row `···` and asks through one dialog that is as usable
+// on a phone as on a desktop, instead of a coloured link and a tiny popover
+// on every row.
 export function PayableTimeline({
   payableId,
   kind,
@@ -221,9 +220,8 @@ export function PayableTimeline({
   const [installmentAmount, setInstallmentAmount] = useState<number | null>(null);
   const [startDate, setStartDate] = useState<Dayjs>(() => dayjs());
   const [actionError, setActionError] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [deallocatingId, setDeallocatingId] = useState<string | null>(null);
-  const [unlinkingLinkId, setUnlinkingLinkId] = useState<string | null>(null);
+  const confirm = useConfirm();
+  const feedback = useFeedback();
 
   const [addPaymentOpen, setAddPaymentOpen] = useState(false);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
@@ -231,18 +229,25 @@ export function PayableTimeline({
   const [linkSubmitting, setLinkSubmitting] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
 
-  const runAction = async (action: () => Promise<unknown>, fallback: string) => {
+  // A write started from a `···` or a confirm: the inline alert stays where
+  // the timeline is, and a toast says it too — the alert alone can be out of
+  // view once the list is long. A success toast closes the loop for a row that
+  // changes under the finger.
+  const runAction = async (action: () => Promise<unknown>, fallback: string, done?: string) => {
     setActionError(null);
     try {
       await action();
+      if (done !== undefined) feedback.success(done);
     } catch (error) {
-      setActionError(errorMessage(error, fallback));
+      const message = errorMessage(error, fallback);
+      setActionError(message);
+      feedback.error(message);
     }
   };
 
   const createPlan = () => {
     const name = vocab.planNoun.replace(/^./, (c) => c.toUpperCase());
-    return runAction(() => plan.createPlan(name), "Não foi possível criar o plano.");
+    return runAction(() => plan.createPlan(name), "Não foi possível criar o plano.", "Plano criado");
   };
 
   const generate = () => {
@@ -252,50 +257,40 @@ export function PayableTimeline({
       return runAction(
         () => plan.generateInstallments({ cadence, months, start_date }),
         "Não foi possível gerar as parcelas.",
+        "Parcelas geradas",
       );
     }
     if (installmentAmount === null || installmentAmount <= 0) return;
     return runAction(
       () => plan.generateInstallments({ cadence, installment_amount: installmentAmount, start_date }),
       "Não foi possível gerar as parcelas.",
+      "Parcelas geradas",
     );
   };
 
   const readjust = (strategy: "abater_do_final" | "redistribuir") =>
-    runAction(() => plan.readjust({ strategy }), "Não foi possível reajustar as parcelas restantes.");
+    runAction(
+      () => plan.readjust({ strategy }),
+      "Não foi possível reajustar as parcelas restantes.",
+      "Parcelas reajustadas",
+    );
 
-  const deleteInstallment = async (installment: ScenarioTransaction) => {
-    setDeletingId(installment.id);
-    try {
-      await plan.deleteInstallment(installment.id);
-    } catch (error) {
-      setActionError(errorMessage(error, "Não foi possível excluir a parcela."));
-    } finally {
-      setDeletingId(null);
-    }
-  };
+  const deleteInstallment = (installment: ScenarioTransaction) =>
+    runAction(() => plan.deleteInstallment(installment.id), "Não foi possível excluir a parcela.", "Parcela excluída");
 
-  const deallocate = async (installment: ScenarioTransaction, realization: Realization) => {
-    setDeallocatingId(realization.id);
-    try {
-      await plan.deallocateRealization({ transactionId: installment.id, realizationId: realization.id });
-    } catch (error) {
-      setActionError(errorMessage(error, "Não foi possível desalocar a transação."));
-    } finally {
-      setDeallocatingId(null);
-    }
-  };
+  const deallocate = (installment: ScenarioTransaction, realization: Realization) =>
+    runAction(
+      () => plan.deallocateRealization({ transactionId: installment.id, realizationId: realization.id }),
+      "Não foi possível desalocar a transação.",
+      "Transação desalocada",
+    );
 
-  const unlink = async (link: PayableLinkedTransaction) => {
-    setUnlinkingLinkId(link.id);
-    try {
-      await onUnlinkTransaction(link.id);
-    } catch (error) {
-      setActionError(errorMessage(error, "Não foi possível desvincular a transação."));
-    } finally {
-      setUnlinkingLinkId(null);
-    }
-  };
+  const unlink = (link: PayableLinkedTransaction) =>
+    runAction(
+      () => onUnlinkTransaction(link.id),
+      "Não foi possível desvincular a transação.",
+      "Transação desvinculada",
+    );
 
   const allocateExistingLink = async (linkId: string, installmentId: string, amount: number) => {
     try {
@@ -303,8 +298,11 @@ export function PayableTimeline({
         transactionId: installmentId,
         write: { payable_link_id: linkId, allocated_amount: amount },
       });
+      feedback.success("Transação alocada");
     } catch (error) {
-      setActionError(errorMessage(error, "Não foi possível alocar a transação."));
+      const message = errorMessage(error, "Não foi possível alocar a transação.");
+      setActionError(message);
+      feedback.error(message);
       throw error;
     }
   };
@@ -324,6 +322,7 @@ export function PayableTimeline({
       setSelectedCandidateId(null);
       setSelectedInstallmentId(null);
       setAddPaymentOpen(false);
+      feedback.success("Transação vinculada");
     } catch (error) {
       setLinkError(errorMessage(error, "Não foi possível vincular a transação."));
     } finally {
@@ -338,14 +337,19 @@ export function PayableTimeline({
     setLinkError(null);
   };
 
+  // The same section the loaded timeline fills, so the page does not jump.
   if (plan.isLoading) {
-    return <Typography.Text type="secondary">Carregando linha do tempo…</Typography.Text>;
+    return (
+      <Section title="Linha do tempo" className="payable-timeline-section">
+        <div role="status" aria-label="Carregando linha do tempo">
+          <Skeleton active title={false} paragraph={{ rows: 4 }} />
+        </div>
+      </Section>
+    );
   }
 
   const installments = plan.plan?.transactions ?? [];
-  const allocatedLinkIds = new Set(
-    installments.flatMap((i) => i.realizations.map((r) => r.payable_link_id)),
-  );
+  const allocatedLinkIds = new Set(installments.flatMap((i) => i.realizations.map((r) => r.payable_link_id)));
   const unallocatedLinks = links.filter((link) => !allocatedLinkIds.has(link.id));
 
   const entries: TimelineEntry[] = [
@@ -361,288 +365,322 @@ export function PayableTimeline({
     })),
   ].sort((a, b) => a.date.localeCompare(b.date));
 
-  return (
-    <Card
-      title="Linha do tempo"
-      extra={
-        <Button type="primary" onClick={() => setAddPaymentOpen(true)}>
-          {vocab.addActionLabel}
-        </Button>
-      }
-    >
-    <Flex vertical gap="middle">
-      {actionError && (
-        <Alert type="error" showIcon closable onClose={() => setActionError(null)} message={actionError} />
-      )}
+  const hasPlanInstallments = plan.plan !== null && plan.plan.transactions.length > 0;
 
-      {plan.plan === null && (
-        <Flex gap="small" align="center">
-          <Typography.Text type="secondary">{vocab.noPlanMessage}</Typography.Text>
-          <Button type="primary" loading={plan.isCreating} onClick={createPlan}>
-            {vocab.createPlanButtonText}
-          </Button>
-        </Flex>
-      )}
-
-      {plan.plan !== null && plan.plan.transactions.length === 0 && (
-        <Flex vertical gap="small">
-          <Typography.Text>{vocab.generateFromRemainingText}</Typography.Text>
-          <Flex gap="small" align="center" wrap>
-            <Typography.Text>Cadência:</Typography.Text>
-            <Radio.Group
-              value={cadence}
-              onChange={(e) => setCadence(e.target.value as Cadence)}
-              optionType="button"
-            >
-              <Radio.Button value="mensal">Mensal</Radio.Button>
-              <Radio.Button value="semanal">Semanal</Radio.Button>
-              <Radio.Button value="quinzenal">Quinzenal</Radio.Button>
-            </Radio.Group>
-          </Flex>
-          <Radio.Group value={generateBy} onChange={(e) => setGenerateBy(e.target.value)}>
-            <Radio value="months">Número de parcelas</Radio>
-            <Radio value="amount">Valor da parcela</Radio>
-          </Radio.Group>
-          <Flex gap="small" align="center" wrap>
-            <Typography.Text>Data de início:</Typography.Text>
-            <DatePicker
-              aria-label="Data de início"
-              value={startDate}
-              onChange={(value) => value && setStartDate(value)}
-              format="DD/MM/YYYY"
-              allowClear={false}
-            />
-          </Flex>
-          <Flex gap="small" align="center" wrap>
-            {generateBy === "months" ? (
-              <>
-                <InputNumber
-                  aria-label="Número de parcelas"
-                  min={1}
-                  max={520}
-                  value={months}
-                  onChange={(value) => setMonths(value)}
-                />
-                <Typography.Text>parcelas</Typography.Text>
-              </>
-            ) : (
-              <InputNumber
-                aria-label="Valor de cada parcela"
-                addonBefore="R$"
-                min={0.01}
-                step={0.01}
-                value={installmentAmount}
-                onChange={(value) => setInstallmentAmount(value)}
-              />
-            )}
-            <Button type="primary" loading={plan.isGenerating} onClick={generate}>
-              Gerar parcelas
-            </Button>
-          </Flex>
-        </Flex>
-      )}
-
-      {plan.plan !== null && plan.plan.transactions.length > 0 && (
-        <>
-          <AccumulatedDeviationBanner
-            value={plan.plan.accumulated_deviation}
-            onTrackMessage={vocab.onTrackMessage}
-          />
-          <Flex gap="small" wrap>
-            <Popconfirm
-              title="Abater do final"
-              description="Mantém o valor da parcela; o prazo (número de parcelas restantes) muda para cobrir o saldo."
-              onConfirm={() => readjust("abater_do_final")}
-              okText="Reajustar"
-              cancelText="Cancelar"
-            >
-              <Button loading={plan.isReadjusting}>Reajustar: abater do final</Button>
-            </Popconfirm>
-            <Popconfirm
-              title="Redistribuir entre os meses"
-              description="Mantém o prazo (mesmas datas restantes); o valor de cada parcela muda para cobrir o saldo."
-              onConfirm={() => readjust("redistribuir")}
-              okText="Reajustar"
-              cancelText="Cancelar"
-            >
-              <Button loading={plan.isReadjusting}>Reajustar: redistribuir entre os meses</Button>
-            </Popconfirm>
-          </Flex>
-        </>
-      )}
-
-      <Modal
-        title={vocab.addActionLabel}
-        open={addPaymentOpen}
-        onCancel={closeAddPayment}
-        onOk={submitLink}
-        okText="Vincular"
-        cancelText="Cancelar"
-        okButtonProps={{ disabled: selectedCandidateId === null, loading: isLinking || linkSubmitting }}
-        destroyOnHidden
+  // A quiet text action, then the plan's own `···`: adding is the everyday
+  // step but not a call to action louder than the figures under it.
+  const trailing = (
+    <Flex gap={4} align="center">
+      <Button
+        type="text"
+        className="payable-add-action"
+        icon={<PlusOutlined aria-hidden="true" />}
+        onClick={() => setAddPaymentOpen(true)}
       >
-        <Flex vertical gap="middle">
-          {linkError && <Alert type="error" showIcon message={linkError} />}
-          <div>
-            <Typography.Text>Transação</Typography.Text>
-            <TransactionPicker
-              id="payable-link-transaction"
-              label="Buscar transação para vincular"
-              allowClear
-              placeholder="Buscar por descrição"
-              value={selectedCandidateId}
-              search={{ value: search, onChange: onSearchChange }}
-              loading={isSearching}
-              emptyText="Nenhuma transação elegível encontrada"
-              transactions={candidates.map((candidate) => candidateRow(candidate, kind))}
-              onSelect={setSelectedCandidateId}
-            />
-          </div>
-          {installments.length > 0 && (
-            <div>
-              <Typography.Text>Parcela (opcional)</Typography.Text>
-              <TransactionPicker
-                id="payable-link-installment"
-                label="Parcela para alocar"
-                allowClear
-                placeholder="Sem parcela (vínculo avulso)"
-                value={selectedInstallmentId}
-                transactions={installments.map((installment) => installmentRow(installment, kind))}
-                onSelect={setSelectedInstallmentId}
-              />
-            </div>
-          )}
-        </Flex>
-      </Modal>
-
-      {entries.length === 0 ? (
-        <Typography.Text type="secondary">Nenhuma parcela ou transação vinculada ainda.</Typography.Text>
-      ) : (
-        <Timeline
-          items={entries.map((entry) => {
-            if (entry.kind === "installment") {
-              const installment = entry.installment;
-              const realizedTotal = installment.realizations.reduce(
-                (total, realization) => total + Number(realization.allocated_amount),
-                0,
-              );
-              // When what was actually settled diverges from what was
-              // planned (settled more or less than the installment), the
-              // realized total is the number that matters — it should read
-              // as the headline, with the planned amount demoted to
-              // context, not the other way around.
-              const divergesFromPlan =
-                installment.realizations.length > 0 && realizedTotal.toFixed(2) !== Number(installment.amount).toFixed(2);
-              return {
-                color: timelineDotColor[installment.status],
-                children: (
-                  <Flex vertical gap={4}>
-                    <Flex justify="space-between" align="center" wrap gap="small">
-                      <span>
-                        <strong>{formatProjectedDate(installment.projected_at)}</strong> ·{" "}
-                        {installment.description} ·{" "}
-                        {divergesFromPlan ? (
-                          <>
-                            <strong>{formatBRL(realizedTotal.toFixed(2))}</strong>{" "}
-                            <Typography.Text type="secondary">
-                              (planejado {formatBRL(installment.amount)})
-                            </Typography.Text>
-                          </>
-                        ) : (
-                          formatBRL(installment.amount)
-                        )}
-                      </span>
-                      <Tag
-                        color={scenarioTransactionStatusColor[installment.status]}
-                        style={
-                          scenarioTransactionStatusDashed[installment.status]
-                            ? { borderStyle: "dashed" }
-                            : undefined
-                        }
-                      >
-                        {scenarioTransactionStatusLabel[installment.status]}
-                      </Tag>
-                    </Flex>
-                    {installment.realizations.map((realization) => (
-                      <Flex
-                        key={realization.id}
-                        justify="space-between"
-                        align="center"
-                        gap="small"
-                        style={{ paddingLeft: 16 }}
-                      >
-                        <span>
-                          ↳ {realizationLabel(realization, links)} · {formatBRL(realization.allocated_amount)}
-                        </span>
-                        <Popconfirm
-                          title="Desalocar transação"
-                          description={vocab.deallocateDescription}
-                          onConfirm={() => deallocate(installment, realization)}
-                          okText="Desalocar"
-                          cancelText="Cancelar"
-                        >
-                          <Button type="link" danger size="small" loading={deallocatingId === realization.id}>
-                            Desalocar
-                          </Button>
-                        </Popconfirm>
-                      </Flex>
-                    ))}
-                    <Popconfirm
-                      title="Excluir parcela"
-                      description="A parcela planejada será removida do plano."
-                      onConfirm={() => deleteInstallment(installment)}
-                      okText="Excluir"
-                      cancelText="Cancelar"
-                    >
-                      <Button type="link" danger size="small" loading={deletingId === installment.id}>
-                        Excluir parcela
-                      </Button>
-                    </Popconfirm>
-                  </Flex>
-                ),
-              };
-            }
-
-            const link = entry.link;
-            return {
-              color: "gray",
-              children: (
-                <Flex vertical gap={4}>
-                  <Flex justify="space-between" align="center" wrap gap="small">
-                    <span>
-                      {formatOptionalDate(link.occurred_at)} · {link.description ?? "Sem descrição"} ·{" "}
-                      {formatBRL(link.current_amount)}
-                    </span>
-                    <Tag>Vínculo avulso</Tag>
-                  </Flex>
-                  <Flex gap="small" align="center" wrap>
-                    <Popconfirm
-                      title="Desvincular transação"
-                      description="A transação permanece inalterada e volta a ficar disponível para vincular."
-                      onConfirm={() => unlink(link)}
-                      okText="Desvincular"
-                      cancelText="Cancelar"
-                    >
-                      <Button type="link" danger size="small" loading={unlinkingLinkId === link.id}>
-                        Desvincular
-                      </Button>
-                    </Popconfirm>
-                    {installments.length > 0 && (
-                      <AllocateExistingLinkControl
-                        link={link}
-                        kind={kind}
-                        installments={installments}
-                        onAllocate={(installmentId, amount) => allocateExistingLink(link.id, installmentId, amount)}
-                      />
-                    )}
-                  </Flex>
-                </Flex>
-              ),
-            };
-          })}
+        {vocab.addActionLabel}
+      </Button>
+      {hasPlanInstallments && (
+        <RecordMenu
+          className="payable-entry-menu"
+          label="Ações do plano"
+          loading={plan.isReadjusting}
+          items={[
+            {
+              key: "abater_do_final",
+              label: "Reajustar: abater do final",
+              onClick: () =>
+                confirm({
+                  title: "Abater do final",
+                  description:
+                    "Mantém o valor da parcela; o prazo (número de parcelas restantes) muda para cobrir o saldo.",
+                  okText: "Reajustar",
+                  danger: false,
+                  onConfirm: () => readjust("abater_do_final"),
+                }),
+            },
+            {
+              key: "redistribuir",
+              label: "Reajustar: redistribuir entre os meses",
+              onClick: () =>
+                confirm({
+                  title: "Redistribuir entre os meses",
+                  description:
+                    "Mantém o prazo (mesmas datas restantes); o valor de cada parcela muda para cobrir o saldo.",
+                  okText: "Reajustar",
+                  danger: false,
+                  onConfirm: () => readjust("redistribuir"),
+                }),
+            },
+          ]}
         />
       )}
     </Flex>
-    </Card>
+  );
+
+  return (
+    <Section title="Linha do tempo" trailing={trailing} className="payable-timeline-section">
+      <Flex vertical gap="middle">
+        {actionError && (
+          <Alert type="error" showIcon closable onClose={() => setActionError(null)} message={actionError} />
+        )}
+
+        {plan.plan === null && (
+          <Flex gap="small" align="center" wrap>
+            <Typography.Text type="secondary">{vocab.noPlanMessage}</Typography.Text>
+            <Button loading={plan.isCreating} onClick={createPlan}>
+              {vocab.createPlanButtonText}
+            </Button>
+          </Flex>
+        )}
+
+        {plan.plan !== null && plan.plan.transactions.length === 0 && (
+          <Flex vertical gap="small">
+            <Typography.Text>{vocab.generateFromRemainingText}</Typography.Text>
+            <Flex gap="small" align="center" wrap>
+              <Typography.Text>Cadência:</Typography.Text>
+              <Radio.Group
+                value={cadence}
+                onChange={(e) => setCadence(e.target.value as Cadence)}
+                optionType="button"
+              >
+                <Radio.Button value="mensal">Mensal</Radio.Button>
+                <Radio.Button value="semanal">Semanal</Radio.Button>
+                <Radio.Button value="quinzenal">Quinzenal</Radio.Button>
+              </Radio.Group>
+            </Flex>
+            <Radio.Group value={generateBy} onChange={(e) => setGenerateBy(e.target.value)}>
+              <Radio value="months">Número de parcelas</Radio>
+              <Radio value="amount">Valor da parcela</Radio>
+            </Radio.Group>
+            <Flex gap="small" align="center" wrap>
+              <Typography.Text>Data de início:</Typography.Text>
+              <DatePicker
+                aria-label="Data de início"
+                value={startDate}
+                onChange={(value) => value && setStartDate(value)}
+                format="DD/MM/YYYY"
+                allowClear={false}
+              />
+            </Flex>
+            <Flex gap="small" align="center" wrap>
+              {generateBy === "months" ? (
+                <>
+                  <InputNumber
+                    aria-label="Número de parcelas"
+                    min={1}
+                    max={520}
+                    value={months}
+                    onChange={(value) => setMonths(value)}
+                  />
+                  <Typography.Text>parcelas</Typography.Text>
+                </>
+              ) : (
+                <MoneyInput
+                  aria-label="Valor de cada parcela"
+                  min={0.01}
+                  value={installmentAmount}
+                  onChange={(value) => setInstallmentAmount(value)}
+                  style={{ width: "10rem" }}
+                />
+              )}
+              <Button type="primary" loading={plan.isGenerating} onClick={generate}>
+                Gerar parcelas
+              </Button>
+            </Flex>
+          </Flex>
+        )}
+
+        {hasPlanInstallments && plan.plan !== null && (
+          <PlanNotice value={plan.plan.accumulated_deviation} onTrackMessage={vocab.onTrackMessage} />
+        )}
+
+        {entries.length === 0 ? (
+          <Typography.Text type="secondary">Nenhuma parcela ou transação vinculada ainda.</Typography.Text>
+        ) : (
+          <ul className="payable-entries" aria-label="Linha do tempo">
+            {entries.map((entry) => {
+              if (entry.kind === "installment") {
+                const installment = entry.installment;
+                const realizedTotal = sumBRL(installment.realizations.map((r) => r.allocated_amount));
+                // When what was actually settled diverges from what was
+                // planned (settled more or less than the installment), the
+                // realized total is the number that matters — it reads as the
+                // headline, with the planned amount demoted to the meta line.
+                const divergesFromPlan =
+                  installment.realizations.length > 0 && subtractBRL(realizedTotal, installment.amount) !== "0.00";
+                const label = installmentLabel(installment.description);
+                const tone = installmentStatusTone[installment.status];
+                // One `···` per row: what undoes a payment sits next to what
+                // deletes the installment, instead of a second menu on the
+                // payment line that read as a second thing to tap.
+                const menuItems: RecordMenuItem[] = [
+                  ...installment.realizations.map((realization) => ({
+                    key: `deallocate-${realization.id}`,
+                    label:
+                      installment.realizations.length === 1
+                        ? "Desalocar transação"
+                        : `Desalocar ${realizationLabel(realization, links)}`,
+                    danger: true,
+                    onClick: () =>
+                      confirm({
+                        title: "Desalocar transação",
+                        description: vocab.deallocateDescription,
+                        okText: "Desalocar",
+                        danger: true,
+                        onConfirm: () => deallocate(installment, realization),
+                      }),
+                  })),
+                  {
+                    key: "delete",
+                    label: "Excluir parcela",
+                    danger: true,
+                    onClick: () =>
+                      confirm({
+                        title: "Excluir parcela",
+                        description: "A parcela planejada será removida do plano.",
+                        okText: "Excluir",
+                        danger: true,
+                        onConfirm: () => deleteInstallment(installment),
+                      }),
+                  },
+                ];
+                return (
+                  <li key={`installment-${installment.id}`} className="payable-entry">
+                    <div className="payable-entry-line">
+                      <span className="payable-entry-text">
+                        <span className="payable-entry-title">
+                          {formatShortDate(installment.projected_at)} · {label}
+                        </span>
+                        {(tone !== undefined || divergesFromPlan) && (
+                          <span className="payable-entry-meta">
+                            {tone !== undefined && (
+                              <StatusTag tone={tone}>{scenarioTransactionStatusLabel[installment.status]}</StatusTag>
+                            )}
+                            {divergesFromPlan && <>planejado {formatBRL(installment.amount)}</>}
+                          </span>
+                        )}
+                      </span>
+                      <span className="payable-entry-amount">
+                        <Money
+                          value={divergesFromPlan ? realizedTotal : installment.amount}
+                          tone="neutral"
+                          size="row"
+                        />
+                      </span>
+                      <RecordMenu
+                        className="payable-entry-menu"
+                        label={`Ações da ${label.toLowerCase()}`}
+                        items={menuItems}
+                      />
+                    </div>
+                    {installment.realizations.map((realization) => (
+                      <div key={realization.id} className="payable-entry-line payable-entry-realization">
+                        <span className="payable-entry-text">
+                          <span className="payable-entry-realization-text">
+                            ↳ {realizationLabel(realization, links)}
+                          </span>
+                        </span>
+                        {/* A lone realization that matches the installment would only repeat its figure. */}
+                        <span className="payable-entry-amount">
+                          {(divergesFromPlan || installment.realizations.length > 1) && (
+                            <Money value={realization.allocated_amount} tone="neutral" />
+                          )}
+                        </span>
+                        <span className="payable-entry-menu-spacer" aria-hidden="true" />
+                      </div>
+                    ))}
+                  </li>
+                );
+              }
+
+              const link = entry.link;
+              return (
+                <li key={`link-${link.id}`} className="payable-entry">
+                  <div className="payable-entry-line">
+                    <span className="payable-entry-text">
+                      <span className="payable-entry-title">
+                        {formatShortDate(link.occurred_at ?? link.linked_at)} · {link.description ?? "Sem descrição"}
+                      </span>
+                      <span className="payable-entry-meta">Vínculo avulso</span>
+                    </span>
+                    <span className="payable-entry-amount">
+                      <Money value={link.current_amount} tone="neutral" size="row" />
+                    </span>
+                    <RecordMenu
+                      className="payable-entry-menu"
+                      label="Ações do vínculo"
+                      items={[
+                        {
+                          key: "unlink",
+                          label: "Desvincular",
+                          danger: true,
+                          onClick: () =>
+                            confirm({
+                              title: "Desvincular transação",
+                              description:
+                                "A transação permanece inalterada e volta a ficar disponível para vincular.",
+                              okText: "Desvincular",
+                              danger: true,
+                              onConfirm: () => unlink(link),
+                            }),
+                        },
+                      ]}
+                    />
+                  </div>
+                  {installments.length > 0 && (
+                    <AllocateExistingLinkControl
+                      link={link}
+                      kind={kind}
+                      installments={installments}
+                      onAllocate={(installmentId, amount) => allocateExistingLink(link.id, installmentId, amount)}
+                    />
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Flex>
+
+      {/* A form shell, not a centered dialog: on a phone it is a full-screen sheet with a 48px Salvar. */}
+      <FormDrawer
+        title={vocab.addActionLabel}
+        open={addPaymentOpen}
+        onClose={closeAddPayment}
+        onSubmit={submitLink}
+        submitLabel="Vincular"
+        submitting={isLinking || linkSubmitting}
+        submitDisabled={selectedCandidateId === null}
+        error={linkError}
+      >
+        <FormField label="Transação" labelId="payable-link-transaction-label">
+          <TransactionPicker
+            id="payable-link-transaction"
+            label="Buscar transação para vincular"
+            allowClear
+            placeholder="Buscar por descrição"
+            value={selectedCandidateId}
+            search={{ value: search, onChange: onSearchChange }}
+            loading={isSearching}
+            emptyText="Nenhuma transação elegível encontrada"
+            transactions={candidates.map((candidate) => candidateRow(candidate, kind))}
+            onSelect={setSelectedCandidateId}
+          />
+        </FormField>
+        {installments.length > 0 && (
+          <FormField label="Parcela (opcional)" labelId="payable-link-installment-label">
+            <TransactionPicker
+              id="payable-link-installment"
+              label="Parcela para alocar"
+              allowClear
+              placeholder="Sem parcela (vínculo avulso)"
+              value={selectedInstallmentId}
+              transactions={installments.map((installment) => installmentRow(installment, kind))}
+              onSelect={setSelectedInstallmentId}
+            />
+          </FormField>
+        )}
+      </FormDrawer>
+    </Section>
   );
 }

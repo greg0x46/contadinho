@@ -4,6 +4,7 @@ import type {
   TransactionItem,
 } from "../../api/contracts";
 import { TransactionGroupHeader } from "./TransactionGroupHeader";
+import type { RowLayout } from "./rowLayout";
 import { TransactionRow } from "./TransactionRow";
 
 /** One period of the transactions list: its header and its flat rows. */
@@ -11,6 +12,8 @@ export function TransactionGroup({
   group,
   items,
   selectedId = null,
+  showAccount = true,
+  layout,
   onSelect,
   onInclusion,
   pendingTransactionId,
@@ -19,6 +22,9 @@ export function TransactionGroup({
   items: TransactionItem[];
   /** The transaction whose panel is open, so its row reads as selected. */
   selectedId?: string | null;
+  /** Leave the account out of the rows when the whole list is one account. */
+  showAccount?: boolean;
+  layout: RowLayout;
   onSelect?: (id: string) => void;
   onInclusion?: (id: string, state: TransactionInclusionState) => void;
   pendingTransactionId?: string | null;
@@ -35,6 +41,8 @@ export function TransactionGroup({
             key={item.id}
             item={item}
             selected={item.id === selectedId}
+            showAccount={showAccount}
+            layout={layout}
             onSelect={onSelect ?? (() => undefined)}
             onInclusion={onInclusion}
             inclusionPending={pendingTransactionId === item.id}

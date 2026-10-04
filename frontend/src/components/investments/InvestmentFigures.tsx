@@ -1,29 +1,33 @@
-import { Tooltip } from "antd";
+import { Popover } from "antd";
 import type { ReactNode } from "react";
 
 export type InvestmentFigure = { label: string; value: ReactNode; hint?: string };
 
 /**
  * The account and the goal views answer the same five questions, so they share
- * one row instead of drifting into two slightly different vocabularies.
+ * one strip instead of drifting into two slightly different vocabularies. A
+ * figure's explanation opens on tap or hover (and from the keyboard) from its
+ * underlined label — a hover-only tooltip would be unreachable on a phone.
  */
 export function InvestmentFigures({ figures }: { figures: InvestmentFigure[] }) {
   return (
-    <div className="investment-figures">
+    <dl className="investment-figures">
       {figures.map((figure) => (
         <div key={figure.label} className="investment-figure">
-          <span className="investment-figure-label">
+          <dt>
             {figure.hint ? (
-              <Tooltip title={figure.hint}>
-                <span>{figure.label}</span>
-              </Tooltip>
+              <Popover content={figure.hint} trigger={["hover", "click"]} placement="bottomLeft">
+                <button type="button" className="investment-figure-hint">
+                  {figure.label}
+                </button>
+              </Popover>
             ) : (
               figure.label
             )}
-          </span>
-          <span className="investment-figure-value">{figure.value}</span>
+          </dt>
+          <dd>{figure.value}</dd>
         </div>
       ))}
-    </div>
+    </dl>
   );
 }

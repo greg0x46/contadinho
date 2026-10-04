@@ -1,12 +1,13 @@
 import { DownloadOutlined, InboxOutlined } from "@ant-design/icons";
-import { Alert, Button, Card, Checkbox, Empty, Input, Radio, Select, Space, Typography } from "antd";
+import { Alert, Button, Checkbox, Input, Radio, Select, Skeleton, Space, Typography } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { LoadingState, UnavailableState } from "../components/AsyncState";
-import { BottomActionBar, DataCard, Page, SectionHeader } from "../components/layout";
+import { BottomActionBar, EmptyState, Page, Section } from "../components/layout";
 import { useCompactScreen } from "../components/shared/useCompactScreen";
-import { StatementImportHistory, StatementImportHistorySummary } from "../components/statementImport/StatementImportHistory";
+import { useFeedback } from "../components/shared/useFeedback";
+import { StatementImportHistory } from "../components/statementImport/StatementImportHistory";
 import { StatementPreviewRows } from "../components/statementImport/StatementPreviewRows";
 import { StatementPreviewSummary } from "../components/statementImport/StatementPreviewSummary";
 import { useStatementImports } from "../hooks/useStatementImports";
@@ -19,6 +20,7 @@ function message(error: unknown): string {
 
 export function StatementImportPage() {
   const compact = useCompactScreen();
+  const feedback = useFeedback();
   const { accounts, history, preview: previewing, confirm: confirming, template, discard } = useStatementImports();
   const [file, setFile] = useState<File | null>(null);
   const [targetKind, setTargetKind] = useState<"new" | "existing">("new");
@@ -37,6 +39,12 @@ export function StatementImportPage() {
   useEffect(() => {
     if (result) resultRef.current?.scrollIntoView?.({ block: "start" });
   }, [result]);
+
+  // The confirm button sits in the bottom bar, far from where a failure is
+  // written (above the preview): say it where the user is looking too.
+  useEffect(() => {
+    if (confirming.error) feedback.error(message(confirming.error));
+  }, [confirming.error, feedback]);
 
   function loadPreview(selectedFile: File, selectedAccountId?: string) {
     setAllowPartial(false);
@@ -71,31 +79,31 @@ export function StatementImportPage() {
   // Only a preview still waiting for its confirmation has an action to offer.
   const confirmAction = preview && !result ? (
     <Button type="primary" loading={busy} disabled={!canConfirm} onClick={confirm}>
-      {preview.counts.new === 0 ? "Registrar reenvio sem novos lançamentos" : `Importar ${preview.counts.new} lançamento(s)`}
+      {preview.counts.new === 0 ? "Registrar reenvio sem novas transações" : `Importar ${preview.counts.new} ${preview.counts.new === 1 ? "transação" : "transações"}`}
     </Button>
   ) : undefined;
 
   return (
     <Page
       title="Importar extrato"
-      back={<Link to={accountsPath}>Voltar para contas e cartões</Link>}
       backTo={accountsPath}
+      backLabel="Voltar para contas e cartões"
       description="Revise as movimentações de um arquivo antes de adicioná-las à sua conta."
       actions={confirmAction}
       className="statement-import-page"
+      width="narrow"
       compactMobileHeader
       hasBottomActionBar={confirmAction !== undefined}
     >
       <div className="statement-import-sections">
         {result && <div ref={resultRef} className="statement-import-result">
-          <Alert type="success" showIcon message={result.counts.new > 0 ? "Extrato importado" : "Extrato conferido: nenhum lançamento novo"}
+          <Alert type="success" showIcon message={result.counts.new > 0 ? "Extrato importado" : "Extrato conferido: nenhuma transação nova"}
             description={<Space direction="vertical"><span>{result.counts.new} novos, {result.counts.duplicate} já importados e {result.counts.invalid} inválidos.</span>
               <Link to={`${accountsPath}/${result.account_id}`}>Ver conta</Link></Space>} />
         </div>}
 
-        <section aria-label="Selecione o arquivo">
-          <SectionHeader title="1. Selecione o arquivo" />
-          <Card className="statement-import-panel">
+        <Section title="Selecione o arquivo">
+          <div className="statement-import-panel">
             <label className="statement-file-picker">
               <InboxOutlined aria-hidden="true" />
               <span>{file ? file.name : "Selecionar arquivo CSV"}</span>
@@ -109,12 +117,11 @@ export function StatementImportPage() {
               </Button>
             </div>
             {template.error && <Alert type="error" showIcon message={message(template.error)} />}
-          </Card>
-        </section>
+          </div>
+        </Section>
 
-        <section aria-label="Escolha a conta">
-          <SectionHeader title="2. Escolha a conta" />
-          <Card className="statement-import-panel">
+        <Section title="Escolha a conta">
+          <div className="statement-import-panel">
             <Typography.Paragraph>Use uma conta de arquivo. Extratos enviados aqui ficam separados de conexões automáticas.</Typography.Paragraph>
             <Radio.Group value={targetKind} onChange={(event) => changeTarget(event.target.value)}>
               <Radio value="new">Criar conta de arquivo</Radio>
@@ -129,21 +136,21 @@ export function StatementImportPage() {
                   options={accounts.state.kind === "ready" ? accounts.state.items.map((account) => ({ value: account.id, label: `${account.name} (${account.currency_code})` })) : []}
                   onChange={(value) => changeTarget("existing", value)} />}
             </div>
-          </Card>
-        </section>
+          </div>
+        </Section>
 
         {busy && <LoadingState>Processando extrato…</LoadingState>}
         {failure && <Alert type="error" showIcon message={message(failure)} action={file && !preview && !result ?
           <Button size="small" onClick={() => loadPreview(file, targetKind === "existing" ? accountId : undefined)}>Gerar prévia novamente</Button> : undefined} />}
 
-        {preview && <section aria-label="Revise a prévia">
-          <SectionHeader title="3. Revise a prévia" />
-          <DataCard flush summary={<StatementPreviewSummary preview={preview} />}>
+        {preview && (
+          <Section title="Revise a prévia" flush>
+            <StatementPreviewSummary preview={preview} />
             <div className="statement-import-review-notes">
               {!targetReady && <Typography.Text type="secondary">Informe a conta para confirmar.</Typography.Text>}
-              {targetKind === "new" && preview.counts.new === 0 && <Alert type="info" showIcon message="Não há lançamentos válidos para criar esta conta." />}
+              {targetKind === "new" && preview.counts.new === 0 && <Alert type="info" showIcon message="Não há transações válidas para criar esta conta." />}
               {preview.counts.new === 0 && preview.counts.duplicate > 0 &&
-                <Alert type="info" showIcon message="Este extrato já foi importado nesta conta. Nenhum lançamento novo será criado." />}
+                <Alert type="info" showIcon message="Este extrato já foi importado nesta conta. Nenhuma transação nova será criada." />}
               {preview.warnings.map((warning, index) => <Alert key={index} type="warning" showIcon message={warning} />)}
               {preview.counts.invalid > 0 && <Alert type="warning" showIcon
                 message={`${preview.counts.invalid} linha(s) inválida(s). Corrija o arquivo ou escolha importar apenas as válidas.`} />}
@@ -152,21 +159,20 @@ export function StatementImportPage() {
               </Checkbox>}
             </div>
             <StatementPreviewRows rows={preview.rows} />
-          </DataCard>
-        </section>}
+          </Section>
+        )}
 
-        <section aria-label="Importações recentes">
-          <SectionHeader title="Importações recentes" />
-          {history.state.kind === "loading" && <LoadingState>Carregando histórico…</LoadingState>}
-          {history.state.kind === "empty" && <Empty description="Nenhum extrato importado ainda" />}
+        <Section title="Importações recentes" flush={history.state.kind === "ready"}>
+          {history.state.kind === "loading" && (
+            <div role="status" aria-label="Carregando histórico">
+              <Skeleton active paragraph={{ rows: 3 }} />
+            </div>
+          )}
+          {history.state.kind === "empty" && <EmptyState title="Nenhum extrato importado ainda" />}
           {history.state.kind === "unavailable" &&
             <UnavailableState onRetry={history.retry}>Não foi possível carregar o histórico</UnavailableState>}
-          {history.state.kind === "ready" && (
-            <DataCard flush summary={<StatementImportHistorySummary items={history.state.items} />}>
-              <StatementImportHistory items={history.state.items} />
-            </DataCard>
-          )}
-        </section>
+          {history.state.kind === "ready" && <StatementImportHistory items={history.state.items} />}
+        </Section>
       </div>
       {compact && confirmAction && <BottomActionBar>{confirmAction}</BottomActionBar>}
     </Page>

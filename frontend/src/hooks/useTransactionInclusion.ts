@@ -1,8 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 
-import type { TransactionInclusionState } from "../api/contracts";
+import type { TransactionInclusionResult, TransactionInclusionState } from "../api/contracts";
 import { setTransactionInclusion } from "../api/transactions";
+import type { TransactionWriteCallbacks } from "./useTransactionCategory";
 
 export interface InclusionTarget {
   transactionId: string;
@@ -13,7 +14,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Não foi possível salvar a decisão.";
 }
 
-export function useTransactionInclusion() {
+export function useTransactionInclusion({ onSaved, onFailed }: TransactionWriteCallbacks<InclusionTarget, TransactionInclusionResult> = {}) {
   const queryClient = useQueryClient();
   const locked = useRef(false);
   const [pendingTarget, setPendingTarget] = useState<InclusionTarget | null>(null);
@@ -56,7 +57,8 @@ export function useTransactionInclusion() {
       setAnnouncement("Salvando decisão da transação…");
       await queryClient.cancelQueries({ queryKey: ["transactions"] });
     },
-    onSuccess: async (confirmation) => {
+    onSuccess: async (confirmation, target) => {
+      onSaved?.(target, confirmation);
       await queryClient.invalidateQueries({
         queryKey: ["transactions"],
         refetchType: "none",
@@ -66,6 +68,7 @@ export function useTransactionInclusion() {
     onError: (error, target) => {
       setFailedWrite(target);
       setWriteError(errorMessage(error));
+      onFailed?.(target, errorMessage(error));
       setAnnouncement("Falha ao salvar. O último estado confirmado foi mantido.");
     },
     onSettled: () => {
@@ -87,6 +90,7 @@ export function useTransactionInclusion() {
     },
     retryRefresh: () => refresh(),
     pendingTarget,
+    failedTarget: failedWrite,
     isPending: mutation.isPending,
     writeError,
     refreshError,

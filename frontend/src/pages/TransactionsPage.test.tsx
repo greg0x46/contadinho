@@ -1,0 +1,150 @@
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import * as accountsApi from "../api/accounts";
+import * as categoriesApi from "../api/categories";
+import * as transactionsApi from "../api/transactions";
+import { QueryTestProvider } from "../test/QueryTestProvider";
+import { accountId, transactionId, transactionResult } from "../test/transactionFixtures";
+import { TransactionsPage } from "./TransactionsPage";
+
+vi.mock("../api/accounts");
+vi.mock("../api/transactions");
+vi.mock("../api/categories");
+
+const emptyResult = {
+  ...transactionResult,
+  items: [],
+  groups: [],
+  totals: [],
+  page: { number: 1, size: 50, total_items: 0, total_pages: 1 },
+};
+
+function renderPage() {
+  return render(
+    <MemoryRouter initialEntries={["/transacoes?period=all"]}>
+      <QueryTestProvider>
+        <TransactionsPage />
+      </QueryTestProvider>
+    </MemoryRouter>,
+  );
+}
+
+describe("TransactionsPage", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(accountsApi.listAccounts).mockResolvedValue([]);
+    vi.mocked(categoriesApi.listCategories).mockResolvedValue([]);
+    vi.mocked(transactionsApi.getTransactionReconciliation).mockResolvedValue({
+      current: null,
+      options: [],
+    } as never);
+  });
+
+  it("keeps the panel open when a write moves the line out of the current results", async () => {
+    const user = userEvent.setup();
+    // Once the line is ignored the server no longer returns it for this
+    // view (as it would under a filter), so the refreshed list is empty.
+    let written = false;
+    vi.mocked(transactionsApi.queryTransactions).mockImplementation(async () =>
+      written ? emptyResult : transactionResult,
+    );
+    vi.mocked(transactionsApi.setTransactionInclusion).mockImplementation(async () => {
+      written = true;
+      return { transaction_id: transactionId, state: "ignored", changed_at: "2026-07-30T13:00:00Z" };
+    });
+
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: /Ver detalhes de Mercado/ }));
+    const toggle = await screen.findByRole("switch", { name: "Considerar nos totais" });
+    expect(toggle).toBeChecked();
+
+    await user.click(toggle);
+
+    // The list refetched and no longer has the line…
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Ver detalhes de Mercado/ })).toBeNull());
+    // …but the panel the person is working in is still there, showing the new decision.
+    expect(screen.getByRole("heading", { name: "Transação" })).toBeVisible();
+    expect(await screen.findByRole("switch", { name: "Considerar nos totais" })).not.toBeChecked();
+  });
+
+  it("keeps showing the saved decision while the refetch after the write is still in flight", async () => {
+    const user = userEvent.setup();
+    let written = false;
+    let releaseRefetch: () => void = () => {};
+    vi.mocked(transactionsApi.queryTransactions).mockImplementation(async () => {
+      if (!written) return transactionResult;
+      await new Promise<void>((resolve) => {
+        releaseRefetch = resolve;
+      });
+      return emptyResult;
+    });
+    vi.mocked(transactionsApi.setTransactionInclusion).mockImplementation(async () => {
+      written = true;
+      return { transaction_id: transactionId, state: "ignored", changed_at: "2026-07-30T13:00:00Z" };
+    });
+
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: /Ver detalhes de Mercado/ }));
+    await user.click(await screen.findByRole("switch", { name: "Considerar nos totais" }));
+
+    // The write is confirmed but the list still holds the old copy of the line.
+    await waitFor(() => expect(transactionsApi.queryTransactions).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("button", { name: /Ver detalhes de Mercado/ })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Considerar nos totais" })).not.toBeChecked();
+
+    releaseRefetch();
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Ver detalhes de Mercado/ })).toBeNull());
+    expect(screen.getByRole("switch", { name: "Considerar nos totais" })).not.toBeChecked();
+  });
+
+  it("shows a failed write inside the panel, next to the control, with a retry", async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.queryTransactions).mockResolvedValue(transactionResult);
+    vi.mocked(transactionsApi.setTransactionInclusion).mockRejectedValue(new Error("Servidor indisponível."));
+
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: /Ver detalhes de Mercado/ }));
+    await user.click(await screen.findByRole("switch", { name: "Considerar nos totais" }));
+
+    expect(await screen.findByText("Não foi possível salvar a decisão")).toBeVisible();
+    expect(screen.getByText("Servidor indisponível.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Tentar novamente" })).toBeVisible();
+  });
+  it("says the recurrence lookup failed instead of 'no recurrence nearby', and offers a retry", async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.queryTransactions).mockResolvedValue(transactionResult);
+    vi.mocked(transactionsApi.getTransactionReconciliation).mockRejectedValue(new Error("falha"));
+
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: /Ver detalhes de Mercado/ }));
+    const row = await screen.findByRole("button", { name: /Conciliar com recorrência/ });
+    await waitFor(() => expect(row).toHaveTextContent("Não foi possível consultar"));
+    expect(row).not.toHaveTextContent("Nenhuma recorrência por perto");
+
+    await user.click(row);
+    expect(await screen.findByText("Não foi possível consultar as recorrências")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Tentar novamente" })).toBeVisible();
+  });
+
+  it("marks and focuses the first invalid field of the new-transaction form", async () => {
+    const user = userEvent.setup();
+    vi.mocked(transactionsApi.queryTransactions).mockResolvedValue(transactionResult);
+    vi.mocked(accountsApi.listAccounts).mockResolvedValue([
+      { id: accountId, name: "Conta corrente", institution_name: "Banco Teste", number: null } as never,
+    ]);
+
+    renderPage();
+    await screen.findByRole("button", { name: /Ver detalhes de Mercado/ });
+    await user.click(screen.getAllByRole("button", { name: /Nova/ })[0]!);
+    await user.click(await screen.findByRole("button", { name: "Salvar" }));
+
+    await screen.findByText("Informe uma descrição.");
+    const description = document.getElementById("manual-transaction-description")!;
+    expect(description).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("Informe uma descrição.")).toBeVisible();
+    await waitFor(() => expect(description).toHaveFocus());
+  });
+});

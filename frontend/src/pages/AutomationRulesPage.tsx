@@ -1,5 +1,3 @@
-import { PlusOutlined } from "@ant-design/icons";
-import { SettingsPageContainer as PageContainer } from "../components/SettingsPageContainer";
 import { Alert, Button } from "antd";
 import { useState } from "react";
 
@@ -10,14 +8,13 @@ import {
   AutomationEntrySubmitPayload,
 } from "../components/automationRules/AutomationEntryForm";
 import { AutomationEntryList } from "../components/automationRules/AutomationEntryList";
-import { DataCard } from "../components/layout";
+import { PageAction } from "../components/layout";
+import { SettingsPageContainer as PageContainer } from "../components/SettingsPageContainer";
+import { useFeedback } from "../components/shared/useFeedback";
 import { useAutomationRules } from "../hooks/useAutomationRules";
 import { useCategories } from "../hooks/useCategories";
 import { useRecurringCommitments } from "../hooks/useRecurringCommitments";
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Não foi possível salvar a automação.";
-}
+import { errorMessage } from "../presentation/errors";
 
 function retroactiveMessage(result: RetroactiveApplyResult): string {
   const changes: string[] = [];
@@ -32,6 +29,7 @@ export function AutomationRulesPage() {
   const automationRules = useAutomationRules();
   const commitments = useRecurringCommitments();
   const categories = useCategories();
+  const feedback = useFeedback();
   const [formOpen, setFormOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<AutomationEntry | null>(null);
   const [togglingRuleId, setTogglingRuleId] = useState<string | null>(null);
@@ -102,8 +100,9 @@ export function AutomationRulesPage() {
         : await automationRules.createRule(write);
       setLastResult(result.retroactive_apply);
       setFormOpen(false);
+      feedback.success("Automação salva");
     } catch (error) {
-      setSaveError(errorMessage(error));
+      setSaveError(errorMessage(error, "Não foi possível salvar a automação."));
     } finally {
       setSaving(false);
     }
@@ -114,8 +113,11 @@ export function AutomationRulesPage() {
     setTogglingRuleId(rule.id);
     try {
       await automationRules.toggleRule({ ruleId: rule.id, isActive });
+      feedback.success(isActive ? "Automação ativada" : "Automação desativada");
     } catch (error) {
-      setActionError(errorMessage(error));
+      const message = errorMessage(error, "Não foi possível atualizar a automação.");
+      setActionError(message);
+      feedback.error(message);
     } finally {
       setTogglingRuleId(null);
     }
@@ -123,10 +125,20 @@ export function AutomationRulesPage() {
 
   const removeRule = async (rule: AutomationRule) => {
     setActionError(null);
+    setSaveError(null);
     try {
       await automationRules.deleteRule(rule.id);
+      setFormOpen(false);
+      feedback.success("Automação excluída");
     } catch (error) {
-      setActionError(errorMessage(error));
+      const message = errorMessage(error, "Não foi possível excluir a automação.");
+      // Deleting from the edit drawer: the error must show there, not behind its mask.
+      if (formOpen) {
+        setSaveError(message);
+      } else {
+        setActionError(message);
+        feedback.error(message);
+      }
     }
   };
 
@@ -135,13 +147,10 @@ export function AutomationRulesPage() {
   return (
     <PageContainer
       title="Automações"
-      subTitle="Regras que ignoram transações e automações de conciliação de recorrências, automaticamente"
-      content="Crie automações no estilo de filtros de e-mail: ignore transações recorrentes sem revisar cada sincronização, ou concilie compromissos recorrentes (salário, aluguel, assinaturas) com as transações reais."
+      subTitle="Regras que ignoram, categorizam ou conciliam transações automaticamente"
       compactMobileHeader
       extra={[
-        <Button key="new-entry" type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={openCreate}>
-          Nova automação
-        </Button>,
+        <PageAction key="new-entry" label="Nova automação" shortLabel="Nova" onClick={openCreate} />,
       ]}
     >
       {lastResult && (
@@ -182,7 +191,8 @@ export function AutomationRulesPage() {
           style={{ marginBottom: 16 }}
         />
       )}
-      <DataCard flush>
+      {/* A failed load shows only the retry: an empty list beside it would say "nothing yet". */}
+      {!loadError && (
         <AutomationEntryList
           rules={automationRules.rules}
           commitments={commitments.commitments}
@@ -193,7 +203,7 @@ export function AutomationRulesPage() {
           onToggleRule={toggleRule}
           onDeleteRule={removeRule}
         />
-      </DataCard>
+      )}
       <AutomationEntryForm
         open={formOpen}
         entry={editingEntry}
@@ -206,6 +216,7 @@ export function AutomationRulesPage() {
         submitError={saveError}
         onSubmit={submit}
         onCancel={closeForm}
+        onDelete={removeRule}
       />
     </PageContainer>
   );

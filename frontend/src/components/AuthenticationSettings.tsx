@@ -1,11 +1,15 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Card, Flex, Input, Skeleton, Typography } from "antd";
+import { Alert, Button, Input, Skeleton } from "antd";
 import { useState } from "react";
+
 import { changePassword, getSession, logout, setAuthenticationEnabled } from "../api/auth";
+import { UnavailableState } from "./AsyncState";
+import { FormField } from "./forms/FormField";
+import { Section } from "./layout";
 
 export function AuthenticationSettings() {
   const client = useQueryClient();
-  const { data: session, isLoading } = useQuery({
+  const { data: session, isLoading, isError, refetch } = useQuery({
     queryKey: ["auth-session"],
     queryFn: ({ signal }) => getSession(signal),
   });
@@ -15,58 +19,111 @@ export function AuthenticationSettings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const run = async (action: () => Promise<void>) => {
-    setBusy(true); setError(null);
-    try { await action(); } catch (err) { setError(err instanceof Error ? err.message : "Não foi possível concluir."); }
-    finally { setBusy(false); }
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível concluir.");
+    } finally {
+      setBusy(false);
+    }
   };
   const toggleAuthentication = async (enabled: boolean) => {
-    setBusy(true); setError(null);
+    setBusy(true);
+    setError(null);
     try {
       const next = await setAuthenticationEnabled(enabled);
       client.setQueryData(["auth-session"], next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível alterar a autenticação.");
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   };
-  if (isLoading || !session) return <Card title="Acesso"><Skeleton active /></Card>;
-  if (!session.authentication_enabled) return <Card title="Acesso">
-    <Flex vertical gap="middle" style={{ maxWidth: 560 }}>
-      {error && <Alert type="error" message={error} showIcon />}
-      <Alert
-        type="warning"
-        showIcon
-        message="Autenticação desativada"
-        description="Qualquer pessoa com acesso a esta instância pode consultar e alterar os dados."
-      />
-      <Button
-        type="primary"
-        onClick={() => void toggleAuthentication(true)}
-        loading={busy}
-        style={{ alignSelf: "flex-start" }}
+  if (isError && !session)
+    return (
+      <Section title="Acesso">
+        <UnavailableState onRetry={() => void refetch()}>Não foi possível consultar o acesso agora.</UnavailableState>
+      </Section>
+    );
+  if (isLoading || !session)
+    return (
+      <Section title="Acesso">
+        <Skeleton active />
+      </Section>
+    );
+  if (!session.authentication_enabled)
+    return (
+      <Section title="Acesso">
+        <div className="settings-form">
+          {error && <Alert type="error" message={error} showIcon />}
+          <Alert
+            type="warning"
+            showIcon
+            message="Autenticação desativada"
+            description="Qualquer pessoa com acesso a esta instância pode consultar e alterar os dados."
+          />
+          <Button type="primary" onClick={() => void toggleAuthentication(true)} loading={busy}>
+            Ativar autenticação
+          </Button>
+        </div>
+      </Section>
+    );
+  return (
+    <Section title="Acesso">
+      <form
+        className="settings-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (password !== confirmation) {
+            setError("As senhas não coincidem.");
+            return;
+          }
+          void run(() => changePassword(current, password));
+        }}
       >
-        Ativar autenticação
-      </Button>
-    </Flex>
-  </Card>;
-  return <Card title="Acesso">
-    <form onSubmit={(event) => {
-      event.preventDefault();
-      if (password !== confirmation) { setError("As senhas não coincidem."); return; }
-      void run(() => changePassword(current, password));
-    }}>
-      <Flex vertical gap="middle" style={{ maxWidth: 440 }}>
         {error && <Alert type="error" message={error} showIcon />}
-        <label htmlFor="current-password">Senha atual</label>
-        <Input.Password id="current-password" autoComplete="current-password" required value={current} onChange={(e) => setCurrent(e.target.value)} />
-        <Typography.Text type="secondary">A autenticação está ativada. Somente sessões válidas acessam os dados.</Typography.Text>
-        <label htmlFor="new-password">Nova senha</label>
-        <Input.Password id="new-password" autoComplete="new-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
-        <label htmlFor="confirm-password">Repita a nova senha</label>
-        <Input.Password id="confirm-password" autoComplete="new-password" required value={confirmation} onChange={(e) => setConfirmation(e.target.value)} />
-        <Button htmlType="submit" loading={busy}>Alterar senha e encerrar sessões</Button>
-        <Button onClick={() => void run(logout)} loading={busy}>Sair</Button>
-        <Button danger onClick={() => void toggleAuthentication(false)} loading={busy}>Desativar autenticação</Button>
-      </Flex>
-    </form>
-  </Card>;
+        <p className="settings-radio-hint">A autenticação está ativada. Somente sessões válidas acessam os dados.</p>
+        <FormField label="Senha atual" htmlFor="current-password">
+          <Input.Password
+            id="current-password"
+            autoComplete="current-password"
+            required
+            value={current}
+            onChange={(e) => setCurrent(e.target.value)}
+          />
+        </FormField>
+        <FormField label="Nova senha" htmlFor="new-password">
+          <Input.Password
+            id="new-password"
+            autoComplete="new-password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </FormField>
+        <FormField label="Repita a nova senha" htmlFor="confirm-password">
+          <Input.Password
+            id="confirm-password"
+            autoComplete="new-password"
+            required
+            value={confirmation}
+            onChange={(e) => setConfirmation(e.target.value)}
+          />
+        </FormField>
+        <Button type="primary" htmlType="submit" loading={busy}>
+          Alterar senha e encerrar sessões
+        </Button>
+        <div className="settings-account-actions">
+          <Button onClick={() => void run(logout)} loading={busy}>
+            Sair
+          </Button>
+          <Button danger onClick={() => void toggleAuthentication(false)} loading={busy}>
+            Desativar autenticação
+          </Button>
+        </div>
+      </form>
+    </Section>
+  );
 }

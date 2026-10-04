@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
-import { Alert, Button, InputNumber, Modal, Tooltip, Typography } from "antd";
+import { Button, InputNumber, Tooltip, Typography } from "antd";
 
 import type { Account } from "../../api/contracts";
 import { closingDayLabel, closingDaySourceHint } from "../../presentation/accountLabels";
+import { FormDrawer } from "../forms/FormDrawer";
+import { FormField } from "../forms/FormField";
+import { useFeedback } from "../shared/useFeedback";
 
 /** Shows a card's closing day and lets the user state it. The manual value
  *  wins over anything the provider reports, and clearing it hands control
- *  back to the provider. */
+ *  back to the provider. Renders only the value and its action — the label
+ *  ("Fechamento") belongs to the summary strip that hosts it. The editor is the
+ *  shared form shell (a full-screen sheet on a phone), not a centered dialog. */
 export function ClosingDayField({
   account,
   onSave,
@@ -16,6 +21,7 @@ export function ClosingDayField({
   onSave: (closingDay: number | null) => Promise<unknown>;
   saving: boolean;
 }) {
+  const feedback = useFeedback();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<number | null>(account.closing_day);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +41,7 @@ export function ClosingDayField({
     try {
       await onSave(value);
       setOpen(false);
+      feedback.success(value === null ? "Voltou ao dado da instituição" : "Dia de fechamento salvo");
     } catch {
       setError("Não foi possível salvar o dia de fechamento.");
     }
@@ -42,71 +49,49 @@ export function ClosingDayField({
 
   return (
     <>
-      <div className="account-summary-date">
-        <span className="account-summary-date-label">Fechamento</span>
-        <div className="account-summary-date-row">
-          <Tooltip title={closingDaySourceHint(account.closing_day_source)}>
-            <strong className="account-summary-date-value">{closingDayLabel(account.closing_day)}</strong>
-          </Tooltip>
-          <Button
-            size="small"
-            type="link"
-            className="account-summary-date-action"
-            onClick={() => setOpen(true)}
-          >
-            {account.closing_day === null ? "Definir" : "Alterar"}
-          </Button>
-        </div>
-      </div>
+      <span className="closing-day-field">
+        <Tooltip title={closingDaySourceHint(account.closing_day_source)}>
+          <span>{closingDayLabel(account.closing_day)}</span>
+        </Tooltip>
+        <Button size="small" type="link" className="closing-day-field-action" onClick={() => setOpen(true)}>
+          {account.closing_day === null ? "Definir" : "Alterar"}
+        </Button>
+      </span>
 
-      <Modal
+      <FormDrawer
         open={open}
         title="Dia de fechamento"
-        onCancel={() => setOpen(false)}
-        destroyOnHidden
-        footer={[
-          account.closing_day_source === "manual" && (
-            <Button key="clear" danger loading={saving} onClick={() => void submit(null)}>
-              Usar o dado da instituição
-            </Button>
-          ),
-          <Button key="cancel" onClick={() => setOpen(false)}>
-            Cancelar
-          </Button>,
-          // An empty field would submit null, which is what the clear button
-          // above already does — and that button only shows when there is
-          // something to clear. Saving nothing is never the intent here.
-          <Button
-            key="save"
-            type="primary"
-            loading={saving}
-            disabled={draft === null}
-            onClick={() => void submit(draft)}
-          >
-            Salvar
-          </Button>,
-        ]}
+        onClose={() => setOpen(false)}
+        onSubmit={() => void submit(draft)}
+        submitting={saving}
+        // An empty field would submit null, which is what the "usar o dado da
+        // instituição" button below already does — and that button only shows
+        // when there is something to clear. Saving nothing is never the intent.
+        submitDisabled={draft === null}
+        error={error}
       >
         <Typography.Paragraph type="secondary">
           Nem toda instituição informa o fechamento do cartão. Defina o dia aqui para que o
-          Contadinho use o seu valor.
+          Julius use o seu valor.
         </Typography.Paragraph>
-        <div className="filter-field">
-          <label htmlFor="closing-day-input">Dia do mês</label>
+        <FormField label="Dia do mês" htmlFor="closing-day-input">
           <InputNumber
             id="closing-day-input"
             min={1}
             max={31}
             precision={0}
+            inputMode="numeric"
             style={{ width: "100%" }}
             value={draft}
             onChange={setDraft}
           />
-        </div>
-        {error !== null && (
-          <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} />
+        </FormField>
+        {account.closing_day_source === "manual" && (
+          <Button danger type="text" className="closing-day-clear" loading={saving} onClick={() => void submit(null)}>
+            Usar o dado da instituição
+          </Button>
         )}
-      </Modal>
+      </FormDrawer>
     </>
   );
 }

@@ -72,6 +72,8 @@ export function useTransactionReconciliation(transactionId: string, enabled = tr
     options: reconciliationQuery.data?.options ?? [],
     isLoading: reconciliationQuery.isLoading,
     error: reconciliationQuery.error,
+    isError: reconciliationQuery.isError,
+    refetch: () => void reconciliationQuery.refetch(),
     reconcile: reconcileMutation.mutateAsync,
     detach: detachMutation.mutateAsync,
     isWriting: reconcileMutation.isPending || detachMutation.isPending,

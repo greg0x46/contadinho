@@ -70,11 +70,12 @@ describe("StatementImportPage", () => {
     await user.upload(screen.getByLabelText("Arquivo CSV"), csv());
     expect(await screen.findByText("data inválida")).toBeVisible();
     expect(screen.getByText("data inválida")).toHaveClass("statement-row-error");
-    expect(screen.getByText("Nova")).toBeVisible();
+    // A new row is the default: only the rows that will not import as they are carry a tag.
+    expect(screen.queryByText("Nova")).toBeNull();
     expect(screen.getByText("Inválida")).toBeVisible();
     expect(screen.getByText("08/09/2026 a 25/09/2026")).toBeVisible();
     await user.type(screen.getByLabelText("Nome da nova conta"), "Flash");
-    const confirm = screen.getByRole("button", { name: "Importar 1 lançamento(s)" });
+    const confirm = screen.getByRole("button", { name: "Importar 1 transação" });
     expect(confirm).toBeDisabled();
     await user.click(screen.getByRole("checkbox", { name: /Importar somente as linhas válidas/ }));
     await user.click(confirm);
@@ -82,7 +83,7 @@ describe("StatementImportPage", () => {
     expect(await screen.findByText("Extrato importado")).toBeVisible();
     expect(screen.getByRole("link", { name: "Ver conta" })).toHaveAttribute("href", "/contas-e-cartoes/acc");
     // Nothing is left to confirm once the import is done.
-    expect(screen.queryByRole("button", { name: /Importar 1 lançamento/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Importar 1 transação/ })).toBeNull();
   });
 
   it("asks for the account before the import can be confirmed", async () => {
@@ -91,10 +92,10 @@ describe("StatementImportPage", () => {
     renderPage();
     await user.upload(screen.getByLabelText("Arquivo CSV"), csv());
     expect(await screen.findByText("Informe a conta para confirmar.")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Importar 1 lançamento(s)" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Importar 1 transação" })).toBeDisabled();
     await user.type(screen.getByLabelText("Nome da nova conta"), "Flash");
     expect(screen.queryByText("Informe a conta para confirmar.")).toBeNull();
-    expect(screen.getByRole("button", { name: "Importar 1 lançamento(s)" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Importar 1 transação" })).toBeEnabled();
   });
 
   it("registers a re-sent file without new entries", async () => {
@@ -102,8 +103,8 @@ describe("StatementImportPage", () => {
     vi.mocked(statementApi.previewStatement).mockResolvedValue(preview([row({ status: "duplicate" })]));
     renderPage();
     await user.upload(screen.getByLabelText("Arquivo CSV"), csv());
-    expect(await screen.findByText("Este extrato já foi importado nesta conta. Nenhum lançamento novo será criado.")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Registrar reenvio sem novos lançamentos" })).toBeDisabled();
+    expect(await screen.findByText("Este extrato já foi importado nesta conta. Nenhuma transação nova será criada.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Registrar reenvio sem novas transações" })).toBeDisabled();
   });
 
   describe("layout", () => {
@@ -117,8 +118,8 @@ describe("StatementImportPage", () => {
       expect(container.querySelector(".page-actions")).toBeNull();
       await user.upload(screen.getByLabelText("Arquivo CSV"), csv());
 
-      const confirm = await screen.findByRole("button", { name: "Importar 1 lançamento(s)" });
-      expect(screen.getAllByRole("button", { name: /Importar 1 lançamento/ })).toHaveLength(1);
+      const confirm = await screen.findByRole("button", { name: "Importar 1 transação" });
+      expect(screen.getAllByRole("button", { name: /Importar 1 transação/ })).toHaveLength(1);
       expect(confirm.closest(".page-actions")).not.toBeNull();
       expect(container.querySelector(".bottom-action-bar")).toBeNull();
       expect(screen.getByRole("link", { name: "Voltar para contas e cartões" })).toHaveAttribute("href", "/contas-e-cartoes");
@@ -134,14 +135,14 @@ describe("StatementImportPage", () => {
         vi.mocked(statementApi.confirmStatement).mockResolvedValue(saved);
         const { container } = renderPage();
 
-        // The collapsed title is the way back, and nothing reserves the bar yet.
-        expect(screen.getByRole("link", { name: "Importar extrato" })).toHaveAttribute("href", "/contas-e-cartoes");
+        // The chevron is the way back, and nothing reserves the bar yet.
+        expect(screen.getByRole("link", { name: "Voltar para contas e cartões" })).toHaveAttribute("href", "/contas-e-cartoes");
         expect(container.querySelector(".bottom-action-bar")).toBeNull();
         expect(container.querySelector(".app-page-has-bottom-bar")).toBeNull();
 
         await user.upload(screen.getByLabelText("Arquivo CSV"), csv());
-        const confirm = await screen.findByRole("button", { name: "Importar 1 lançamento(s)" });
-        expect(screen.getAllByRole("button", { name: /Importar 1 lançamento/ })).toHaveLength(1);
+        const confirm = await screen.findByRole("button", { name: "Importar 1 transação" });
+        expect(screen.getAllByRole("button", { name: /Importar 1 transação/ })).toHaveLength(1);
         expect(confirm.closest(".bottom-action-bar")).not.toBeNull();
         expect(container.querySelector(".app-page-has-bottom-bar")).not.toBeNull();
         expect(screen.getByRole("button", { name: /Baixar modelo/ })).toBeVisible();
@@ -215,17 +216,17 @@ describe("StatementImportPage", () => {
       renderPage();
       await user.upload(screen.getByLabelText("Arquivo CSV"), csv());
       await user.type(screen.getByLabelText("Nome da nova conta"), "Flash");
-      await user.click(await screen.findByRole("button", { name: "Importar 1 lançamento(s)" }));
+      await user.click(await screen.findByRole("button", { name: "Importar 1 transação" }));
 
       expect(await screen.findByText("O extrato mudou desde a prévia.")).toBeVisible();
-      expect(screen.queryByRole("heading", { name: "3. Revise a prévia" })).toBeNull();
-      expect(screen.queryByRole("button", { name: /Importar 1 lançamento/ })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Revise a prévia" })).toBeNull();
+      expect(screen.queryByRole("button", { name: /Importar 1 transação/ })).toBeNull();
 
       await user.click(screen.getByRole("button", { name: "Gerar prévia novamente" }));
       await waitFor(() => expect(statementApi.previewStatement).toHaveBeenCalledTimes(2));
-      expect(await screen.findByRole("heading", { name: "3. Revise a prévia" })).toBeVisible();
+      expect(await screen.findByRole("heading", { name: "Revise a prévia" })).toBeVisible();
       expect(screen.queryByText("O extrato mudou desde a prévia.")).toBeNull();
-      expect(screen.getByRole("button", { name: "Importar 1 lançamento(s)" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Importar 1 transação" })).toBeEnabled();
     });
 
     it("keeps the preview when the confirmation fails for another reason", async () => {
@@ -235,12 +236,12 @@ describe("StatementImportPage", () => {
       renderPage();
       await user.upload(screen.getByLabelText("Arquivo CSV"), csv());
       await user.type(screen.getByLabelText("Nome da nova conta"), "Flash");
-      await user.click(await screen.findByRole("button", { name: "Importar 1 lançamento(s)" }));
+      await user.click(await screen.findByRole("button", { name: "Importar 1 transação" }));
 
       expect(await screen.findByText("Não foi possível comunicar com o servidor.")).toBeVisible();
-      expect(screen.getByRole("heading", { name: "3. Revise a prévia" })).toBeVisible();
+      expect(screen.getByRole("heading", { name: "Revise a prévia" })).toBeVisible();
       expect(screen.queryByRole("button", { name: "Gerar prévia novamente" })).toBeNull();
-      await waitFor(() => expect(screen.getByRole("button", { name: "Importar 1 lançamento(s)" })).toBeEnabled());
+      await waitFor(() => expect(screen.getByRole("button", { name: "Importar 1 transação" })).toBeEnabled());
     });
 
     it("offers to generate the preview again when it could not be produced", async () => {
@@ -253,7 +254,7 @@ describe("StatementImportPage", () => {
 
       expect(await screen.findByText("Arquivo em formato desconhecido.")).toBeVisible();
       await user.click(screen.getByRole("button", { name: "Gerar prévia novamente" }));
-      expect(await screen.findByRole("heading", { name: "3. Revise a prévia" })).toBeVisible();
+      expect(await screen.findByRole("heading", { name: "Revise a prévia" })).toBeVisible();
       expect(screen.queryByText("Arquivo em formato desconhecido.")).toBeNull();
     });
   });
@@ -271,7 +272,7 @@ describe("StatementImportPage", () => {
 
       expect(await screen.findByText("Não foi possível listar contas de arquivo")).toBeVisible();
       expect(screen.getByRole("radio", { name: "Usar conta existente" })).toBeDisabled();
-      expect(await screen.findByText("1 importação")).toBeVisible();
+      expect(await screen.findByText(/extrato\.csv/)).toBeVisible();
       expect(screen.queryByText("Não foi possível carregar o histórico")).toBeNull();
 
       await user.click(region("Escolha a conta").getByRole("button", { name: "Tentar novamente" }));
@@ -291,7 +292,7 @@ describe("StatementImportPage", () => {
       expect(screen.queryByText("Não foi possível listar contas de arquivo")).toBeNull();
 
       await user.click(region("Importações recentes").getByRole("button", { name: "Tentar novamente" }));
-      expect(await screen.findByText("1 importação")).toBeVisible();
+      expect(await screen.findByText(/extrato\.csv/)).toBeVisible();
       expect(statementApi.listStatementImports).toHaveBeenCalledTimes(2);
       expect(statementApi.listImportAccounts).toHaveBeenCalledTimes(1);
     });
@@ -312,8 +313,9 @@ describe("StatementImportPage", () => {
       vi.mocked(statementApi.listStatementImports).mockResolvedValue([historyItem, { ...historyItem, run_id: "run-2", filename: "outro.csv" }]);
       renderPage();
 
-      expect(await screen.findByText("2 importações")).toBeVisible();
-      const rows = within(screen.getByRole("list", { name: "Extratos importados" })).getAllByRole("listitem");
+      const rows = within(await screen.findByRole("list", { name: "Extratos importados" })).getAllByRole("listitem");
+      // No "2 importações" subtitle: the list is the count.
+      expect(screen.queryByText("2 importações")).toBeNull();
       expect(rows).toHaveLength(2);
       expect(within(rows[0]).getByText("Flash")).toBeVisible();
       expect(within(rows[0]).getByText(/extrato\.csv/)).toBeVisible();
@@ -333,7 +335,7 @@ describe("StatementImportPage", () => {
       renderPage();
       await user.upload(screen.getByLabelText("Arquivo CSV"), csv());
       await user.type(screen.getByLabelText("Nome da nova conta"), "Flash");
-      await user.click(await screen.findByRole("button", { name: "Importar 1 lançamento(s)" }));
+      await user.click(await screen.findByRole("button", { name: "Importar 1 transação" }));
 
       expect(await screen.findByText("Extrato importado")).toBeVisible();
       expect(statementApi.listImportAccounts).toHaveBeenCalledTimes(2);
@@ -406,7 +408,7 @@ describe("StatementImportPage", () => {
         await new Promise((resolve) => setTimeout(resolve, 20));
       });
       expect(screen.queryByText("Sem conta escolhida")).toBeNull();
-      expect(screen.queryByRole("heading", { name: "3. Revise a prévia" })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Revise a prévia" })).toBeNull();
       expect(statementApi.previewStatement).toHaveBeenCalledTimes(1);
     });
   });
@@ -420,14 +422,14 @@ describe("StatementImportPage", () => {
       renderPage();
       await user.upload(screen.getByLabelText("Arquivo CSV"), csv());
       await user.type(screen.getByLabelText("Nome da nova conta"), "Flash");
-      const confirm = await screen.findByRole("button", { name: "Importar 1 lançamento(s)" });
+      const confirm = await screen.findByRole("button", { name: "Importar 1 transação" });
 
       // Two clicks before React can re-render: only the lock can stop the second.
       await act(async () => { confirm.click(); confirm.click(); });
       expect(statementApi.confirmStatement).toHaveBeenCalledTimes(1);
       // While loading, antd prefixes the button's name with its spinner's label.
-      await waitFor(() => expect(screen.getByRole("button", { name: /Importar 1 lançamento/ })).toBeDisabled());
-      await user.click(screen.getByRole("button", { name: /Importar 1 lançamento/ }));
+      await waitFor(() => expect(screen.getByRole("button", { name: /Importar 1 transação/ })).toBeDisabled());
+      await user.click(screen.getByRole("button", { name: /Importar 1 transação/ }));
       expect(statementApi.confirmStatement).toHaveBeenCalledTimes(1);
 
       await act(async () => { pending.resolve(saved); });
