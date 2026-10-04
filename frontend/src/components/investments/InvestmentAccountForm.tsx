@@ -1,7 +1,9 @@
-import { Alert, Button, Drawer, Flex, Input, Select } from "antd";
+import { Input, Select } from "antd";
 import { useEffect, useState } from "react";
 
 import type { Account, InvestmentAccountWrite } from "../../api/contracts";
+import { FormDrawer } from "../forms/FormDrawer";
+import { FormField } from "../forms/FormField";
 
 type Draft = { name: string; financialAccountId: string | null };
 
@@ -34,7 +36,7 @@ export function InvestmentAccountForm({
 
   const submit = () => {
     if (draft.name.trim() === "") {
-      setError("Informe o nome da conta de custódia.");
+      setError("Informe o nome da conta de investimento.");
       return;
     }
     setError(null);
@@ -51,55 +53,46 @@ export function InvestmentAccountForm({
   }));
 
   return (
-    <Drawer
-      title="Nova conta de custódia"
+    <FormDrawer
+      title="Nova conta de investimento"
       open={open}
       onClose={onCancel}
+      onSubmit={submit}
+      submitLabel="Criar conta"
+      submitting={submitting}
+      error={error ?? submitError}
       width={440}
-      destroyOnHidden
-      footer={
-        <Flex justify="end" gap="small">
-          <Button onClick={onCancel}>Cancelar</Button>
-          <Button type="primary" loading={submitting} onClick={submit}>
-            Criar conta
-          </Button>
-        </Flex>
-      }
     >
-      <Flex vertical gap="middle">
-        {(error ?? submitError) && <Alert type="error" showIcon message={error ?? submitError} />}
-        <Alert
-          type="info"
-          showIcon
-          message="Conta manual em reais"
-          description="Use uma conta de custódia para controlar posições e caixa. A integração bancária não poderá ser alterada por aqui."
+      <p className="form-field-hint">
+        Conta manual em reais, para controlar posições e saldo. A integração bancária não poderá ser alterada por aqui.
+      </p>
+      <FormField label="Nome" htmlFor="investment-account-name">
+        <Input
+          id="investment-account-name"
+          value={draft.name}
+          onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+          placeholder="Ex.: Corretora XP"
+          autoFocus
         />
-        <div className="filter-field">
-          <label htmlFor="investment-account-name">Nome</label>
-          <Input
-            id="investment-account-name"
-            value={draft.name}
-            onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-            placeholder="Ex.: Corretora XP"
-            autoFocus
-          />
-        </div>
-        <div className="filter-field">
-          <label htmlFor="investment-financial-account">Conta bancária associada (opcional)</label>
-          <Select
-            id="investment-financial-account"
-            value={draft.financialAccountId ?? undefined}
-            options={accountOptions}
-            placeholder="Selecione se o caixa vier de uma conta importada"
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            onChange={(value: string | undefined) =>
-              setDraft((current) => ({ ...current, financialAccountId: value ?? null }))
-            }
-          />
-        </div>
-      </Flex>
-    </Drawer>
+      </FormField>
+      <FormField
+        label="Conta bancária associada (opcional)"
+        htmlFor="investment-financial-account"
+        hint="Selecione se o saldo vier de uma conta importada."
+      >
+        <Select
+          id="investment-financial-account"
+          value={draft.financialAccountId ?? undefined}
+          options={accountOptions}
+          placeholder="Nenhuma conta associada"
+          allowClear
+          showSearch
+          optionFilterProp="label"
+          onChange={(value: string | undefined) =>
+            setDraft((current) => ({ ...current, financialAccountId: value ?? null }))
+          }
+        />
+      </FormField>
+    </FormDrawer>
   );
 }

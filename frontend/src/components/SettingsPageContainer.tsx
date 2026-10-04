@@ -1,16 +1,11 @@
 import type { ReactNode } from "react";
-import { Link, useLocation } from "react-router-dom";
-import { Typography } from "antd";
 
-import { BottomActionBar, Page } from "./layout";
-import { useCompactScreen } from "./shared/useCompactScreen";
+import { Page } from "./layout";
 
 interface SettingsPageContainerProps {
   title: string;
-  /** One line under the title — mirrors Page's own `description`. */
+  /** One line under the title — mirrors Page's own `description`, the only explanatory text of the header. */
   subTitle?: string;
-  /** A longer explanation of the section, shown above its content. */
-  content?: ReactNode;
   /** Page-wide actions (e.g. "Nova categoria"). Rendered in Page's actions slot. */
   extra?: ReactNode;
   /** Forwarded to Page — see its own doc comment. */
@@ -20,50 +15,35 @@ interface SettingsPageContainerProps {
 
 /**
  * The shell every settings screen composes on top of `Page`: the section's
- * title/description, a way back to the settings hub — or, for a sync run's
- * detail, back to Open Banking specifically — and, when the caller has one,
- * a longer explanatory paragraph above its own content.
+ * title/description and a back chevron to the settings hub. (A sync run's
+ * detail is not one of these screens — it goes through `DetailPage`, with
+ * its own way back to Open Banking.)
  *
- * This keeps the prop surface the callers outside this workstream already
- * use (title/subTitle/content/extra/children) so they need no changes beyond
- * opting into `compactMobileHeader`.
+ * There is no second explanatory paragraph: it used to repeat the
+ * description in other words. Anything a user needs to know to act lives
+ * next to the control it explains (a field hint, an empty state's hint).
+ * `extra` is a page action like any other: it stays in the title row on a
+ * phone, not in a bottom bar. Settings are narrow pages: a list or a form
+ * across 1400px is unreadable.
  */
 export function SettingsPageContainer({
   title,
   subTitle,
-  content,
   extra,
   compactMobileHeader,
   children,
 }: SettingsPageContainerProps) {
-  const compact = useCompactScreen();
-  const { pathname } = useLocation();
-  const isSyncDetail = pathname.includes("/sync-runs/");
-  const backTo = isSyncDetail ? "/configuracoes/open-banking" : "/configuracoes";
-  const backLabel = isSyncDetail ? "Voltar para Open Banking" : "Voltar para configurações";
-  const back = <Link to={backTo}>{backLabel}</Link>;
-  // Every consumer that opts into compactMobileHeader also already renders
-  // its extra as a page action, so its bottom bar is inferred rather than a
-  // separate prop that could drift out of sync with it.
-  const hasBottomActionBar = compactMobileHeader === true && extra !== undefined;
-
   return (
     <Page
       title={title}
       description={subTitle}
-      back={back}
-      backTo={backTo}
+      backTo="/configuracoes"
+      backLabel="Voltar para configurações"
       compactMobileHeader={compactMobileHeader}
-      hasBottomActionBar={hasBottomActionBar}
+      width="narrow"
       actions={extra}
     >
-      {content !== undefined && (
-        <Typography.Paragraph type="secondary" className="settings-page-content">
-          {content}
-        </Typography.Paragraph>
-      )}
       {children}
-      {hasBottomActionBar && compact && <BottomActionBar>{extra}</BottomActionBar>}
     </Page>
   );
 }

@@ -1,6 +1,5 @@
-import { PlusOutlined } from "@ant-design/icons";
 import { Alert, Button, Skeleton } from "antd";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import {
@@ -13,20 +12,21 @@ import {
 import { filtersToSearchParams, listFromSearchParams } from "../components/filters/filterUrl";
 import { PeriodNavigator } from "../components/filters/PeriodNavigator";
 import { periodPresets } from "../components/filters/periodPresets";
-import { BottomActionBar, DataCard, GroupBySelect, Page } from "../components/layout";
-import { useCompactScreen } from "../components/shared/useCompactScreen";
+import { DataCard, EmptyState, GroupBySelect, Page, PageAction } from "../components/layout";
+import { useFeedback } from "../components/shared/useFeedback";
+import { useRowLayout } from "../components/transactions/rowLayout";
 import { ManualTransactionForm } from "../components/transactions/ManualTransactionForm";
 import { TransactionPanel } from "../components/transactions/TransactionPanel";
 import { TransactionFilters as TransactionFilterBar } from "../components/transactions/TransactionFilters";
 import { TransactionGroup } from "../components/transactions/TransactionGroup";
 import { TransactionSummaryBar } from "../components/transactions/TransactionSummaryBar";
+import { useRowFocusReturn } from "../components/transactions/useRowFocusReturn";
+import { useSelectedTransaction } from "../components/transactions/useSelectedTransaction";
+import { useTransactionPanelWrites } from "../components/transactions/useTransactionPanelWrites";
 import { useAccounts } from "../hooks/useAccounts";
 import { useCategories } from "../hooks/useCategories";
-import { useManualTransaction } from "../hooks/useManualTransaction";
 import { isValidPeriod, usePeriod, type Period } from "../hooks/usePeriod";
 import { currentMonthFilters, useTransactions } from "../hooks/useTransactions";
-import { useTransactionCategory } from "../hooks/useTransactionCategory";
-import { useTransactionInclusion } from "../hooks/useTransactionInclusion";
 import { manualTransactionErrorMessage } from "../presentation/manualTransactionErrors";
 
 type VisibleGrouping = Exclude<TransactionGrouping, "year">;
@@ -106,7 +106,6 @@ function ResultsSkeleton() {
 }
 
 export function TransactionsPage() {
-  const compact = useCompactScreen();
   const [searchParams, setSearchParams] = useSearchParams();
   const { period, setPeriod } = usePeriod(() => periodFromUrl(searchParams));
   const [state] = useState(() => initialState(searchParams, period));
@@ -114,20 +113,27 @@ export function TransactionsPage() {
   const [filters, setFilters] = useState<TransactionFilters>(state.filters);
   const [groupBy, setGroupBy] = useState<VisibleGrouping>(state.groupBy);
   const [page, setPage] = useState(state.page);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [facets, setFacets] =
     useState<TransactionQueryResult["available_filters"]>();
   const query = useTransactions(filters, groupBy, page);
-  const inclusion = useTransactionInclusion();
-  const category = useTransactionCategory();
   const categories = useCategories();
   const accounts = useAccounts();
-  const manualTransaction = useManualTransaction();
+  const feedback = useFeedback();
+  const rowLayout = useRowLayout();
+  const focusReturn = useRowFocusReturn();
+  const data = query.data;
+  // A snapshot, not a lookup in `data.items`: a write that moves the line out
+  // of the current filter must not close the panel the person is working in.
+  const { selected, select, patch } = useSelectedTransaction(data?.items);
+  const writes = useTransactionPanelWrites({
+    categories: categories.categories,
+    onDeleted: () => select(null),
+    onConfirmed: patch,
+    panelOpen: selected !== null,
+  });
+  const { manualTransaction } = writes;
   const [manualFormOpen, setManualFormOpen] = useState(false);
   const [manualSaveError, setManualSaveError] = useState<string | null>(null);
-  const [manualDeleteError, setManualDeleteError] = useState<string | null>(null);
-  const data = query.data;
-  const selected = data?.items.find((item) => item.id === selectedId) ?? null;
 
   const openManualCreate = () => {
     setManualSaveError(null);
@@ -139,30 +145,20 @@ export function TransactionsPage() {
     try {
       await manualTransaction.create(write);
       setManualFormOpen(false);
+      feedback.success("Transação criada");
     } catch (error) {
       setManualSaveError(manualTransactionErrorMessage(error, "save"));
     }
   };
-  // Editing happens inside the transaction panel; it shows the message itself.
-  const updateManualTransaction = async (transactionId: string, write: ManualTransactionWrite) => {
-    try {
-      await manualTransaction.update({ transactionId, write });
-    } catch (error) {
-      throw new Error(manualTransactionErrorMessage(error, "save"));
-    }
-  };
-  const deleteManualTransactionAndClose = async (transactionId: string) => {
-    setManualDeleteError(null);
-    try {
-      await manualTransaction.remove(transactionId);
-      setSelectedId(null);
-    } catch (error) {
-      setManualDeleteError(manualTransactionErrorMessage(error, "delete"));
-    }
-  };
   const selectTransaction = (transactionId: string | null) => {
-    setManualDeleteError(null);
-    setSelectedId(transactionId);
+    writes.clearDeleteError();
+    if (transactionId !== null) focusReturn.remember(transactionId);
+    select(transactionId);
+  };
+  // Esc / × / ← on the panel: back to the row that opened it.
+  const dismissPanel = () => {
+    selectTransaction(null);
+    focusReturn.restore();
   };
 
   useEffect(() => {
@@ -182,7 +178,7 @@ export function TransactionsPage() {
   const apply = (next: TransactionFilters) => {
     setFilters(next);
     setPage(1);
-    setSelectedId(null);
+    select(null);
   };
   // The period is page context, not a list filter: it changes the list and
   // the totals together and is remembered for the next page that reads it.
@@ -190,6 +186,21 @@ export function TransactionsPage() {
     setPeriod(from, to);
     apply({ ...filters, date_from: from, date_to: to });
   };
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const [focusResults, setFocusResults] = useState(false);
+  const changePage = (step: 1 | -1) => {
+    setPage((current) => current + step);
+    select(null);
+    // The button that was pressed goes away with the old page (or is disabled
+    // by the new one): once the new page is in, the keyboard moves to its top.
+    setFocusResults(true);
+  };
+  const pageNumber = data?.page.number;
+  useEffect(() => {
+    if (!focusResults || query.isFetching || pageNumber !== page) return;
+    resultsRef.current?.focus();
+    setFocusResults(false);
+  }, [focusResults, query.isFetching, pageNumber, page]);
   const clear = () => apply({ ...initialFilters, date_from: filters.date_from, date_to: filters.date_to });
   const hasExtraFilters = Object.entries(filters).some(
     ([key, value]) => !key.startsWith("date_") && value !== null && !(Array.isArray(value) && value.length === 0),
@@ -203,11 +214,7 @@ export function TransactionsPage() {
     ? Math.min(data.page.number * data.page.size, data.page.total_items)
     : 0;
 
-  const createAction = (
-    <Button type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={openManualCreate}>
-      Novo lançamento
-    </Button>
-  );
+  const createAction = <PageAction label="Nova transação" shortLabel="Nova" onClick={openManualCreate} />;
 
   return (
     <Page
@@ -215,7 +222,6 @@ export function TransactionsPage() {
       description="Acompanhe suas entradas, saídas e o resultado do período"
       className="transactions-page"
       compactMobileHeader
-      hasBottomActionBar
       context={
         <PeriodNavigator
           id="transactions-period"
@@ -235,6 +241,17 @@ export function TransactionsPage() {
         facetsLoading={query.isPending && query.timezoneValid}
         facetsError={query.isError && !data && !facets ? "Não foi possível carregar as opções." : null}
         onRetryFacets={() => query.refetch()}
+        lookupError={
+          categories.error || accounts.error
+            ? {
+                message: "Não foi possível carregar todas as contas e categorias.",
+                retry: () => {
+                  if (categories.error) void categories.refetch();
+                  if (accounts.error) void accounts.refetch();
+                },
+              }
+            : null
+        }
         onApply={apply}
         onClear={clear}
         end={
@@ -250,6 +267,7 @@ export function TransactionsPage() {
             onChange={(value: VisibleGrouping) => {
               setGroupBy(value);
               setPage(1);
+              select(null);
             }}
           />
         }
@@ -295,67 +313,14 @@ export function TransactionsPage() {
             description={<Button onClick={() => query.refetch()}>Tentar novamente</Button>}
           />
         )}
-        {inclusion.writeError && (
-          <Alert
-            type="error"
-            showIcon
-            message="Não foi possível salvar a decisão"
-            description={
-              <>
-                <p>O último estado confirmado foi mantido. {inclusion.writeError}</p>
-                <Button onClick={inclusion.retryWrite}>Tentar novamente</Button>
-              </>
-            }
-          />
-        )}
-        {inclusion.refreshError && (
-          <Alert
-            type="warning"
-            showIcon
-            message="Alteração salva, atualização pendente"
-            description={
-              <>
-                <p>Os resultados anteriores foram preservados. {inclusion.refreshError}</p>
-                <Button onClick={inclusion.retryRefresh}>Atualizar resultados</Button>
-              </>
-            }
-          />
-        )}
-        {category.writeError && (
-          <Alert
-            type="error"
-            showIcon
-            message="Não foi possível salvar a categoria"
-            description={
-              <>
-                <p>A última categoria confirmada foi mantida. {category.writeError}</p>
-                <Button onClick={category.retryWrite}>Tentar novamente</Button>
-              </>
-            }
-          />
-        )}
-        {category.refreshError && (
-          <Alert
-            type="warning"
-            showIcon
-            message="Categoria salva, atualização pendente"
-            description={
-              <>
-                <p>Os resultados anteriores foram preservados. {category.refreshError}</p>
-                <Button onClick={category.retryRefresh}>Atualizar resultados</Button>
-              </>
-            }
-          />
-        )}
-        <div className="visually-hidden" aria-live="polite" aria-atomic="true">
-          {inclusion.announcement}
-        </div>
-        <div className="visually-hidden" aria-live="polite" aria-atomic="true">
-          {category.announcement}
-        </div>
+        {writes.alerts(selected !== null)}
 
         {data && (
           <div
+            ref={resultsRef}
+            tabIndex={-1}
+            role="region"
+            aria-label="Resultados"
             className={`transaction-results ${query.isFetching ? "is-updating" : ""}`}
             aria-busy={query.isFetching}
           >
@@ -365,25 +330,26 @@ export function TransactionsPage() {
               </span>
             )}
             {data.page.total_items === 0 ? (
-              <Alert
-                type="info"
-                message={
-                  data.stored_total === 0
-                    ? "Ainda não há transações armazenadas."
-                    : isInitialMonth
-                      ? "Não há transações no mês atual."
-                      : hasExtraFilters
-                        ? "Nenhum resultado encontrado para os filtros selecionados."
-                        : "Não há transações no período selecionado."
-                }
-                description={
-                  data.stored_total > 0 && hasExtraFilters ? (
-                    <Button type="link" onClick={clear}>
-                      Limpar filtros
-                    </Button>
-                  ) : undefined
-                }
-              />
+              // "Nothing yet" and "no results for this search" are different
+              // situations and say different things.
+              data.stored_total === 0 ? (
+                <EmptyState
+                  title="Nenhuma transação ainda"
+                  hint="Importe um extrato, conecte um banco ou adicione uma transação manual."
+                  action={<Button onClick={openManualCreate}>Adicionar transação</Button>}
+                />
+              ) : hasExtraFilters ? (
+                <EmptyState
+                  title="Nada encontrado para estes filtros"
+                  hint="Tente outros termos ou remova algum filtro."
+                  action={<Button onClick={clear}>Limpar filtros</Button>}
+                />
+              ) : (
+                <EmptyState
+                  title={isInitialMonth ? "Nenhuma transação neste mês" : "Nenhuma transação neste período"}
+                  hint="Escolha outro período para ver mais."
+                />
+              )
             ) : (
               <>
                 <div className="transaction-groups">
@@ -392,12 +358,14 @@ export function TransactionsPage() {
                       key={group.key}
                       group={group}
                       items={data.items.filter((item) => item.group_key === group.key)}
-                      selectedId={selectedId}
+                      selectedId={selected?.id ?? null}
+                      showAccount={filters.account_ids.length !== 1}
+                      layout={rowLayout}
                       onSelect={selectTransaction}
                       onInclusion={(transactionId, target) =>
-                        inclusion.setInclusion({ transactionId, state: target })
+                        writes.inclusion.setInclusion({ transactionId, state: target })
                       }
-                      pendingTransactionId={inclusion.pendingTarget?.transactionId}
+                      pendingTransactionId={writes.inclusion.pendingTarget?.transactionId}
                     />
                   ))}
                 </div>
@@ -410,7 +378,7 @@ export function TransactionsPage() {
                   <nav aria-label="Paginação das transações">
                     <Button
                       disabled={data.page.number <= 1}
-                      onClick={() => setPage((current) => current - 1)}
+                      onClick={() => changePage(-1)}
                     >
                       Anterior
                     </Button>
@@ -419,7 +387,7 @@ export function TransactionsPage() {
                     </span>
                     <Button
                       disabled={data.page.number >= data.page.total_pages}
-                      onClick={() => setPage((current) => current + 1)}
+                      onClick={() => changePage(1)}
                     >
                       Próxima
                     </Button>
@@ -433,23 +401,11 @@ export function TransactionsPage() {
       <TransactionPanel
         item={selected}
         categories={categories.categories}
-        accounts={accounts.accounts}
-        onClose={() => selectTransaction(null)}
-        onInclusion={(transactionId, target) =>
-          inclusion.setInclusion({ transactionId, state: target })
-        }
-        inclusionPending={inclusion.pendingTarget?.transactionId === selected?.id}
-        onCategory={(transactionId, categoryId) => category.setCategory({ transactionId, categoryId })}
-        categoryPending={category.pendingTarget?.transactionId === selected?.id}
-        onSaveManual={updateManualTransaction}
-        saveManualPending={manualTransaction.isUpdating}
-        onDeleteManual={deleteManualTransactionAndClose}
-        deleteManualPending={manualTransaction.isRemoving}
-        deleteManualError={manualDeleteError}
+        onClose={dismissPanel}
+        {...writes.panelProps(selected)}
       />
       <ManualTransactionForm
         open={manualFormOpen}
-        transaction={null}
         accounts={accounts.accounts}
         categories={categories.categories}
         submitting={manualTransaction.isCreating}
@@ -457,7 +413,6 @@ export function TransactionsPage() {
         onSubmit={createManualTransaction}
         onCancel={closeManualForm}
       />
-      {compact && <BottomActionBar>{createAction}</BottomActionBar>}
     </Page>
   );
 }

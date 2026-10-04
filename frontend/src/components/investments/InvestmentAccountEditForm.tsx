@@ -1,10 +1,12 @@
-import { Alert, Button, Drawer, Flex, Input, Select, Switch } from "antd";
+import { Button, Input, Select, Switch } from "antd";
 import { useEffect, useState } from "react";
 
 import type { Account, InvestmentAccount, InvestmentAccountUpdate } from "../../api/contracts";
+import { FormDrawer } from "../forms/FormDrawer";
+import { FormField } from "../forms/FormField";
 
 /**
- * InvestmentAccountForm only creates. Editing a custody account is a much
+ * InvestmentAccountForm only creates. Editing an investment account is a much
  * smaller decision — the name and whether it is still in use — so it gets its
  * own short form instead of a create form with half its fields disabled.
  */
@@ -41,7 +43,7 @@ export function InvestmentAccountEditForm({
 
   const submit = () => {
     if (name.trim() === "") {
-      setError("Informe o nome da conta de custódia.");
+      setError("Informe o nome da conta de investimento.");
       return;
     }
     setError(null);
@@ -49,59 +51,59 @@ export function InvestmentAccountEditForm({
   };
 
   return (
-    <Drawer
-      title="Editar conta de custódia"
+    <FormDrawer
+      title="Editar conta de investimento"
       open={open}
       onClose={onCancel}
+      onSubmit={submit}
+      submitting={submitting}
+      error={error ?? submitError}
       width={440}
-      destroyOnHidden
-      footer={
-        <Flex justify="end" gap="small">
-          <Button onClick={onCancel}>Cancelar</Button>
-          <Button type="primary" loading={submitting} onClick={submit}>
-            Salvar
-          </Button>
-        </Flex>
-      }
     >
-      <Flex vertical gap="middle">
-        {(error ?? submitError) && <Alert type="error" showIcon message={error ?? submitError} />}
-        <div className="filter-field">
-          <label htmlFor="investment-account-edit-name">Nome</label>
-          <Input
-            id="investment-account-edit-name"
-            disabled={account?.kind === "integrated"}
-            value={name}
-            autoFocus
-            onChange={(event) => setName(event.target.value)}
-          />
-        </div>
-        <div className="filter-field">
-          <label htmlFor="investment-account-edit-financial">Caixa da corretora já importado</label>
-          <Select id="investment-account-edit-financial" allowClear value={financialAccountId ?? undefined}
-            options={financialAccounts.filter((item) => item.currency_code === "BRL" && item.account_type !== "CREDIT").map((item) => ({ value: item.id, label: item.name ?? item.id }))}
-            onChange={(value: string | undefined) => setFinancialAccountId(value ?? null)} placeholder="Nenhuma conta vinculada" />
-          {/* The Select's clear icon only shows on hover, which hides the fact
-              that a link can be undone; the button makes it a visible action. */}
-          {financialAccountId !== null && (
-            <Button type="link" size="small" style={{ justifySelf: "start", paddingInline: 0 }}
-              onClick={() => setFinancialAccountId(null)}>
-              Desvincular conta
-            </Button>
-          )}
-        </div>
-        <div className="filter-field">
-          <label htmlFor="investment-account-edit-active">Conta em uso</label>
-          <Switch
-            id="investment-account-edit-active"
-            disabled={account?.kind === "integrated"}
-            checked={active}
-            onChange={setActive}
-            checkedChildren="Sim"
-            unCheckedChildren="Não"
-          />
-        </div>
-      </Flex>
-    </Drawer>
+      <FormField label="Nome" htmlFor="investment-account-edit-name">
+        <Input
+          id="investment-account-edit-name"
+          disabled={account?.kind === "integrated"}
+          value={name}
+          autoFocus
+          onChange={(event) => setName(event.target.value)}
+        />
+      </FormField>
+      <FormField label="Caixa da corretora já importado" htmlFor="investment-account-edit-financial">
+        <Select
+          id="investment-account-edit-financial"
+          allowClear
+          value={financialAccountId ?? undefined}
+          options={financialAccounts
+            .filter((item) => item.currency_code === "BRL" && item.account_type !== "CREDIT")
+            .map((item) => ({ value: item.id, label: item.name ?? item.id }))}
+          onChange={(value: string | undefined) => setFinancialAccountId(value ?? null)}
+          placeholder="Nenhuma conta vinculada"
+        />
+        {/* The Select's clear icon only shows on hover, which hides the fact
+            that a link can be undone; the button makes it a visible action. */}
+        {financialAccountId !== null && (
+          <Button
+            type="link"
+            size="small"
+            style={{ justifySelf: "start", paddingInline: 0 }}
+            onClick={() => setFinancialAccountId(null)}
+          >
+            Desvincular conta
+          </Button>
+        )}
+      </FormField>
+      <FormField label="Conta em uso" htmlFor="investment-account-edit-active">
+        <Switch
+          id="investment-account-edit-active"
+          disabled={account?.kind === "integrated"}
+          checked={active}
+          onChange={setActive}
+          checkedChildren="Sim"
+          unCheckedChildren="Não"
+          style={{ width: "fit-content" }}
+        />
+      </FormField>
+    </FormDrawer>
   );
 }

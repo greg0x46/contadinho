@@ -1,5 +1,5 @@
 import { AimOutlined, BankOutlined, PieChartOutlined, SwapOutlined } from "@ant-design/icons";
-import { Alert, Button, Empty, Switch } from "antd";
+import { Alert, Button, Skeleton, Switch } from "antd";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -16,7 +16,7 @@ import type {
   InvestmentPositionUpdate,
   InvestmentPositionWrite,
 } from "../api/contracts";
-import { LoadingState, UnavailableState } from "../components/AsyncState";
+import { UnavailableState } from "../components/AsyncState";
 import { InvestmentAccountCard } from "../components/investments/InvestmentAccountCard";
 import { InvestmentAccountEditForm } from "../components/investments/InvestmentAccountEditForm";
 import { InvestmentAccountForm } from "../components/investments/InvestmentAccountForm";
@@ -27,11 +27,12 @@ import { InvestmentPortfolioForm } from "../components/investments/InvestmentPor
 import { InvestmentPositionForm } from "../components/investments/InvestmentPositionForm";
 import { InvestmentWorkspaceSummary } from "../components/investments/InvestmentWorkspaceSummary";
 import { InvestmentsSummary } from "../components/investments/InvestmentsSummary";
-import { BottomActionBar, CreateActionMenu, ListToolbar, Page, PageTabs } from "../components/layout";
-import { useCompactScreen } from "../components/shared/useCompactScreen";
+import { CreateActionMenu, EmptyState, ListToolbar, Page, PageTabs } from "../components/layout";
+import { useFeedback } from "../components/shared/useFeedback";
 import { useAccounts } from "../hooks/useAccounts";
 import { useInvestmentWorkspace } from "../hooks/useInvestmentWorkspace";
 import { useInvestments } from "../hooks/useInvestments";
+import { errorMessage } from "../presentation/errors";
 
 type View = "accounts" | "goals" | "synced";
 
@@ -41,16 +42,12 @@ const viewOptions: { label: string; value: View }[] = [
   { label: "Sincronizados", value: "synced" },
 ];
 
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
-}
-
 export function InvestmentsPage() {
-  const compact = useCompactScreen();
   const workspace = useInvestmentWorkspace();
   const financialAccounts = useAccounts();
   const syncedInvestments = useInvestments();
   const navigate = useNavigate();
+  const feedback = useFeedback();
 
   const [view, setView] = useState<View>("accounts");
   const [showClosedPositions, setShowClosedPositions] = useState(false);
@@ -101,13 +98,18 @@ export function InvestmentsPage() {
     return workspace.operations.filter((operation) => operation.position_id !== null && ids.has(operation.position_id));
   };
 
-  const run = async (action: () => Promise<unknown>, fallback: string) => {
+  const run = async (action: () => Promise<unknown>, fallback: string, done?: string) => {
     setActionError(null);
     try {
       await action();
+      if (done) feedback.success(done);
       return true;
     } catch (error) {
-      setActionError(errorMessage(error, fallback));
+      // Inline, where the list is — and a toast too: the Alert sits at the top
+      // of the page, out of sight when the action came from a row far below.
+      const message = errorMessage(error, fallback);
+      setActionError(message);
+      feedback.error(message);
       return false;
     }
   };
@@ -117,6 +119,7 @@ export function InvestmentsPage() {
     try {
       await action();
       close();
+      feedback.success("Salvo");
     } catch (error) {
       setSaveError(errorMessage(error, fallback));
     }
@@ -221,6 +224,7 @@ export function InvestmentsPage() {
           },
         }),
       "Não foi possível mudar o objetivo desta posição.",
+      "Objetivo alterado",
     );
 
   const busy = workspace.isSaving || workspace.isDeleting;
@@ -236,7 +240,10 @@ export function InvestmentsPage() {
         {
           key: "operation",
           label: "Registrar movimentação",
-          description: "Aporte, resgate ou outra movimentação em uma conta",
+          description:
+            workspace.accounts.length === 0
+              ? "Cadastre uma conta de investimento primeiro"
+              : "Aporte, resgate ou outra movimentação em uma conta",
           icon: <SwapOutlined aria-hidden="true" />,
           disabled: workspace.accounts.length === 0,
           onClick: () => openOperationCreate(null),
@@ -244,7 +251,10 @@ export function InvestmentsPage() {
         {
           key: "position",
           label: "Nova posição",
-          description: "Um ativo dentro de uma conta manual",
+          description:
+            manualAccounts.length === 0
+              ? "Cadastre uma conta de investimento manual primeiro"
+              : "Um ativo dentro de uma conta manual",
           icon: <PieChartOutlined aria-hidden="true" />,
           disabled: manualAccounts.length === 0,
           onClick: () => openPositionCreate(null),
@@ -258,7 +268,7 @@ export function InvestmentsPage() {
         },
         {
           key: "account",
-          label: "Nova conta de custódia",
+          label: "Nova conta de investimento",
           description: "Onde suas posições ficam guardadas",
           icon: <BankOutlined aria-hidden="true" />,
           onClick: openAccountCreate,
@@ -270,13 +280,12 @@ export function InvestmentsPage() {
   return (
     <Page
       title="Investimentos"
-      description="Contas de custódia, objetivos e o caixa disponível para investir"
+      description="Contas de investimento, objetivos e o saldo para investir"
       compactMobileHeader
-      hasBottomActionBar
       actions={createMenu}
       tabs={<PageTabs label="Visão dos investimentos" options={viewOptions} value={view} onChange={setView} />}
     >
-      {workspace.error && !workspace.isLoading && (
+      {workspace.error && !workspace.isLoading && view !== "synced" && (
         <UnavailableState onRetry={() => void workspace.refetch()}>
           Não foi possível carregar os investimentos
         </UnavailableState>
@@ -293,35 +302,56 @@ export function InvestmentsPage() {
       )}
 
       {workspace.isLoading ? (
-        <LoadingState>Carregando investimentos…</LoadingState>
-      ) : (
+        <div className="section" role="status" aria-label="Carregando investimentos">
+          <div className="section-body">
+            <Skeleton active paragraph={{ rows: 5 }} />
+          </div>
+        </div>
+      ) : workspace.error && view !== "synced" ? null : (
+        // A failed load shows only the retry above: zeroed totals and "Nenhuma
+        // conta ainda" beside it would claim there is nothing there.
         <>
           {workspace.positions.some((position) => position.currency_code !== "BRL") && (
             <Alert type="info" showIcon style={{ marginBottom: 16 }} message="Totais em reais"
               description="Posições em outras moedas são exibidas na moeda original e ficam fora dos totais e metas em reais. Esta versão não faz conversão de câmbio." />
           )}
-          <InvestmentWorkspaceSummary summary={workspace.summary} operations={workspace.operations} />
+          {/* Each view's hero is its own scope: the workspace total for the
+              account and goal views, the imported investments' total for the
+              synced one. Two heroes on one screen would compete. */}
+          {view === "synced" ? (
+            !syncedInvestments.isLoading &&
+            syncedInvestments.investments.length > 0 && <InvestmentsSummary investments={syncedInvestments.investments} />
+          ) : (
+            <InvestmentWorkspaceSummary summary={workspace.summary} operations={workspace.operations} />
+          )}
 
           {view !== "synced" && (
             <ListToolbar
               label="Controles das posições"
               end={
-                <>
-                  <Button type="link" onClick={() => navigate("/transacoes?period=all")}>
-                    Revisar lançamentos antigos
-                  </Button>
-                  <label className="list-toolbar-switch">
-                    <Switch size="small" checked={showClosedPositions} onChange={setShowClosedPositions} />
-                    <span>Mostrar posições fechadas</span>
-                  </label>
-                </>
+                <label className="list-toolbar-switch">
+                  <Switch size="small" checked={showClosedPositions} onChange={setShowClosedPositions} />
+                  <span>Mostrar posições fechadas</span>
+                </label>
               }
             />
           )}
 
+          {view === "goals" && (
+            <p className="investments-hint">
+              Um objetivo só agrupa posições: não soma ao total e mudar o objetivo de uma posição não move dinheiro.
+            </p>
+          )}
+
           {view === "accounts" &&
             (workspace.accounts.length === 0 ? (
-              <Empty description="Nenhuma conta de custódia ainda. Crie uma conta manual ou conecte uma instituição." />
+              <div className="section">
+                <EmptyState
+                  title="Nenhuma conta de investimento ainda"
+                  hint="Crie uma conta manual ou conecte uma instituição."
+                  action={<Button onClick={openAccountCreate}>Nova conta de investimento</Button>}
+                />
+              </div>
             ) : (
               <div className="investments-list">
                 {workspace.accounts.map((account) => (
@@ -335,19 +365,24 @@ export function InvestmentsPage() {
                     portfolios={workspace.portfolios}
                     onRename={openAccountEdit}
                     onRemove={(target) =>
-                      void run(() => workspace.deleteAccount(target.id), "Não foi possível remover a conta.")
+                      void run(() => workspace.deleteAccount(target.id), "Não foi possível excluir a conta.", "Excluído")
                     }
                     onNewPosition={(target) => openPositionCreate([target])}
                     onNewOperation={(target) => openOperationCreate(target.id)}
                     onEditPosition={openPositionEdit}
                     onRemovePosition={(position) =>
-                      void run(() => workspace.deletePosition(position.id), "Não foi possível remover a posição.")
+                      void run(
+                        () => workspace.deletePosition(position.id),
+                        "Não foi possível excluir a posição.",
+                        "Excluído",
+                      )
                     }
                     onEditOperation={openOperationEdit}
                     onRemoveOperation={(operation) =>
                       void run(
                         () => workspace.deleteOperation(operation.id),
                         "Não foi possível excluir a movimentação.",
+                        "Excluído",
                       )
                     }
                     onAssignGoal={assignGoal}
@@ -361,7 +396,7 @@ export function InvestmentsPage() {
             <div className="investments-list">
               {goalCards.map(({ portfolio }) => {
                 const positions = positionsOfGoal(portfolio?.id ?? null);
-                // The "sem objetivo" bucket only earns a card when it has
+                // The "sem objetivo" bucket only earns a section when it has
                 // something in it; an empty one would just be noise.
                 if (portfolio === null && positions.length === 0) return null;
                 return (
@@ -372,11 +407,14 @@ export function InvestmentsPage() {
                     positions={positions}
                     operations={operationsOfPositions(allPositionsOfGoal(portfolio?.id ?? null))}
                     portfolios={workspace.portfolios}
-                    cashBalance={workspace.summary?.cash_balance ?? "0"}
                     accountNameOf={accountName}
                     onEdit={openPortfolio}
                     onRemove={(target) =>
-                      void run(() => workspace.deletePortfolio(target.id), "Não foi possível remover o objetivo.")
+                      void run(
+                        () => workspace.deletePortfolio(target.id),
+                        "Não foi possível excluir o objetivo.",
+                        "Excluído",
+                      )
                     }
                     onAssignGoal={assignGoal}
                     busy={busy}
@@ -388,13 +426,6 @@ export function InvestmentsPage() {
 
           {view === "synced" && (
             <>
-              <Alert
-                type="info"
-                showIcon
-                style={{ marginBottom: 16 }}
-                message="Importados da sua instituição"
-                description="Estes ativos também aparecem como posições dentro da conta integrada correspondente. Aqui fica o detalhe importado, com o histórico do provedor."
-              />
               {syncedInvestments.error && (
                 <Alert
                   type="error"
@@ -404,15 +435,26 @@ export function InvestmentsPage() {
                   style={{ marginBottom: 16 }}
                 />
               )}
-              {!syncedInvestments.isLoading && syncedInvestments.investments.length > 0 && (
-                <InvestmentsSummary investments={syncedInvestments.investments} />
+              {!syncedInvestments.error && (
+                <InvestmentList
+                  investments={syncedInvestments.investments}
+                  isLoading={syncedInvestments.isLoading}
+                  onOpen={(investment: Investment) => navigate(`/investimentos/${investment.id}`)}
+                />
               )}
-              <InvestmentList
-                investments={syncedInvestments.investments}
-                isLoading={syncedInvestments.isLoading}
-                onOpen={(investment: Investment) => navigate(`/investimentos/${investment.id}`)}
-              />
+              <p className="investments-hint">
+                Estes ativos também aparecem como posições dentro da conta integrada correspondente. Aqui fica o
+                detalhe importado, com o histórico do provedor.
+              </p>
             </>
+          )}
+
+          {view !== "goals" && (
+            <p className="investments-footnote">
+              <Button type="link" size="small" onClick={() => navigate("/transacoes?period=all")}>
+                Revisar transações antigas
+              </Button>
+            </p>
           )}
         </>
       )}
@@ -466,7 +508,6 @@ export function InvestmentsPage() {
         onSubmitCompound={(operations) => void save(() => workspace.createOperations({ operations }), () => setOperationFormOpen(false), "Não foi possível salvar a movimentação.")}
         onCancel={() => setOperationFormOpen(false)}
       />
-      {compact && <BottomActionBar>{createMenu}</BottomActionBar>}
     </Page>
   );
 }

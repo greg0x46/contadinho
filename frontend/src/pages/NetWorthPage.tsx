@@ -1,7 +1,7 @@
-import { Alert, Empty } from "antd";
+import { Skeleton } from "antd";
 
-import { LoadingState, UnavailableState } from "../components/AsyncState";
-import { Page } from "../components/layout";
+import { UnavailableState } from "../components/AsyncState";
+import { EmptyState, Page, Section } from "../components/layout";
 import { NetWorthBreakdownCard } from "../components/netWorth/NetWorthBreakdownCard";
 import { NetWorthChart } from "../components/netWorth/NetWorthChart";
 import { useNetWorth } from "../hooks/useNetWorth";
@@ -14,41 +14,50 @@ export function NetWorthPage() {
   const hasSeries = netWorth.series.length > 1;
   const hasBackfilledPoints = netWorth.series.some((s) => s.is_backfilled);
 
+  // One footnote, under the chart it qualifies, for what used to be a
+  // paragraph above the figures plus an info Alert below the chart.
+  const footnote = `Dias sem registro são reconstruídos a partir das transações, então a série pode não cobrir todo o passado.${
+    hasBackfilledPoints ? " Esses dias não incluem investimentos: não há como saber quanto deles já existia." : ""
+  }`;
+
   return (
     <Page title="Patrimônio líquido" description="Ativos menos passivos ao longo do tempo" compactMobileHeader>
-      <p className="net-worth-note">
-        Os dias mais recentes sem registro são reconstruídos automaticamente a partir do histórico de
-        transações disponível — a série pode não cobrir todo o passado se as contas foram conectadas há pouco
-        tempo.
-      </p>
-
-      {netWorth.isLoading && <LoadingState>Carregando patrimônio líquido…</LoadingState>}
+      {netWorth.isLoading && (
+        // Hero strip, then the chart: the shape of the loaded page.
+        <div className="net-worth-page" role="status" aria-label="Carregando patrimônio líquido">
+          <Skeleton active title={{ width: "30%" }} paragraph={{ rows: 2 }} />
+          <Skeleton.Node active style={{ width: "100%", height: 260 }}>
+            <span />
+          </Skeleton.Node>
+        </div>
+      )}
       {netWorth.error && !netWorth.isLoading && (
         <UnavailableState onRetry={() => netWorth.refetch()}>
           Não foi possível carregar o patrimônio líquido
         </UnavailableState>
       )}
 
+      {!netWorth.isLoading && !netWorth.error && !netWorth.latest && (
+        <EmptyState
+          title="Ainda não há patrimônio para mostrar"
+          hint="Conecte um banco ou importe um extrato: o patrimônio é calculado a partir das suas contas."
+        />
+      )}
+
       {!netWorth.isLoading && !netWorth.error && netWorth.latest && (
-        <>
+        <div className="net-worth-page">
           <NetWorthBreakdownCard snapshot={netWorth.latest} />
           {hasSeries ? (
-            <>
-              <NetWorthChart snapshots={netWorth.series} />
-              {hasBackfilledPoints && (
-                <Alert
-                  type="info"
-                  showIcon
-                  message="Pontos reconstruídos não incluem investimentos"
-                  description="Dias reconstruídos automaticamente (antes do primeiro acesso a esta página) não somam investimentos ao total: o rendimento de um investimento não tem uma data conhecida, então não há como saber quanto dele já existia em dias passados."
-                  style={{ marginTop: 16 }}
-                />
-              )}
-            </>
+            <NetWorthChart snapshots={netWorth.series} footnote={footnote} />
           ) : (
-            <Empty description="O gráfico aparece a partir do segundo dia com dados registrados." />
+            <Section title="Evolução do patrimônio líquido">
+              <EmptyState
+                title="Ainda não há histórico para mostrar"
+                hint="O gráfico aparece a partir do segundo dia com dados registrados."
+              />
+            </Section>
           )}
-        </>
+        </div>
       )}
     </Page>
   );

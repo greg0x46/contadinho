@@ -4,19 +4,24 @@ type Metrics = {
   transactions_updated: number;
 };
 
+/**
+ * What a run moved, as a flat definition strip (label small, figure 500)
+ * instead of three statistic cards — the same shape the summary strips use.
+ */
 export function SyncRunMetrics({ run }: { run: Metrics }) {
+  const items = [
+    { label: "Contas processadas", value: run.accounts_processed },
+    { label: "Transações incluídas", value: run.transactions_inserted },
+    { label: "Transações atualizadas", value: run.transactions_updated },
+  ];
   return (
-    <Row gutter={[16, 16]}>
-      <Col xs={24} md={8}>
-        <Statistic title="Contas processadas" value={run.accounts_processed} />
-      </Col>
-      <Col xs={24} md={8}>
-        <Statistic title="Transações incluídas" value={run.transactions_inserted} />
-      </Col>
-      <Col xs={24} md={8}>
-        <Statistic title="Transações atualizadas" value={run.transactions_updated} />
-      </Col>
-    </Row>
+    <dl className="sync-run-metrics">
+      {items.map((item) => (
+        <div key={item.label}>
+          <dt>{item.label}</dt>
+          <dd>{item.value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
-import { Col, Row, Statistic } from "antd";

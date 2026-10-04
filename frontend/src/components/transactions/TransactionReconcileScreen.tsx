@@ -1,19 +1,16 @@
-import { Alert, Button, Popconfirm, Typography } from "antd";
+import { Alert, Button, Popconfirm, Skeleton, Typography } from "antd";
 import { useState } from "react";
 
 import type { ReconciliationOption, TransactionItem } from "../../api/contracts";
 import { useTransactionReconciliation } from "../../hooks/useTransactionReconciliation";
+import { errorMessage } from "../../presentation/errors";
 import { formatDay } from "../../presentation/dates";
 import { formatBRL } from "../../presentation/money";
 import { reconciliationOriginLabel } from "../../presentation/reconciliationLabels";
 import { recurringCommitmentKindLabel } from "../../presentation/recurringCommitmentLabels";
-import { detailValue } from "../../presentation/transactionDetail";
+import { TransactionAmount } from "./TransactionAmount";
 import { TransactionPicker } from "../shared/TransactionPicker";
 import { PanelDisclosure, PanelFooter, PanelSection } from "../shared/PanelStack";
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
-}
 
 // The option's value has to carry both halves of an occurrence's address —
 // the commitment and the calendar day — because occurrences have no id.
@@ -72,7 +69,7 @@ export function TransactionReconcileScreen({
   return (
     <>
       <header className="transaction-screen-summary">
-        <span className={`transaction-amount amount-${item.classification}`}>{detailValue(item)}</span>
+        <TransactionAmount item={item} />
         <span>{item.description ?? "Descrição não informada"}</span>
       </header>
 
@@ -81,7 +78,17 @@ export function TransactionReconcileScreen({
       )}
 
       {reconciliation.isLoading ? (
-        <Typography.Text type="secondary">Carregando…</Typography.Text>
+        <div role="status" aria-label="Carregando conciliação">
+          <Skeleton active paragraph={{ rows: 2 }} title={{ width: "40%" }} />
+        </div>
+      ) : reconciliation.isError ? (
+        // A failed lookup is not "no recurrence nearby": say so, and offer the retry.
+        <Alert
+          type="error"
+          showIcon
+          message="Não foi possível consultar as recorrências"
+          description={<Button onClick={reconciliation.refetch}>Tentar novamente</Button>}
+        />
       ) : current !== null ? (
         <PanelSection title="Conciliada com">
           <div className="transaction-reconciled">

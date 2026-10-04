@@ -1,5 +1,5 @@
 import { LinkOutlined, RedoOutlined, SwapOutlined } from "@ant-design/icons";
-import { Alert, Switch, Tag, Typography } from "antd";
+import { Alert, Button, Switch, Typography } from "antd";
 import { useMemo } from "react";
 
 import type { Category, TransactionInclusionState, TransactionItem } from "../../api/contracts";
@@ -10,7 +10,6 @@ import { formatBRL } from "../../presentation/money";
 import {
   allowsInvestmentLink,
   categoryChoices,
-  detailValue,
   installmentLabel,
   investmentSplit,
   recurringCommitmentPrefill,
@@ -18,23 +17,29 @@ import {
   shortDateTime,
   suggestedCategory,
 } from "../../presentation/transactionDetail";
-import { classificationLabel } from "../../presentation/transactionStatus";
 import { CategoryField } from "../categories/CategoryField";
 import { PanelNavRow, PanelSection } from "../shared/PanelStack";
+import { TransactionAmount } from "./TransactionAmount";
 import type { TransactionScreen } from "./TransactionPanel";
+import type { WriteIssue } from "./useTransactionPanelWrites";
 
 /**
  * The root screen: who the transaction is and the decisions people take on
  * almost every one (category, whether it counts). Everything else is one
  * tap away behind a row, never open by default.
+ *
+ * A failed write is shown here, next to the control that caused it — the
+ * panel covers the list, so an error on the page would never be seen.
  */
 export function TransactionOverviewScreen({
   item,
   categories,
   onCategory,
   categoryPending,
+  categoryError = null,
   onInclusion,
   inclusionPending,
+  inclusionError = null,
   deleteError,
   navigate,
 }: {
@@ -42,8 +47,10 @@ export function TransactionOverviewScreen({
   categories: Category[];
   onCategory?: (id: string, categoryId: string) => void;
   categoryPending: boolean;
+  categoryError?: WriteIssue | null;
   onInclusion?: (id: string, state: TransactionInclusionState) => void;
   inclusionPending: boolean;
+  inclusionError?: WriteIssue | null;
   deleteError: string | null;
   navigate: (screen: TransactionScreen) => void;
 }) {
@@ -60,10 +67,12 @@ export function TransactionOverviewScreen({
     : [item.account.name, item.account.institution].filter(Boolean).join(" · ");
 
   const reconciliationHint = ignored
-    ? "Transações ignoradas não conciliam"
+    ? "Transações fora dos totais não conciliam"
     : reconciliation.isLoading
       ? "Carregando…"
-      : reconciliation.current
+      : reconciliation.isError
+        ? "Não foi possível consultar"
+        : reconciliation.current
         ? `${reconciliation.current.commitment_name} · ${formatDay(reconciliation.current.occurrence_date)}`
         : reconciliation.options.length > 0
           ? `${reconciliation.options.length} ${reconciliation.options.length === 1 ? "ocorrência próxima" : "ocorrências próximas"}`
@@ -73,22 +82,26 @@ export function TransactionOverviewScreen({
     ? `${formatBRL(split.transferred)} vinculados`
     : "Nenhum vínculo";
 
+  // Origin and "out of the totals" are facts about the line, so they read as
+  // plain text beside the date rather than as coloured tags.
+  const when = [
+    shortDateTime(item.occurred_at),
+    item.origin === "manual" ? "Manual" : null,
+    item.source_provider === "file" ? "Arquivo" : null,
+    ignored ? "Fora dos totais" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <>
       <header className="transaction-identity">
-        <div className="transaction-identity-kicker">
-          <span>{classificationLabel[item.classification]}</span>
-          {item.origin === "manual" && <Tag color="purple">Manual</Tag>}
-          {item.source_provider === "file" && <Tag color="blue">Arquivo</Tag>}
-        </div>
         <strong className="transaction-identity-description">
           {item.description ?? "Descrição não informada"}
         </strong>
         {where && <span className="transaction-identity-where">{where}</span>}
-        <span className={`transaction-amount transaction-identity-amount amount-${item.classification}`}>
-          {detailValue(item)}
-        </span>
-        <span className="transaction-identity-when">{shortDateTime(item.occurred_at)}</span>
+        <TransactionAmount item={item} size="hero" className="transaction-identity-amount" />
+        <span className="transaction-identity-when">{when}</span>
         {split && (
           <span className="transaction-identity-split">
             {item.classification === "inflow" ? "resgate" : "aporte"} vinculado:{" "}
@@ -112,6 +125,7 @@ export function TransactionOverviewScreen({
             {internalCategoryOriginLabel(item.internal_category)}
           </Typography.Text>
         )}
+        {categoryError && <WriteFailure issue={categoryError} title="Não foi possível salvar a categoria" />}
         {item.internal_category && !item.internal_category.is_active && (
           <Alert
             type="warning"
@@ -134,9 +148,10 @@ export function TransactionOverviewScreen({
         </div>
         {ignored && (
           <Typography.Text type="secondary" className="transaction-field-hint">
-            Esta transação não será considerada nos relatórios e cálculos do período.
+            Fora dos totais: esta transação não entra nos relatórios e cálculos do período.
           </Typography.Text>
         )}
+        {inclusionError && <WriteFailure issue={inclusionError} title="Não foi possível salvar a decisão" />}
       </PanelSection>
 
       <PanelSection title="Ações" className="panel-section-rows">
@@ -164,7 +179,7 @@ export function TransactionOverviewScreen({
         )}
       </PanelSection>
 
-      <PanelSection className="panel-section-rows">
+      <PanelSection title="Mais informações" className="panel-section-rows">
         <PanelNavRow label="Detalhes da transação" onClick={() => navigate({ kind: "details" })} />
         <PanelNavRow label="Informações técnicas" onClick={() => navigate({ kind: "technical" })} />
       </PanelSection>
@@ -173,11 +188,30 @@ export function TransactionOverviewScreen({
         <Alert
           type="warning"
           showIcon
-          message="Lançamento vinculado a investimento"
-          description="Para editar ou excluir este lançamento, desfaça antes os vínculos em “Vincular a investimento”."
+          message="Transação vinculada a investimento"
+          description="Para editar ou excluir esta transação, desfaça antes os vínculos em “Vincular a investimento”."
         />
       )}
       {deleteError && <Alert type="error" showIcon message={deleteError} />}
     </>
+  );
+}
+
+/** A failed write, in the panel and next to the control that caused it: what happened, and a retry. */
+function WriteFailure({ issue, title }: { issue: WriteIssue; title: string }) {
+  return (
+    <Alert
+      type="error"
+      showIcon
+      message={title}
+      description={
+        <>
+          <p>{issue.message}</p>
+          <Button size="small" onClick={issue.retry}>
+            Tentar novamente
+          </Button>
+        </>
+      }
+    />
   );
 }

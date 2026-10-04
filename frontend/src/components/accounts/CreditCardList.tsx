@@ -1,4 +1,3 @@
-import { CreditCardOutlined } from "@ant-design/icons";
 import { Skeleton } from "antd";
 
 import type { Account } from "../../api/contracts";
@@ -7,97 +6,111 @@ import {
   accountDisplayName,
   closingDaySourceHint,
   formatAccountMoney,
-  maskedAccountNumber,
 } from "../../presentation/accountLabels";
+import { sumBRL } from "../../presentation/money";
+import { EmptyState, Section } from "../layout";
+import { AccountMoney } from "./AccountMoney";
 import { CreditUsageMeter } from "./CreditUsageMeter";
 
-function totalLimit(accounts: Account[]): string {
-  return accounts.reduce((sum, account) => sum + Number(account.credit_limit ?? "0"), 0).toFixed(2);
+function isBRL(account: Account): boolean {
+  return account.currency_code === null || account.currency_code === "BRL";
 }
 
-function closingHint(day: number | null): string | null {
-  return day === null ? null : `Fechamento dia ${day}`;
+// Limits of different currencies are not one number: only the cards in reais
+// are summed, the same rule the page's summary strip applies to balances.
+function totalLimit(accounts: Account[]): string {
+  return sumBRL(accounts.filter(isBRL).map((account) => account.credit_limit ?? "0"));
+}
+
+// Due dates are near-future calendar days, so "10/10" is enough — the year is
+// only spelled out when it is not the current one.
+function dueDayLabel(value: string | null): string | null {
+  if (value === null) return null;
+  const full = formatOptionalDay(value);
+  return full.endsWith(`/${new Date().getFullYear()}`) ? full.slice(0, 5) : full;
 }
 
 /**
- * Credit cards as flat rows using the row's full width: identity on the
- * left, then three semantic groups — invoice, due date, available limit —
- * instead of every figure crammed into one corner. The card's total limit
- * isn't repeated per row; it's lower-weight information that belongs in the
- * section header instead. On a phone the groups stack under the identity.
+ * Credit cards as three-line rows, the whole row opening the card:
+ *   name ........................ fatura atual
+ *   Vence 10/10 · Fecha dia 3 ... "fatura atual"
+ *   [thin meter]
+ *   R$ 8.157,44 disponível · 32% usado
+ * The total limit lives in the section header, not on every row.
  */
 export function CreditCardList({
   accounts,
   isLoading,
+  failed = false,
   onOpen,
 }: {
   accounts: Account[];
   isLoading: boolean;
+  /** A load that went wrong: the page shows only its retry Alert, so this section stays out. */
+  failed?: boolean;
   onOpen: (account: Account) => void;
 }) {
+  if (failed) return null;
+  const hasForeignCards = accounts.some((account) => !isBRL(account));
+  const hasBRLCards = accounts.some(isBRL);
   return (
-    <section className="accounts-section" aria-label="Cartões de crédito">
-      <header className="accounts-section-header">
-        <h2>Cartões de crédito</h2>
-        {!isLoading && accounts.length > 0 && (
-          <small>Limite total {formatAccountMoney(totalLimit(accounts), "BRL")}</small>
-        )}
-      </header>
+    <Section
+      title="Cartões de crédito"
+      trailing={
+        !isLoading && hasBRLCards ? (
+          <>
+            {hasForeignCards ? "Limite total em reais" : "Limite total"}{" "}
+            {formatAccountMoney(totalLimit(accounts), "BRL")}
+          </>
+        ) : undefined
+      }
+    >
       {isLoading ? (
-        <div className="accounts-section-loading" role="status" aria-label="Carregando cartões de crédito">
+        <div role="status" aria-label="Carregando cartões de crédito">
           <Skeleton active paragraph={{ rows: 2 }} title={false} />
         </div>
       ) : accounts.length === 0 ? (
-        <div className="debt-list-empty">
-          <CreditCardOutlined className="debt-list-empty-icon" aria-hidden="true" />
-          <span>Nenhum cartão de crédito sincronizado ainda.</span>
-        </div>
+        <EmptyState
+          title="Nenhum cartão de crédito"
+          hint="Os cartões aparecem aqui quando você conecta um banco em Configurações."
+        />
       ) : (
-        <div className="accounts-list">
+        <ul className="list-rows" aria-label="Cartões de crédito">
           {accounts.map((account) => {
-            const numberMeta = maskedAccountNumber(account.number);
-            const closing = closingHint(account.closing_day);
+            const due = dueDayLabel(account.balance_due_date);
+            const dates = [
+              due !== null ? `Vence ${due}` : null,
+              account.closing_day !== null ? `Fecha dia ${account.closing_day}` : null,
+            ].filter((part): part is string => part !== null);
+            const available =
+              account.available_credit_limit !== null
+                ? formatAccountMoney(account.available_credit_limit, account.currency_code)
+                : undefined;
             return (
-              <button key={account.id} type="button" className="card-row" onClick={() => onOpen(account)}>
-                <span className="card-row-identity">
-                  <span className="card-row-name">{accountDisplayName(account)}</span>
-                  {numberMeta && <span className="card-row-meta">{numberMeta}</span>}
-                </span>
-                <span className="card-row-figures">
-                  <span className="card-row-figure">
-                    <span className="card-row-figure-head">
-                      <span className="card-row-figure-label">Total em aberto</span>
-                      <span className="card-row-figure-value">
-                        {formatAccountMoney(account.balance, account.currency_code)}
-                      </span>
-                    </span>
+              <li key={account.id} className="list-row-item">
+                {/* No aria-label: the button's own text (name, invoice, dates,
+                    usage) is the most useful name a screen reader can get. */}
+                <button type="button" className="card-row" onClick={() => onOpen(account)}>
+                  <span className="card-row-line">
+                    <span className="card-row-name">{accountDisplayName(account)}</span>
+                    <AccountMoney
+                      value={account.balance}
+                      currencyCode={account.currency_code}
+                      tone="balance"
+                      size="row"
+                    />
                   </span>
-                  <span className="card-row-figure">
-                    <span className="card-row-figure-head">
-                      <span className="card-row-figure-label">Vencimento</span>
-                      <span className="card-row-figure-value">{formatOptionalDay(account.balance_due_date)}</span>
-                    </span>
-                    {closing && (
-                      <span className="card-row-figure-hint" title={closingDaySourceHint(account.closing_day_source)}>
-                        {closing}
-                      </span>
-                    )}
+                  <span className="card-row-line card-row-meta">
+                    <span title={closingDaySourceHint(account.closing_day_source)}>{dates.join(" · ")}</span>
+                    <span>fatura atual</span>
                   </span>
-                  <span className="card-row-figure card-row-figure-limit">
-                    <span className="card-row-figure-head">
-                      <span className="card-row-figure-label">Limite disponível</span>
-                      <span className="card-row-figure-value">
-                        {formatAccountMoney(account.available_credit_limit, account.currency_code)}
-                      </span>
-                    </span>
-                    <CreditUsageMeter ratio={account.credit_usage_ratio} />
-                  </span>
-                </span>
-              </button>
+                  <CreditUsageMeter ratio={account.credit_usage_ratio} available={available} />
+                </button>
+              </li>
             );
           })}
-        </div>
+        </ul>
       )}
-    </section>
+    </Section>
   );
 }

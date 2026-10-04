@@ -1,10 +1,16 @@
+/**
+ * Formats a decimal string in any currency. BRL goes through `formatBRL`
+ * ("R$ 1.234,00") so every screen shows the same symbol and scale; other
+ * currencies keep their code prefix and any extra precision, padded to at
+ * least two decimals.
+ */
 export function formatMoney(value: string, currencyCode: string): string {
+  if (currencyCode === "BRL") return formatBRL(value);
   const negative = value.startsWith("-");
   const unsigned = negative ? value.slice(1) : value;
-  const [integer, fraction] = unsigned.split(".");
+  const [integer, fraction = ""] = unsigned.split(".");
   const grouped = (integer ?? "0").replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-  const formatted = fraction === undefined ? grouped : `${grouped},${fraction}`;
-  return `${negative ? "-" : ""}${currencyCode}\u00a0${formatted}`;
+  return `${negative ? "-" : ""}${currencyCode}\u00a0${grouped},${fraction.padEnd(2, "0")}`;
 }
 
 function fixedTwo(value: string): string {
@@ -62,4 +68,64 @@ export function sumBRL(values: string[]): string {
 
 export function subtractBRL(minuend: string, subtrahend: string): string {
   return fromCents(toCents(minuend) - toCents(subtrahend));
+}
+
+/** How a figure reads: individual transaction, net result, stock balance, or plain. */
+export type MoneyToneKind = "flow" | "result" | "balance" | "neutral";
+
+export type MoneyDirection = "inflow" | "outflow" | "unclassified";
+
+export interface MoneyTone {
+  /** Explicit sign to show before the amount ("" when none). */
+  sign: "+" | "-" | "";
+  /** Which colour the figure takes; the stylesheet maps it to a token. */
+  color: "positive" | "negative" | "neutral";
+}
+
+function isZeroDecimal(value: string): boolean {
+  return /^-?0*(\.0*)?$/.test(value.trim());
+}
+
+/**
+ * The money display rule, in one place:
+ * - flow (a transaction row): inflow is "+" in the money-in colour; outflow
+ *   is "-" in the default text colour (an expense is normal, not an alarm).
+ *   `direction` overrides the value's sign when the value is an unsigned
+ *   magnitude, as a transaction's amount is.
+ * - result (period result, net figures): positive "+" money-in, negative
+ *   "-" danger.
+ * - balance (saldo, patrimônio): negative is danger; otherwise default
+ *   colour, never a "+".
+ * - neutral: default colour, no sign logic.
+ * Zero is never signed or tinted.
+ */
+export function moneyTone(value: string, kind: MoneyToneKind, direction?: MoneyDirection): MoneyTone {
+  const zero = isZeroDecimal(value);
+  const negative = !zero && value.trim().startsWith("-");
+  switch (kind) {
+    case "flow": {
+      const flow = direction ?? (zero ? "unclassified" : negative ? "outflow" : "inflow");
+      if (flow === "inflow") return { sign: "+", color: "positive" };
+      if (flow === "outflow") return { sign: "-", color: "neutral" };
+      return { sign: "", color: "neutral" };
+    }
+    case "result":
+      if (zero) return { sign: "", color: "neutral" };
+      return negative ? { sign: "-", color: "negative" } : { sign: "+", color: "positive" };
+    case "balance":
+      return { sign: negative ? "-" : "", color: negative ? "negative" : "neutral" };
+    case "neutral":
+      return { sign: "", color: "neutral" };
+  }
+}
+
+/**
+ * The BRL text for a figure under the tone rule above: flow and result carry
+ * the explicit "+"/"-" from `moneyTone`; balance and neutral show only the
+ * natural minus of a negative value.
+ */
+export function formatToneBRL(value: string, kind: MoneyToneKind, direction?: MoneyDirection): string {
+  const magnitude = formatBRL(value.trim().replace(/^-/, ""));
+  if (kind === "flow" || kind === "result") return `${moneyTone(value, kind, direction).sign}${magnitude}`;
+  return isZeroDecimal(value) || !value.trim().startsWith("-") ? magnitude : `-${magnitude}`;
 }

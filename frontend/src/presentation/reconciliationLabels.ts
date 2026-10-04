@@ -1,4 +1,5 @@
 import type { ReconciliationOrigin, ReconciliationStatus } from "../api/contracts";
+import type { StatusTagTone } from "../components/shared/StatusTag";
 
 export const reconciliationStatusLabel: Record<ReconciliationStatus, string> = {
   reconciled: "Conciliada",
@@ -6,12 +7,12 @@ export const reconciliationStatusLabel: Record<ReconciliationStatus, string> = {
   detached: "Desconciliada",
 };
 
-// antd Tag colors: green for the settled case, a dashed default for "nothing
-// happened yet", and a warning tone for a state the user deliberately put the
+// StatusTag tones: success for the settled case, the quietest for "nothing
+// happened yet", and a warning for a state the user deliberately put the
 // occurrence into and may want to undo.
-export const reconciliationStatusColor: Record<ReconciliationStatus, string | undefined> = {
+export const reconciliationStatusTone: Record<ReconciliationStatus, StatusTagTone> = {
   reconciled: "success",
-  unreconciled: undefined,
+  unreconciled: "neutral",
   detached: "warning",
 };
 

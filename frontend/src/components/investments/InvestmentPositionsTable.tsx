@@ -1,28 +1,37 @@
-import { Button, Popconfirm, Select, Space, Table, Tag, Tooltip, Typography } from "antd";
+import { Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { Link } from "react-router-dom";
+import type { ReactNode } from "react";
+import { Link, useNavigate } from "react-router-dom";
 
 import type { InvestmentPortfolio, InvestmentPosition } from "../../api/contracts";
 import { investmentValuationBasisLabel } from "../../presentation/investmentWorkspaceLabels";
-import { formatBRL, formatMoney } from "../../presentation/money";
-import { colors } from "../../theme/tokens";
-import { formatDate, positionYield } from "./investmentFigures";
+import { formatDecimal } from "../../presentation/investmentLabels";
+import { formatMoney } from "../../presentation/money";
+import { EmptyState, ResponsiveList } from "../layout";
+import { Money } from "../shared/Money";
+import { formatDate, positionYield } from "./investmentMath";
+import { RecordMenu, type RecordMenuItem } from "../shared/RecordMenu";
+import { useConfirm } from "../shared/useConfirm";
 
-function YieldCell({ position }: { position: InvestmentPosition }) {
+/** The position's value in its own currency; only BRL goes through the money tone rule. */
+function PositionValue({ position }: { position: InvestmentPosition }) {
+  return position.currency_code === "BRL" ? (
+    <Money value={position.current_value} tone="balance" />
+  ) : (
+    <>{formatMoney(position.current_value, position.currency_code)}</>
+  );
+}
+
+/**
+ * Rentabilidade: a signed result, or why there is none. The reason is plain
+ * text next to the figure (not a hover tooltip), so a phone can read it too.
+ */
+function YieldCell({ position, short = false }: { position: InvestmentPosition; short?: boolean }) {
   const estimate = positionYield(position);
   if (!estimate.known) {
-    return (
-      <Tooltip title={estimate.reason}>
-        <Typography.Text type="secondary">Rentabilidade indisponível</Typography.Text>
-      </Tooltip>
-    );
+    return <span className="investment-quiet">{short ? estimate.short : estimate.reason}</span>;
   }
-  const negative = estimate.value.startsWith("-");
-  return (
-    <span style={{ color: negative ? colors.error : colors.success, fontVariantNumeric: "tabular-nums" }}>
-      {formatBRL(estimate.value)}
-    </span>
-  );
+  return <Money value={estimate.value} tone="result" />;
 }
 
 export function InvestmentPositionsTable({
@@ -30,42 +39,115 @@ export function InvestmentPositionsTable({
   portfolios,
   accountNameOf,
   showAccount = false,
+  showGoal = true,
   onAssignGoal,
   onEdit,
   onDelete,
   busy,
-  emptyText,
+  emptyTitle,
+  emptyHint,
+  emptyAction,
 }: {
   positions: InvestmentPosition[];
   portfolios: InvestmentPortfolio[];
   accountNameOf?: (accountId: string) => string;
   showAccount?: boolean;
+  /** The goal column: off inside a goal's own section, where every row has that goal. */
+  showGoal?: boolean;
   onAssignGoal: (position: InvestmentPosition, portfolioId: string | null) => void;
   onEdit?: (position: InvestmentPosition) => void;
   onDelete?: (position: InvestmentPosition) => void;
   busy: boolean;
-  emptyText: string;
+  emptyTitle: string;
+  emptyHint?: ReactNode;
+  emptyAction?: ReactNode;
 }) {
-  const goalOptions = portfolios.map((portfolio) => ({ value: portfolio.id, label: portfolio.name }));
+  const navigate = useNavigate();
+  const confirm = useConfirm();
+  const goalName = (position: InvestmentPosition) =>
+    portfolios.find((portfolio) => portfolio.id === position.portfolio_id)?.name ?? null;
+  const subtitle = (position: InvestmentPosition) =>
+    [position.ticker, position.asset_type].filter(Boolean).join(" · ");
+
+  /**
+   * An imported position is the institution's record: only the goal, which is
+   * a local grouping, is ours to change. The goal is plain text in the row at
+   * every width and is changed here, from "Mudar objetivo" — a bordered
+   * select on every row made the table read as a form.
+   */
+  const menuItems = (position: InvestmentPosition): RecordMenuItem[] => {
+    const items: RecordMenuItem[] = [];
+    if (position.linked_investment_id) {
+      items.push({
+        key: "details",
+        label: "Ver detalhes",
+        onClick: () => navigate(`/investimentos/${position.linked_investment_id}`),
+      });
+    }
+    if (portfolios.length > 0) {
+      items.push({
+        key: "goal",
+        label: "Mudar objetivo",
+        disabled: busy,
+        children: [
+          {
+            key: "goal-none",
+            label: "Sem objetivo",
+            disabled: position.portfolio_id === null,
+            onClick: () => onAssignGoal(position, null),
+          },
+          ...portfolios.map((portfolio) => ({
+            key: `goal-${portfolio.id}`,
+            label: portfolio.name,
+            disabled: position.portfolio_id === portfolio.id,
+            onClick: () => onAssignGoal(position, portfolio.id),
+          })),
+        ],
+      });
+    }
+    if (position.source !== "synced") {
+      if (onEdit) items.push({ key: "edit", label: "Editar", onClick: () => onEdit(position) });
+      if (onDelete) {
+        items.push({
+          key: "delete",
+          label: "Excluir",
+          danger: true,
+          onClick: () =>
+            confirm({
+              title: "Excluir posição",
+              description: "Só é possível excluir uma posição sem movimentações.",
+              onConfirm: () => onDelete(position),
+            }),
+        });
+      }
+    }
+    return items;
+  };
+
+  const menu = (position: InvestmentPosition) => (
+    <RecordMenu label={`Ações de ${position.name}`} items={menuItems(position)} />
+  );
 
   const columns: ColumnsType<InvestmentPosition> = [
     {
       title: "Posição",
       key: "name",
       render: (_, position) => (
-        <Space direction="vertical" size={0}>
-          <span>
+        <div className="investment-cell">
+          <span className="investment-cell-title">
+            {/* Same look with or without a detail page behind it: the name
+                is text; the link shows on hover and in the "···" menu. */}
             {position.linked_investment_id ? (
-              <Link to={`/investimentos/${position.linked_investment_id}`}>{position.name}</Link>
+              <Link className="investment-name-link" to={`/investimentos/${position.linked_investment_id}`}>
+                {position.name}
+              </Link>
             ) : (
               position.name
             )}
-            {position.closed && <Tag style={{ marginLeft: 8 }}>Encerrada</Tag>}
+            {position.closed && <span className="investment-quiet"> · Encerrada</span>}
           </span>
-          <Typography.Text type="secondary">
-            {[position.ticker, position.asset_type].filter(Boolean).join(" · ")}
-          </Typography.Text>
-        </Space>
+          <span className="investment-quiet">{subtitle(position)}</span>
+        </div>
       ),
     },
     ...(showAccount
@@ -78,90 +160,96 @@ export function InvestmentPositionsTable({
           },
         ]
       : []),
-    {
-      title: "Objetivo",
-      key: "portfolio",
-      render: (_, position) => (
-        <Select
-          aria-label={`Objetivo de ${position.name}`}
-          style={{ minWidth: 200 }}
-          value={position.portfolio_id ?? undefined}
-          options={goalOptions}
-          placeholder="Sem objetivo"
-          allowClear
-          showSearch
-          optionFilterProp="label"
-          disabled={busy}
-          onChange={(value: string | undefined) => onAssignGoal(position, value ?? null)}
-        />
-      ),
-    },
+    ...(showGoal
+      ? [
+          {
+            title: "Objetivo",
+            key: "portfolio",
+            render: (_: unknown, position: InvestmentPosition) => {
+              const name = goalName(position);
+              return name !== null ? name : <span className="investment-quiet">Sem objetivo</span>;
+            },
+          },
+        ]
+      : []),
     {
       title: "Quantidade",
       key: "quantity",
-      render: (_, position) => position.quantity,
+      align: "right",
+      render: (_, position) => <span className="investment-number">{formatDecimal(position.quantity)}</span>,
     },
     {
       title: "Valor atual",
       key: "current_value",
+      align: "right",
       render: (_, position) => (
-        <Space direction="vertical" size={0}>
-          <span style={{ fontVariantNumeric: "tabular-nums" }}>{position.currency_code === "BRL" ? formatBRL(position.current_value) : formatMoney(position.current_value, position.currency_code)}</span>
-          <Tag color={position.valuation_basis === "provider_balance" ? "blue" : "default"}>
-            {investmentValuationBasisLabel[position.valuation_basis]}
-          </Tag>
-          <Typography.Text type="secondary">
-            Atualizado em {formatDate(position.valued_on)}
-          </Typography.Text>
-        </Space>
+        <div className="investment-cell investment-cell-end">
+          <span className="investment-cell-value">
+            <PositionValue position={position} />
+          </span>
+          <span className="investment-quiet">
+            {investmentValuationBasisLabel[position.valuation_basis]} · {formatDate(position.valued_on)}
+          </span>
+        </div>
       ),
     },
-    { title: "Rentabilidade", key: "yield", render: (_, position) => <YieldCell position={position} /> },
     {
-      title: "Ações",
+      title: "Rentabilidade",
+      key: "yield",
+      align: "right",
+      render: (_, position) => (
+        <div className="investment-cell investment-cell-end">
+          <YieldCell position={position} />
+        </div>
+      ),
+    },
+    {
+      title: <span className="investment-visually-hidden">Ações</span>,
       key: "actions",
-      render: (_, position) =>
-        position.source === "synced" ? (
-          // An imported position is the institution's record: only the goal,
-          // which is a local grouping, is ours to change.
-          <Typography.Text type="secondary">Somente o objetivo</Typography.Text>
-        ) : (
-          <Space>
-            {onEdit && (
-              <Button size="small" onClick={() => onEdit(position)}>
-                Editar
-              </Button>
-            )}
-            {onDelete && (
-              <Popconfirm
-                title="Remover posição"
-                description="Só é possível remover uma posição sem movimentações."
-                okText="Remover"
-                cancelText="Cancelar"
-                okButtonProps={{ danger: true }}
-                onConfirm={() => onDelete(position)}
-              >
-                <Button size="small" danger>
-                  Remover
-                </Button>
-              </Popconfirm>
-            )}
-          </Space>
-        ),
+      width: 48,
+      render: (_, position) => menu(position),
     },
   ];
 
   return (
-    <Table<InvestmentPosition>
-      aria-label="Posições"
-      className="investment-table"
-      size="small"
-      rowKey="id"
-      columns={columns}
-      dataSource={positions}
-      pagination={false}
-      locale={{ emptyText }}
-      scroll={{ x: "max-content" }}
+    <ResponsiveList
+      label="Posições"
+      stackBelow="lg"
+      items={positions}
+      getKey={(position) => position.id}
+      empty={<EmptyState title={emptyTitle} hint={emptyHint} action={emptyAction} />}
+      row={(position) => ({
+        title: position.name,
+        meta: [subtitle(position), showAccount ? accountNameOf?.(position.account_id) : goalName(position)]
+          .filter(Boolean)
+          .join(" · "),
+        trailing: (
+          <span className="investment-row-trailing">
+            <span className="investment-row-figures">
+              <span className="investment-row-value">
+                <PositionValue position={position} />
+              </span>
+              <span className="investment-row-yield">
+                <YieldCell position={position} short />
+              </span>
+            </span>
+            {menu(position)}
+          </span>
+        ),
+        status: position.closed ? "Encerrada" : undefined,
+        ariaLabel: position.name,
+      })}
+      wide={
+        <Table<InvestmentPosition>
+          aria-label="Posições"
+          className="investment-table"
+          size="small"
+          rowKey="id"
+          columns={columns}
+          dataSource={positions}
+          pagination={false}
+        />
+      }
     />
   );
 }

@@ -1,10 +1,13 @@
-import { Button, Popconfirm, Space, Table, Tag, Typography } from "antd";
+import { Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 
 import type { InvestmentOperation, InvestmentPosition } from "../../api/contracts";
 import { investmentOperationKindLabel } from "../../presentation/investmentWorkspaceLabels";
-import { formatBRL } from "../../presentation/money";
-import { formatDate } from "./investmentFigures";
+import { EmptyState, ResponsiveList } from "../layout";
+import { Money } from "../shared/Money";
+import { formatDate } from "./investmentMath";
+import { RecordMenu, type RecordMenuItem } from "../shared/RecordMenu";
+import { useConfirm } from "../shared/useConfirm";
 
 export function InvestmentOperationsTable({
   operations,
@@ -19,7 +22,32 @@ export function InvestmentOperationsTable({
   onDelete: (operation: InvestmentOperation) => void;
   busy: boolean;
 }) {
+  const confirm = useConfirm();
   const positionName = new Map(positions.map((position) => [position.id, position.name]));
+  const positionOf = (operation: InvestmentOperation) =>
+    operation.position_id ? positionName.get(operation.position_id) ?? "Posição removida" : "Só caixa";
+  const kindOf = (operation: InvestmentOperation) => investmentOperationKindLabel[operation.kind];
+
+  // A synced movement is the institution's record and has no actions at all.
+  const menu = (operation: InvestmentOperation) => {
+    if (!operation.is_editable) return null;
+    const items: RecordMenuItem[] = [
+      { key: "edit", label: "Corrigir", disabled: busy, onClick: () => onEdit(operation) },
+      {
+        key: "delete",
+        label: "Excluir",
+        danger: true,
+        disabled: busy,
+        onClick: () =>
+          confirm({
+            title: "Excluir movimentação",
+            description: "Os saldos e custos da conta serão recalculados.",
+            onConfirm: () => onDelete(operation),
+          }),
+      },
+    ];
+    return <RecordMenu label={`Ações da movimentação de ${formatDate(operation.occurred_on)}`} items={items} />;
+  };
 
   const columns: ColumnsType<InvestmentOperation> = [
     { title: "Data", key: "occurred_on", render: (_, operation) => formatDate(operation.occurred_on) },
@@ -27,64 +55,64 @@ export function InvestmentOperationsTable({
       title: "Tipo",
       key: "kind",
       render: (_, operation) => (
-        <Space size={4}>
-          <span>{investmentOperationKindLabel[operation.kind]}</span>
-          {operation.source === "synced" && <Tag color="blue">Informado pela instituição</Tag>}
-        </Space>
+        <div className="investment-cell">
+          <span className="investment-cell-title">{kindOf(operation)}</span>
+          {operation.source === "synced" && <span className="investment-quiet">Informado pela instituição</span>}
+        </div>
       ),
     },
-    {
-      title: "Posição",
-      key: "position",
-      render: (_, operation) =>
-        operation.position_id ? positionName.get(operation.position_id) ?? "Posição removida" : "Só caixa",
-    },
+    { title: "Posição", key: "position", render: (_, operation) => positionOf(operation) },
     {
       title: "Valor",
       key: "amount",
-      render: (_, operation) => (
-        <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatBRL(operation.amount)}</span>
-      ),
+      align: "right",
+      render: (_, operation) => <Money value={operation.amount} tone="neutral" />,
     },
     {
-      title: "Ações",
+      title: <span className="investment-visually-hidden">Ações</span>,
       key: "actions",
-      render: (_, operation) =>
-        operation.is_editable ? (
-          <Space>
-            <Button size="small" disabled={busy} onClick={() => onEdit(operation)}>
-              Corrigir
-            </Button>
-            <Popconfirm
-              title="Excluir movimentação"
-              description="Os saldos e custos da conta serão recalculados."
-              okText="Excluir"
-              cancelText="Cancelar"
-              okButtonProps={{ danger: true }}
-              onConfirm={() => onDelete(operation)}
-            >
-              <Button size="small" danger disabled={busy}>
-                Excluir
-              </Button>
-            </Popconfirm>
-          </Space>
-        ) : (
-          <Typography.Text type="secondary">Somente leitura</Typography.Text>
-        ),
+      width: 48,
+      render: (_, operation) => menu(operation),
     },
   ];
 
   return (
-    <Table<InvestmentOperation>
-      aria-label="Movimentações"
-      className="investment-table"
-      size="small"
-      rowKey="id"
-      columns={columns}
-      dataSource={operations}
-      pagination={false}
-      locale={{ emptyText: "Nenhuma movimentação registrada nesta conta." }}
-      scroll={{ x: "max-content" }}
+    <ResponsiveList
+      label="Movimentações"
+      stackBelow="lg"
+      items={operations}
+      getKey={(operation) => operation.id}
+      empty={<EmptyState title="Nenhuma movimentação nesta conta" />}
+      row={(operation) => ({
+        title: kindOf(operation),
+        meta: [
+          formatDate(operation.occurred_on),
+          positionOf(operation),
+          operation.source === "synced" ? "Informado pela instituição" : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        trailing: (
+          <span className="investment-row-trailing">
+            <span className="investment-row-value">
+              <Money value={operation.amount} tone="neutral" />
+            </span>
+            {menu(operation)}
+          </span>
+        ),
+        ariaLabel: kindOf(operation),
+      })}
+      wide={
+        <Table<InvestmentOperation>
+          aria-label="Movimentações"
+          className="investment-table"
+          size="small"
+          rowKey="id"
+          columns={columns}
+          dataSource={operations}
+          pagination={false}
+        />
+      }
     />
   );
 }

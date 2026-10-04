@@ -1,8 +1,11 @@
-import { Alert, Button, Drawer, Flex, Input, InputNumber } from "antd";
+import { Input } from "antd";
 import { useEffect, useState } from "react";
 
 import type { Payable, PayableKind } from "../../api/contracts";
 import { payableVocabulary } from "../../presentation/payableLabels";
+import { FormDrawer } from "../forms/FormDrawer";
+import { FormField } from "../forms/FormField";
+import { MoneyInput } from "../forms/MoneyInput";
 
 type Draft = {
   name: string;
@@ -75,70 +78,47 @@ export function PayableForm({
   };
 
   return (
-    <Drawer
+    <FormDrawer
       title={isEditing ? vocab.editTitle : vocab.newTitle}
       open={open}
       onClose={onCancel}
-      width={420}
-      destroyOnHidden
-      footer={
-        <Flex justify="end" gap="small">
-          <Button onClick={onCancel}>Cancelar</Button>
-          <Button type="primary" loading={submitting} onClick={submit}>
-            Salvar
-          </Button>
-        </Flex>
-      }
+      onSubmit={submit}
+      submitting={submitting}
+      error={error ?? submitError}
     >
-      <Flex vertical gap="middle">
-        {(error ?? submitError) && <Alert type="error" showIcon message={error ?? submitError} />}
+      <FormField label="Nome" htmlFor="payable-name">
+        <Input
+          id="payable-name"
+          value={draftState.name}
+          onChange={(event) => setDraftState((current) => ({ ...current, name: event.target.value }))}
+          placeholder={vocab.nameFieldPlaceholder}
+        />
+      </FormField>
 
-        <div className="filter-field">
-          <label htmlFor="payable-name">Nome</label>
-          <Input
-            id="payable-name"
-            value={draftState.name}
-            onChange={(event) =>
-              setDraftState((current) => ({ ...current, name: event.target.value }))
-            }
-            placeholder={vocab.nameFieldPlaceholder}
+      <FormField label="Valor total" htmlFor="payable-total-amount">
+        <MoneyInput
+          id="payable-total-amount"
+          min={0.01}
+          value={draftState.totalAmount}
+          onChange={(value) => setDraftState((current) => ({ ...current, totalAmount: value }))}
+        />
+      </FormField>
+
+      {!isEditing && (
+        <FormField
+          label="Valor restante inicial (opcional)"
+          htmlFor="payable-initial-remaining-amount"
+          hint="Informe só se parte já foi quitada; sem isso, vale o valor total."
+        >
+          <MoneyInput
+            id="payable-initial-remaining-amount"
+            min={0}
+            value={draftState.initialRemainingAmount}
+            onChange={(value) => setDraftState((current) => ({ ...current, initialRemainingAmount: value }))}
+            placeholder="Padrão: igual ao valor total"
           />
-        </div>
-
-        <div className="filter-field">
-          <label htmlFor="payable-total-amount">Valor total</label>
-          <InputNumber
-            id="payable-total-amount"
-            style={{ width: "100%" }}
-            min={0.01}
-            step={0.01}
-            decimalSeparator=","
-            value={draftState.totalAmount}
-            onChange={(value) => setDraftState((current) => ({ ...current, totalAmount: value }))}
-            placeholder="0,00"
-          />
-        </div>
-
-        {!isEditing && (
-          <div className="filter-field">
-            <label htmlFor="payable-initial-remaining-amount">
-              Valor restante inicial (opcional)
-            </label>
-            <InputNumber
-              id="payable-initial-remaining-amount"
-              style={{ width: "100%" }}
-              min={0}
-              step={0.01}
-              decimalSeparator=","
-              value={draftState.initialRemainingAmount}
-              onChange={(value) =>
-                setDraftState((current) => ({ ...current, initialRemainingAmount: value }))
-              }
-              placeholder="Padrão: igual ao valor total"
-            />
-          </div>
-        )}
-      </Flex>
-    </Drawer>
+        </FormField>
+      )}
+    </FormDrawer>
   );
 }

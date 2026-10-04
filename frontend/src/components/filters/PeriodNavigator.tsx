@@ -73,6 +73,7 @@ export function PeriodNavigator({ value, presets, onChange, reset, bare, id = "f
       aria-label="Navegar entre períodos"
     >
       <Button
+        className="filter-period-arrow"
         aria-label={navigation?.previousLabel ?? "Período anterior"}
         title={navigation?.previousLabel ?? "Período anterior"}
         icon={<LeftOutlined aria-hidden="true" />}
@@ -135,6 +136,7 @@ export function PeriodNavigator({ value, presets, onChange, reset, bare, id = "f
         </Button>
       </Popover>
       <Button
+        className="filter-period-arrow"
         aria-label={navigation?.nextLabel ?? "Próximo período"}
         title={navigation?.nextLabel ?? "Próximo período"}
         icon={<RightOutlined aria-hidden="true" />}

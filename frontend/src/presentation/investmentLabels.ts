@@ -14,9 +14,39 @@ const investmentTypeLabels: Record<string, string> = {
   PENSION: "Previdência",
 };
 
+/**
+ * A provider value with no label of its own: a raw enum ("OTHER_MOVEMENT")
+ * reads as a bug, so it becomes sentence case ("Other movement"); anything
+ * that already looks like text is kept as the provider wrote it.
+ */
+function humanizeProviderValue(value: string): string {
+  if (!/^[A-Z0-9]+(_[A-Z0-9]+)*$/.test(value)) return value;
+  const words = value.toLowerCase().replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 export function investmentTypeLabel(type: string | null): string {
   if (type === null) return "Tipo não informado";
-  return investmentTypeLabels[type] ?? type;
+  return investmentTypeLabels[type] ?? humanizeProviderValue(type);
+}
+
+/**
+ * A decimal string ("10.65", "0.0215", "1234.5") the way pt-BR writes it:
+ * comma as the mark, dots between thousands, no trailing zeros ("100.00" is
+ * "100"). Works on the text, so nothing passes through a float.
+ */
+export function formatDecimal(value: string): string {
+  const negative = value.startsWith("-");
+  const unsigned = negative ? value.slice(1) : value;
+  const [integer = "0", fraction = ""] = unsigned.split(".");
+  const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  const decimals = fraction.replace(/0+$/, "");
+  return `${negative ? "-" : ""}${grouped}${decimals === "" ? "" : `,${decimals}`}`;
+}
+
+/** "1 cota", "0,2 cotas": the unit agrees with the number. */
+export function quotaCount(quantity: string): string {
+  return `${formatDecimal(quantity)} ${Number(quantity) === 1 ? "cota" : "cotas"}`;
 }
 
 const movementTypeLabels: Record<string, string> = {
@@ -29,11 +59,13 @@ const movementTypeLabels: Record<string, string> = {
   INCOME: "Rendimento",
   TAX: "Imposto",
   FEE: "Taxa",
+  TRANSFER: "Transferência",
+  OTHER_MOVEMENT: "Outra movimentação",
 };
 
 export function movementTypeLabel(type: string | null): string {
   if (type === null) return "Movimentação";
-  return movementTypeLabels[type] ?? type;
+  return movementTypeLabels[type] ?? humanizeProviderValue(type);
 }
 
 export type YieldEstimate = {

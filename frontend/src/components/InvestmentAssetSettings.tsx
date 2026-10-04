@@ -1,10 +1,16 @@
-import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
+import { Alert, Button, Input, Skeleton, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { Alert, Button, Card, Drawer, Flex, Input, Popconfirm, Space, Table, Tag, Typography } from "antd";
 import { useEffect, useState } from "react";
 
 import type { InvestmentAsset, InvestmentAssetWrite } from "../api/contracts";
 import { useInvestmentAssets } from "../hooks/useInvestmentAssets";
+import { errorMessage } from "../presentation/errors";
+import { FormDrawer } from "./forms/FormDrawer";
+import { FormField } from "./forms/FormField";
+import { RecordMenu } from "./shared/RecordMenu";
+import { useConfirm } from "./shared/useConfirm";
+import { DataCard, EmptyState, ResponsiveList } from "./layout";
+import { useFeedback } from "./shared/useFeedback";
 
 type AssetDraft = {
   name: string;
@@ -25,18 +31,28 @@ function draftFrom(asset: InvestmentAsset | null): AssetDraft {
   };
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Não foi possível salvar o ativo.";
-}
-
-export function InvestmentAssetSettings() {
+/**
+ * The asset registry: a list (rows on a phone, a flat table from `md` up)
+ * and the form drawer. The "Novo ativo" action lives in the page's title row,
+ * so it reaches this component as `creating` / `onCreatingClose`; editing
+ * stays local because it starts from a row.
+ */
+export function InvestmentAssetSettings({
+  creating,
+  onCreatingClose,
+}: {
+  creating: boolean;
+  onCreatingClose: () => void;
+}) {
   const assets = useInvestmentAssets();
-  const [open, setOpen] = useState(false);
+  const feedback = useFeedback();
+  const confirm = useConfirm();
   const [editing, setEditing] = useState<InvestmentAsset | null>(null);
   const [draft, setDraft] = useState<AssetDraft>(emptyDraft);
   const [formError, setFormError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const open = creating || editing !== null;
 
   useEffect(() => {
     if (open) {
@@ -45,14 +61,9 @@ export function InvestmentAssetSettings() {
     }
   }, [open, editing]);
 
-  const showCreate = () => {
+  const close = () => {
     setEditing(null);
-    setOpen(true);
-  };
-
-  const showEdit = (asset: InvestmentAsset) => {
-    setEditing(asset);
-    setOpen(true);
+    onCreatingClose();
   };
 
   const submit = async () => {
@@ -85,9 +96,10 @@ export function InvestmentAssetSettings() {
       } else {
         await assets.createAsset(write);
       }
-      setOpen(false);
+      close();
+      feedback.success("Salvo");
     } catch (error) {
-      setFormError(errorMessage(error));
+      setFormError(errorMessage(error, "Não foi possível salvar o ativo."));
     }
   };
 
@@ -96,12 +108,36 @@ export function InvestmentAssetSettings() {
     setDeletingId(asset.id);
     try {
       await assets.deleteAsset(asset.id);
+      feedback.success("Excluído");
     } catch (error) {
-      setActionError(errorMessage(error));
+      const message = errorMessage(error, "Não foi possível excluir o ativo.");
+      setActionError(message);
+      feedback.error(message);
     } finally {
       setDeletingId(null);
     }
   };
+
+  const menu = (asset: InvestmentAsset) => (
+    <RecordMenu
+      label={`Ações de ${asset.name}`}
+      items={[
+        { key: "edit", label: "Editar", onClick: () => setEditing(asset) },
+        {
+          key: "delete",
+          label: "Excluir",
+          danger: true,
+          disabled: deletingId !== null,
+          onClick: () =>
+            confirm({
+              title: "Excluir ativo",
+              description: "O ativo só pode ser excluído quando não estiver associado a nenhuma posição.",
+              onConfirm: () => void remove(asset),
+            }),
+        },
+      ]}
+    />
+  );
 
   const columns: ColumnsType<InvestmentAsset> = [
     {
@@ -112,55 +148,20 @@ export function InvestmentAssetSettings() {
     {
       title: "Código",
       dataIndex: "ticker",
-      render: (ticker: string | null) => ticker ? <Tag>{ticker}</Tag> : <Typography.Text type="secondary">—</Typography.Text>,
+      render: (ticker: string | null) => ticker ?? <span className="investment-quiet">—</span>,
     },
     { title: "Tipo", dataIndex: "asset_type" },
     { title: "Moeda", dataIndex: "currency_code", width: 100 },
     {
-      title: "Ações",
+      title: <span className="investment-visually-hidden">Ações</span>,
       key: "actions",
-      width: 210,
-      render: (_, asset) => (
-        <Space>
-          <Button icon={<EditOutlined aria-hidden="true" />} onClick={() => showEdit(asset)}>
-            Editar
-          </Button>
-          <Popconfirm
-            title="Excluir ativo"
-            description="O ativo só pode ser excluído quando não estiver associado a nenhuma posição."
-            okText="Excluir"
-            cancelText="Cancelar"
-            okButtonProps={{ danger: true }}
-            onConfirm={() => remove(asset)}
-          >
-            <Button
-              danger
-              icon={<DeleteOutlined aria-hidden="true" />}
-              loading={deletingId === asset.id}
-              disabled={deletingId !== null && deletingId !== asset.id}
-              aria-label={`Excluir ativo ${asset.name}`}
-            >
-              Excluir
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
+      width: 48,
+      render: (_, asset) => <span onClick={(event) => event.stopPropagation()}>{menu(asset)}</span>,
     },
   ];
 
   return (
-    <Card
-      title="Ativos de investimento"
-      style={{ marginBottom: 24 }}
-      extra={
-        <Button type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={showCreate}>
-          Novo ativo
-        </Button>
-      }
-    >
-      <Typography.Paragraph type="secondary">
-        Cadastre os instrumentos usados nas posições de investimento. Alterações refletem em todas as contas que usam o ativo.
-      </Typography.Paragraph>
+    <>
       {actionError && (
         <Alert
           type="error"
@@ -180,74 +181,90 @@ export function InvestmentAssetSettings() {
           style={{ marginBottom: 16 }}
         />
       )}
-      <Table<InvestmentAsset>
-        aria-label="Ativos de investimento"
-        className="investment-table"
-        rowKey="id"
-        columns={columns}
-        dataSource={assets.assets}
-        loading={assets.isLoading}
-        pagination={false}
-        scroll={{ x: "max-content" }}
-        locale={{ emptyText: "Nenhum ativo cadastrado." }}
-      />
 
-      <Drawer
+      {/* A failed load shows only the retry: an empty list beside it would say "nothing yet". */}
+      {!assets.error && (
+        <DataCard flush className="settings-list-card">
+          <ResponsiveList
+            label="Ativos de investimento"
+            items={assets.assets}
+            getKey={(asset) => asset.id}
+            isLoading={assets.isLoading}
+            loading={
+              <div role="status" aria-label="Carregando ativos">
+                <Skeleton active paragraph={{ rows: 3 }} title={false} />
+              </div>
+            }
+            // No action: the page's own "Novo ativo" is the way out.
+            empty={
+              <EmptyState
+                title="Nenhum ativo cadastrado"
+                hint="Cadastre o primeiro ativo para usá-lo nas posições de investimento."
+              />
+            }
+            row={(asset) => ({
+              title: asset.name,
+              meta: [asset.ticker, asset.asset_type, asset.currency_code].filter(Boolean).join(" · "),
+              trailing: menu(asset),
+              ariaLabel: asset.name,
+            })}
+            wide={
+              <Table<InvestmentAsset>
+                aria-label="Ativos de investimento"
+                className="investment-table"
+                rowKey="id"
+                columns={columns}
+                dataSource={assets.assets}
+                pagination={false}
+                onRow={(asset) => ({ onClick: () => setEditing(asset), style: { cursor: "pointer" } })}
+              />
+            }
+          />
+        </DataCard>
+      )}
+
+      <FormDrawer
         title={editing ? "Editar ativo" : "Novo ativo"}
         open={open}
-        onClose={() => setOpen(false)}
-        width={420}
-        destroyOnHidden
-        footer={
-          <Flex justify="end" gap="small">
-            <Button onClick={() => setOpen(false)}>Cancelar</Button>
-            <Button type="primary" loading={assets.isSaving} onClick={() => void submit()}>
-              Salvar
-            </Button>
-          </Flex>
-        }
+        onClose={close}
+        onSubmit={() => void submit()}
+        submitting={assets.isSaving}
+        error={formError}
       >
-        <Flex vertical gap="middle">
-          {formError && <Alert type="error" showIcon message={formError} />}
-          <div className="filter-field">
-            <label htmlFor="investment-asset-name">Nome</label>
-            <Input
-              id="investment-asset-name"
-              value={draft.name}
-              placeholder="Ex.: Tesouro Selic 2029"
-              onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-            />
-          </div>
-          <div className="filter-field">
-            <label htmlFor="investment-asset-ticker">Código (opcional)</label>
-            <Input
-              id="investment-asset-ticker"
-              value={draft.ticker}
-              placeholder="Ex.: PETR4"
-              onChange={(event) => setDraft((current) => ({ ...current, ticker: event.target.value }))}
-            />
-          </div>
-          <div className="filter-field">
-            <label htmlFor="investment-asset-type">Tipo</label>
-            <Input
-              id="investment-asset-type"
-              value={draft.assetType}
-              placeholder="Ex.: Ação, fundo ou renda fixa"
-              onChange={(event) => setDraft((current) => ({ ...current, assetType: event.target.value }))}
-            />
-          </div>
-          <div className="filter-field">
-            <label htmlFor="investment-asset-currency">Moeda</label>
-            <Input
-              id="investment-asset-currency"
-              value={draft.currencyCode}
-              maxLength={3}
-              placeholder="BRL"
-              onChange={(event) => setDraft((current) => ({ ...current, currencyCode: event.target.value.toUpperCase() }))}
-            />
-          </div>
-        </Flex>
-      </Drawer>
-    </Card>
+        <FormField label="Nome" htmlFor="investment-asset-name">
+          <Input
+            id="investment-asset-name"
+            value={draft.name}
+            placeholder="Ex.: Tesouro Selic 2029"
+            onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+          />
+        </FormField>
+        <FormField label="Código (opcional)" htmlFor="investment-asset-ticker">
+          <Input
+            id="investment-asset-ticker"
+            value={draft.ticker}
+            placeholder="Ex.: PETR4"
+            onChange={(event) => setDraft((current) => ({ ...current, ticker: event.target.value }))}
+          />
+        </FormField>
+        <FormField label="Tipo" htmlFor="investment-asset-type">
+          <Input
+            id="investment-asset-type"
+            value={draft.assetType}
+            placeholder="Ex.: Ação, fundo ou renda fixa"
+            onChange={(event) => setDraft((current) => ({ ...current, assetType: event.target.value }))}
+          />
+        </FormField>
+        <FormField label="Moeda" htmlFor="investment-asset-currency">
+          <Input
+            id="investment-asset-currency"
+            value={draft.currencyCode}
+            maxLength={3}
+            placeholder="BRL"
+            onChange={(event) => setDraft((current) => ({ ...current, currencyCode: event.target.value.toUpperCase() }))}
+          />
+        </FormField>
+      </FormDrawer>
+    </>
   );
 }

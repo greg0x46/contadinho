@@ -942,7 +942,7 @@ export function parseRecurringCommitment(value: unknown): RecurringCommitment {
       "created_at",
       "updated_at",
     ],
-    "Compromisso recorrente inválido.",
+    "Recorrência inválida.",
   );
   if (
     typeof commitment.id !== "string" ||
@@ -962,7 +962,7 @@ export function parseRecurringCommitment(value: unknown): RecurringCommitment {
     !isValidDate(commitment.created_at) ||
     !isValidDate(commitment.updated_at)
   ) {
-    throw new TypeError("Compromisso recorrente inválido.");
+    throw new TypeError("Recorrência inválida.");
   }
   return {
     id: commitment.id,
@@ -984,7 +984,7 @@ export function parseRecurringCommitment(value: unknown): RecurringCommitment {
 
 export function parseRecurringCommitmentList(value: unknown): RecurringCommitment[] {
   if (!Array.isArray(value)) {
-    throw new TypeError("Lista de compromissos recorrentes inválida.");
+    throw new TypeError("Lista de recorrências inválida.");
   }
   return value.map(parseRecurringCommitment);
 }

@@ -1,4 +1,4 @@
-import { ArrowLeftOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
+import { CloseOutlined, LeftOutlined, RightOutlined } from "@ant-design/icons";
 import { Button, Collapse, Drawer, Typography } from "antd";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -49,9 +49,10 @@ export function PanelStack({
     if (open) headingRef.current?.focus();
   }, [open, title]);
 
-  // The root of a full-screen page reads as "back to the list", so it keeps
-  // the ← glyph; a side panel's root is dismissed, so it gets the usual ×.
-  const dismissIcon = compact ? <ArrowLeftOutlined /> : <CloseOutlined />;
+  // The root of a full-screen page reads as "back to the list", so it gets the
+  // same chevron as `Page`'s back link (and as every Voltar inside the stack);
+  // a side panel's root is dismissed, so it gets the usual ×.
+  const dismissIcon = compact ? <LeftOutlined aria-hidden="true" /> : <CloseOutlined aria-hidden="true" />;
 
   return (
     <Drawer
@@ -68,7 +69,7 @@ export function PanelStack({
           <Button
             type="text"
             className="panel-stack-back"
-            icon={isRoot ? dismissIcon : <ArrowLeftOutlined />}
+            icon={isRoot ? dismissIcon : <LeftOutlined aria-hidden="true" />}
             aria-label={isRoot ? "Fechar" : "Voltar"}
             onClick={isRoot ? onClose : onBack}
           />

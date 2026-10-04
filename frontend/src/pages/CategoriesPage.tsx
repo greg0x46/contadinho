@@ -1,20 +1,18 @@
-import { PlusOutlined } from "@ant-design/icons";
-import { SettingsPageContainer as PageContainer } from "../components/SettingsPageContainer";
 import { Alert, Button } from "antd";
 import { useState } from "react";
 
 import type { Category, CategoryKind } from "../api/contracts";
 import { CategoryForm } from "../components/categories/CategoryForm";
 import { CategoryList } from "../components/categories/CategoryList";
-import { DataCard } from "../components/layout";
+import { PageAction } from "../components/layout";
+import { SettingsPageContainer as PageContainer } from "../components/SettingsPageContainer";
+import { useFeedback } from "../components/shared/useFeedback";
 import { useCategories } from "../hooks/useCategories";
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Não foi possível salvar a categoria.";
-}
+import { errorMessage } from "../presentation/errors";
 
 export function CategoriesPage() {
   const categories = useCategories();
+  const feedback = useFeedback();
   const [formOpen, setFormOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [togglingCategoryId, setTogglingCategoryId] = useState<string | null>(null);
@@ -58,8 +56,9 @@ export function CategoriesPage() {
         });
       }
       setFormOpen(false);
+      feedback.success("Categoria salva");
     } catch (error) {
-      setSaveError(errorMessage(error));
+      setSaveError(errorMessage(error, "Não foi possível salvar a categoria."));
     }
   };
 
@@ -68,8 +67,11 @@ export function CategoriesPage() {
     setTogglingCategoryId(category.id);
     try {
       await categories.updateCategory({ categoryId: category.id, write: { is_active: isActive } });
+      feedback.success(isActive ? "Categoria ativada" : "Categoria desativada");
     } catch (error) {
-      setActionError(errorMessage(error));
+      const message = errorMessage(error, "Não foi possível atualizar a categoria.");
+      setActionError(message);
+      feedback.error(message);
     } finally {
       setTogglingCategoryId(null);
     }
@@ -78,18 +80,10 @@ export function CategoriesPage() {
   return (
     <PageContainer
       title="Categorias"
-      subTitle="Catálogo interno de categorias financeiras"
-      content="Gerencie as categorias usadas para classificar despesas, receitas e transferências. Categorias nunca são excluídas — apenas renomeadas ou desativadas."
+      subTitle="Classifique despesas, receitas e transferências"
       compactMobileHeader
       extra={[
-        <Button
-          key="new-category"
-          type="primary"
-          icon={<PlusOutlined aria-hidden="true" />}
-          onClick={openCreate}
-        >
-          Nova categoria
-        </Button>,
+        <PageAction key="new-category" label="Nova categoria" shortLabel="Nova" onClick={openCreate} />,
       ]}
     >
       {actionError && (
@@ -111,7 +105,8 @@ export function CategoriesPage() {
           style={{ marginBottom: 16 }}
         />
       )}
-      <DataCard flush>
+      {/* A failed load shows only the retry: an empty list beside it would say "nothing yet". */}
+      {!categories.error && (
         <CategoryList
           categories={categories.categories}
           isLoading={categories.isLoading}
@@ -119,7 +114,7 @@ export function CategoriesPage() {
           onRename={openEdit}
           onToggle={toggle}
         />
-      </DataCard>
+      )}
       <CategoryForm
         open={formOpen}
         category={editingCategory}

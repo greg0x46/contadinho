@@ -1,23 +1,79 @@
 :root {
   /* Mirrors src/theme/tokens.ts — CSS can't import the TS module, so this
      is the CSS-side copy of the same palette. Keep the two in sync. */
-  --color-text-primary: #172b4d;
-  --color-text-secondary: #6b778c;
-  --color-primary: #1baf7a;
-  --color-success: #1baf7a;
-  --color-error: #e34948;
-  --color-warning: #f2a900;
-  --color-border: #d9d9d9;
-  --color-border-secondary: #e5e9f0;
-  --color-bg-layout: #f5f7fa;
-  --color-bg-container: #ffffff;
+
+  /* Text */
+  --color-text: #172b4d;
+  --color-text-secondary: #5d697c;
+  --color-text-tertiary: #6b778c; /* only on white, non-essential */
+
+  /* Brand: --color-accent is a FILL (marks, meters, chart, active
+     indicator), never text on white; --color-primary is the interactive
+     green for buttons, links, active tab and focus. */
+  --color-accent: #1baf7a;
+  --color-primary: #0f7d58;
+  --color-primary-hover: #0b6a4a;
+
+  /* Semantic */
+  --color-money-in: #1f6f46;
+  --color-success: #1f6f46;
+  --color-danger: #c4302b; /* the single red */
+  --color-warning: #f2a900; /* fills and the focus ring */
+  --color-warning-text: #8a5a00;
+  --color-info: #3b5b8c;
+
+  /* Surfaces and lines */
+  --color-bg: #f5f7fa;
+  --color-surface: #ffffff;
+  --color-border: #e5e9f0;
+  --color-border-strong: #d9d9d9;
+  --color-hover: rgba(23, 43, 77, 0.035);
+
+  /* StatusTag backgrounds (text colours are the semantic ones above). */
+  --tag-neutral-bg: #eef0f4;
+  --tag-info-bg: #e9eff8;
+  --tag-success-bg: #e5f3ec;
+  --tag-warning-bg: #fcf1d6;
+  --tag-danger-bg: #fbe8e7;
+
+  /* Shape: one radius for every surface and input, and no shadows. */
+  --radius: 8px;
+  --radius-sheet: 16px; /* top corners of a bottom sheet */
+
+  /* Type scale (body is 14px); weights are 400/500/600 only. */
+  --fs-caption: 0.75rem; /* labels, footnotes, column labels */
+  --fs-small: 0.8125rem; /* meta lines, secondary text */
+  --fs-body: 0.875rem;
+  --fs-row: 0.9375rem; /* row description 500, row money 600, section titles 600 */
+  --fs-title: 1.25rem; /* page title, 600, at every width */
+  --fs-hero: 1.75rem; /* ONE hero figure per page, 600, tabular-nums */
+
+  /* Sticky offsets must use this var. */
+  --app-bar-height: 64px;
+
+  /* The side gutter of a page: header, content and the surfaces that bleed
+     out of it on a phone. Defined here (not on .app-page) so that anything
+     rendered outside a page, in a portal, reads it too. */
+  --page-gutter: 1rem;
 
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
-  color: var(--color-text-primary);
-  background: var(--color-bg-layout);
+  color: var(--color-text);
+  background: var(--color-bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+}
+
+@media (max-width: 47.99rem) {
+  :root {
+    --app-bar-height: 56px;
+  }
+}
+
+@media (min-width: 48rem) {
+  :root {
+    --page-gutter: 1.5rem;
+  }
 }
 
 * {
@@ -38,8 +94,19 @@ body {
 }
 
 :focus-visible {
-  outline: 3px solid var(--color-warning);
-  outline-offset: 3px;
+  /* Green on a white halo: ≥3:1 against both the white surfaces and the
+     black app bar (the old amber ring was 1.9:1 on white). */
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--color-surface);
+}
+
+/* antd's Menu sets outline: none on its items, which hid keyboard focus in
+   the sidebar and the mobile nav drawer. */
+.ant-menu-item:focus-visible,
+.ant-menu-item a:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
 }
 
 .skip-link {
@@ -50,8 +117,8 @@ body {
   padding: 0.7rem 1rem;
   transform: translateY(-200%);
   border-radius: 0.5rem;
-  color: #fff;
-  background: var(--color-text-primary);
+  color: var(--color-surface);
+  background: var(--color-text);
 }
 
 .skip-link:focus {
@@ -64,7 +131,7 @@ body {
 
 #conteudo-principal,
 .ant-pro-layout-content {
-  min-height: calc(100vh - 64px);
+  min-height: calc(100vh - var(--app-bar-height));
 }
 
 /* App shell hierarchy: product (global header) -> navigation (sidebar) ->
@@ -79,28 +146,28 @@ body {
 
 /* Sidebar: its own surface, separated from the main column by a hairline. */
 .ant-pro-sider.ant-pro-sider-mix {
-  background: var(--color-bg-container);
-  border-right: 1px solid var(--color-border-secondary);
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
 }
 
 /* PageHeader: title + page-level actions, still a light/white surface,
    separated from the workspace below it by a hairline. */
 .ant-pro-page-container-warp-page-header {
-  background: var(--color-bg-container);
+  background: var(--color-surface);
   padding-block: 1rem;
-  border-bottom: 1px solid var(--color-border-secondary);
+  border-bottom: 1px solid var(--color-border);
 }
 
 /* Workspace: the off-white backdrop cards sit on. */
 .ant-pro-grid-content {
-  background: var(--color-bg-layout);
+  background: var(--color-bg);
 }
 
 .ant-pro-page-container-children-container {
   padding-top: 1.5rem;
 }
 
-@media (max-width: 48rem) {
+@media (max-width: 47.99rem) {
   .ant-pro-page-container-warp-page-header {
     padding-block: 0.75rem;
   }
@@ -124,12 +191,13 @@ body {
   font-weight: 600;
 }
 
-.ant-pro-global-header .app-mobile-brand {
+.ant-pro-global-header .app-mobile-brand,
+.ant-pro-global-header .app-brand-title {
   color: #ffffff;
 }
 
 .ant-pro-sider-logo .app-mobile-brand {
-  color: var(--color-text-primary);
+  color: var(--color-text);
 }
 
 /* Title + subtitle stack, used both by the mobile brand above and by
@@ -141,18 +209,12 @@ body {
   line-height: 1.2;
 }
 
-.app-brand-text h1 {
-  margin: 0;
-}
-
 /* Brand title font: a rounded, playful display face (loaded in index.html)
    so "Julius" has some character of its own instead of sitting in the
    same Inter stack as the rest of the app's UI text. Scoped to the brand
-   mark only — .app-brand-title (mobile) and .app-brand-text h1 (desktop,
-   pro-layout's own <h1> built from the `title` prop) — the app's body
+   mark only (.app-brand-title, in the app bar and the nav drawer) — the app's body
    font in global.css's :root is untouched. */
-.app-brand-title,
-.app-brand-text h1 {
+.app-brand-title {
   font-family: "Baloo 2", "Segoe UI", sans-serif;
   font-size: 1.6rem;
   font-weight: 700;
@@ -214,7 +276,7 @@ body {
    left unstyled, its color would default to the theme's link color
    (green) instead of the white the header token sets on the title. */
 .ant-pro-global-header-logo a {
-  color: var(--color-bg-container);
+  color: var(--color-surface);
 }
 
 .ant-pro-sider-logo img {
@@ -267,7 +329,7 @@ body {
    title itself — the single most important element on the screen — gets
    ellipsized (e.g. "Contas e cartões" becomes "Contas e car..."). Let
    both wrap and stack instead of truncating. */
-@media (max-width: 48rem) {
+@media (max-width: 47.99rem) {
   .ant-page-header-heading-title,
   .ant-page-header-heading-sub-title {
     overflow: visible;
@@ -310,12 +372,12 @@ body {
 }
 
 .category-color-swatch[aria-checked="true"] {
-  border-color: var(--color-text-primary);
+  border-color: var(--color-text);
 }
 
 @media (prefers-color-scheme: dark) {
   .category-color-swatch[aria-checked="true"] {
-    border-color: #fff;
+    border-color: var(--color-surface);
   }
 }
 
@@ -327,12 +389,196 @@ body {
   width: 2rem;
   height: 2rem;
   border-radius: 50%;
-  color: #fff;
+  color: var(--color-surface);
   font-size: 1rem;
 }
 
-/* The longer explanation a settings sub-page shows above its own content,
-   via SettingsPageContainer's `content` prop. */
-.settings-page-content {
-  max-width: 46rem;
+/* Compact screens: form controls render at 16px so iOS Safari doesn't zoom
+   the page when one is focused. The control HEIGHTS come from the antd
+   theme (theme/tokens.ts createTheme); antd has no token for font size here. */
+/* antd sets font-size on the inner <input>s with selectors as specific as
+   `.ant-select .ant-select-selection-search-input` and loads them after this
+   sheet, so a bare `.ant-select-selection-search-input` loses. The `:root`
+   prefix (no `!important`) lifts every selector above antd's. */
+@media (max-width: 47.99rem) {
+  :root .ant-input,
+  :root .ant-input-affix-wrapper,
+  :root .ant-input-affix-wrapper > input.ant-input,
+  :root .ant-input-number,
+  :root .ant-input-number .ant-input-number-input,
+  :root .ant-select,
+  /* antd: `.ant-select-single:not(.ant-select-customize-input) .ant-select-selector
+     .ant-select-selection-search-input` (4 classes), so this one has five. */
+  :root .ant-select.ant-select .ant-select-selector .ant-select-selection-search-input,
+  :root .ant-select .ant-select-selection-item,
+  :root .ant-select .ant-select-selection-placeholder,
+  :root .ant-picker,
+  :root .ant-picker .ant-picker-input > input,
+  :root textarea.ant-input {
+    font-size: 16px;
+  }
+}
+
+/* ---- One table skin. The colours come from the antd Table tokens
+   (theme/tokens.ts); the header label size has no token. Domain
+   stylesheets must not restyle `th`. ----------------------------------- */
+
+.ant-table-wrapper .ant-table .ant-table-thead > tr > th,
+.ant-table-wrapper .ant-table .ant-table-thead > tr > td {
+  font-size: var(--fs-caption);
+  font-weight: 500;
+}
+
+/* ---- Segmented: the selected thumb reads off a hairline ring, not a shadow
+   (the track is a shade darker than the page, see theme/tokens.ts). ---- */
+
+.ant-segmented .ant-segmented-thumb,
+.ant-segmented .ant-segmented-item-selected {
+  box-shadow: 0 0 0 1px var(--color-border);
+}
+
+/* ---- Touch targets on a phone. Visual sizes stay; hit areas grow. ------ */
+
+@media (max-width: 47.99rem) {
+  /* Segmented items (PageTabs, ManualTransactionForm, filter controls). */
+  :root .ant-segmented .ant-segmented-item {
+    min-height: 40px;
+  }
+
+  :root .ant-segmented .ant-segmented-item-label {
+    min-height: 40px;
+    line-height: 40px;
+  }
+
+  /* Tabs: the label is 22px tall inside a 46px tab; the pseudo-element makes
+     the role="tab" element itself the 44px target. */
+  .ant-tabs-tab-btn {
+    position: relative;
+  }
+
+  .ant-tabs-tab-btn::after {
+    content: "";
+    position: absolute;
+    inset: -11px -4px;
+  }
+
+  /* Switch: 44x22 to the eye, a 44px-tall target. */
+  .ant-switch::after {
+    content: "";
+    position: absolute;
+    inset: -12px -4px;
+  }
+
+  /* Checkbox and radio rows: the whole label is the target. */
+  .ant-checkbox-wrapper,
+  .ant-radio-wrapper {
+    align-items: center;
+    min-height: 40px;
+  }
+
+  /* Text buttons and links that carry a label (icon-only ones size
+     themselves: RecordMenu, close, back). */
+  .ant-btn-link:not(.ant-btn-icon-only),
+  .ant-btn-text:not(.ant-btn-icon-only) {
+    min-height: 40px;
+  }
+}
+
+/* Money (components/shared/Money.tsx). The tone classes only pick the text
+   colour; `moneyTone` decides which one applies (flow: inflow tinted, outflow
+   default; result/balance: negative is the single danger red). */
+.money {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.money-size-row {
+  font-size: var(--fs-row);
+  font-weight: 600;
+}
+
+/* A hero figure is never cut off and never broken mid-number: it stays on one
+   line (the `.money` rule above) and, on a very narrow phone, the font
+   scales down instead (28px from a 350px viewport up). */
+.money-size-hero {
+  font-size: clamp(1.5rem, 8vw, var(--fs-hero));
+  font-weight: 600;
+  overflow-wrap: normal;
+}
+
+.money-positive {
+  color: var(--color-money-in);
+}
+
+.money-negative {
+  color: var(--color-danger);
+}
+
+.money-neutral {
+  color: var(--color-text);
+}
+
+/* StatusTag (components/shared/StatusTag.tsx): a small text chip, tinted
+   background and toned text, no border, no icon. */
+.status-tag {
+  display: inline-block;
+  padding: 0 0.375rem;
+  border-radius: 4px;
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  line-height: 1.25rem;
+  white-space: nowrap;
+}
+
+.status-tag-neutral {
+  color: var(--color-text-secondary);
+  background: var(--tag-neutral-bg);
+}
+
+.status-tag-info {
+  color: var(--color-info);
+  background: var(--tag-info-bg);
+}
+
+.status-tag-success {
+  color: var(--color-success);
+  background: var(--tag-success-bg);
+}
+
+.status-tag-warning {
+  color: var(--color-warning-text);
+  background: var(--tag-warning-bg);
+}
+
+.status-tag-danger {
+  color: var(--color-danger);
+  background: var(--tag-danger-bg);
+}
+
+/* A text link small to the eye ("Ver todas", "Ver transações") whose hit
+   area is a 40px+ target on a phone: the pseudo-element grows the target,
+   not the type. Used by the Home and account-detail section links. */
+@media (max-width: 47.99rem) {
+  .touch-link {
+    position: relative;
+  }
+
+  .touch-link::after {
+    content: "";
+    position: absolute;
+    inset: -14px -8px;
+  }
+}
+
+/* Screen-reader-only text. */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  border: 0 !important;
+  white-space: nowrap !important;
 }

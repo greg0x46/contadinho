@@ -1,11 +1,12 @@
-import { CloseOutlined, PlusOutlined } from "@ant-design/icons";
-import { Button, Drawer, Dropdown } from "antd";
+import { Dropdown } from "antd";
 import type { ItemType } from "antd/es/menu/interface";
 import type { ReactNode } from "react";
 import { useState } from "react";
 
+import { BottomSheet } from "../shared/BottomSheet";
 import { PanelNavRow } from "../shared/PanelStack";
 import { useCompactScreen } from "../shared/useCompactScreen";
+import { PageAction } from "./PageAction";
 
 export interface CreateActionOption {
   key: string;
@@ -21,6 +22,8 @@ export interface CreateActionOption {
 interface CreateActionMenuProps {
   /** The trigger's own label, e.g. "Nova pendência" — one thing that groups the options. */
   label: string;
+  /** What a phone shows on the trigger instead ("Nova"); must be contained in `label`. */
+  shortLabel?: string;
   options: CreateActionOption[];
 }
 
@@ -31,24 +34,20 @@ interface CreateActionMenuProps {
  * dropdown menu next to the trigger; on a phone it opens a bottom sheet,
  * the same split `FilterPanel` uses for its own drawer-vs-sheet choice.
  *
- * The trigger stays a single compact action regardless of viewport — it
- * replaces what used to be N full-width stacked buttons, so it deliberately
- * opts out of the page header's default "actions fill the width" rule (see
- * `.create-action-trigger` in layout.css).
+ * The trigger is a `PageAction`, so it sits in the title row and turns
+ * compact (icon plus `shortLabel`) on a phone like every other page action.
  */
-export function CreateActionMenu({ label, options }: CreateActionMenuProps) {
+export function CreateActionMenu({ label, shortLabel, options }: CreateActionMenuProps) {
   const compact = useCompactScreen();
   const [open, setOpen] = useState(false);
 
   const trigger = (
-    <Button
-      type="primary"
+    <PageAction
       className="create-action-trigger"
-      icon={<PlusOutlined aria-hidden="true" />}
+      label={label}
+      shortLabel={shortLabel}
       onClick={compact ? () => setOpen(true) : undefined}
-    >
-      {label}
-    </Button>
+    />
   );
 
   if (!compact) {
@@ -75,31 +74,8 @@ export function CreateActionMenu({ label, options }: CreateActionMenuProps) {
   return (
     <>
       {trigger}
-      <Drawer
-        open={open}
-        onClose={() => setOpen(false)}
-        placement="bottom"
-        height="auto"
-        closable={false}
-        destroyOnHidden
-        className="create-action-sheet"
-        title={
-          <>
-            <div className="create-action-sheet-handle" aria-hidden="true" />
-            <div className="create-action-sheet-header">
-              <h2 className="create-action-sheet-title">{label}</h2>
-              <Button
-                type="text"
-                className="create-action-sheet-close"
-                icon={<CloseOutlined aria-hidden="true" />}
-                aria-label={`Fechar ${label.toLocaleLowerCase("pt-BR")}`}
-                onClick={() => setOpen(false)}
-              />
-            </div>
-          </>
-        }
-      >
-        <ul className="create-action-sheet-list">
+      <BottomSheet open={open} onClose={() => setOpen(false)} title={label}>
+        <ul className="bottom-sheet-list">
           {options.map((option) => (
             <li key={option.key}>
               <PanelNavRow
@@ -115,7 +91,7 @@ export function CreateActionMenu({ label, options }: CreateActionMenuProps) {
             </li>
           ))}
         </ul>
-      </Drawer>
+      </BottomSheet>
     </>
   );
 }

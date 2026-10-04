@@ -1,14 +1,20 @@
-import { Button, Tag } from "antd";
+import { Button } from "antd";
 import { useState } from "react";
 
 import type { ImportRow } from "../../api/statementImports";
 import { formatDate } from "../../presentation/dates";
 import { formatMoney } from "../../presentation/money";
+import { EmptyState } from "../layout";
+import { StatusTag } from "../shared/StatusTag";
 
 const pageSize = 20;
 
-const statusLabel: Record<ImportRow["status"], string> = { new: "Nova", duplicate: "Já importada", invalid: "Inválida" };
-const statusColor: Record<ImportRow["status"], string> = { new: "green", duplicate: "default", invalid: "red" };
+// A new row is the default and carries no tag: only the rows that will not be
+// imported as they are (already there, or invalid) say so.
+const statusTag = {
+  duplicate: { tone: "neutral", label: "Já importada" },
+  invalid: { tone: "danger", label: "Inválida" },
+} as const;
 
 /**
  * One line of the file: description and where it came from on the left, the
@@ -17,6 +23,8 @@ const statusColor: Record<ImportRow["status"], string> = { new: "green", duplica
  */
 function StatementPreviewRow({ row }: { row: ImportRow }) {
   const currency = row.currency ?? "BRL";
+  const tag = row.status === "new" ? null : statusTag[row.status];
+  const hasNotes = row.errors.length > 0 || row.warnings.length > 0;
 
   return (
     <li className={`statement-row is-${row.status}`}>
@@ -31,15 +39,17 @@ function StatementPreviewRow({ row }: { row: ImportRow }) {
         <span className="statement-row-amount">{row.amount ? formatMoney(row.amount, currency) : "—"}</span>
         <span className="statement-row-balance">Saldo após {row.balance ? formatMoney(row.balance, currency) : "—"}</span>
       </div>
-      <div className="statement-row-review">
-        <Tag color={statusColor[row.status]}>{statusLabel[row.status]}</Tag>
-        {(row.errors.length > 0 || row.warnings.length > 0) && (
-          <ul className="statement-row-notes">
-            {row.errors.map((value, index) => <li key={`e-${index}`} className="statement-row-error">{value}</li>)}
-            {row.warnings.map((value, index) => <li key={`w-${index}`}>{value}</li>)}
-          </ul>
-        )}
-      </div>
+      {(tag !== null || hasNotes) && (
+        <div className="statement-row-review">
+          {tag !== null && <StatusTag tone={tag.tone}>{tag.label}</StatusTag>}
+          {hasNotes && (
+            <ul className="statement-row-notes">
+              {row.errors.map((value, index) => <li key={`e-${index}`} className="statement-row-error">{value}</li>)}
+              {row.warnings.map((value, index) => <li key={`w-${index}`}>{value}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
     </li>
   );
 }
@@ -52,7 +62,7 @@ function StatementPreviewRow({ row }: { row: ImportRow }) {
 export function StatementPreviewRows({ rows }: { rows: ImportRow[] }) {
   const [page, setPage] = useState(1);
 
-  if (rows.length === 0) return <p className="statement-rows-empty">Nenhuma linha para mostrar</p>;
+  if (rows.length === 0) return <EmptyState title="Nenhuma linha para mostrar" />;
 
   const totalPages = Math.ceil(rows.length / pageSize);
   const current = Math.min(page, totalPages);

@@ -23,11 +23,14 @@ export const ruleLogicOperatorLabel: Record<RuleLogicOperator, string> = {
 function formatConditionValue(condition: RuleCondition): string {
   if (condition.operator === "day_range") {
     const [min, max] = condition.value.split(":");
+    // A half-filled range reads as what is there, never "e undefined".
+    if (!min || !max) return min || max || "—";
     return `${min} e ${max}`;
   }
   if (condition.operator === "within_percent") {
     const [reference, tolerance] = condition.value.split(":");
-    return `${reference} (±${tolerance}%)`;
+    // No tolerance yet: just the reference, never "(±undefined%)".
+    return tolerance ? `${reference} (±${tolerance}%)` : (reference ?? "");
   }
   return `"${condition.value}"`;
 }

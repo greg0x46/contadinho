@@ -1,29 +1,42 @@
 import { Alert } from "antd";
 import { useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
-import { isUuid, type PayableKind } from "../api/contracts";
+import { isUuid, type Payable, type PayableKind } from "../api/contracts";
 import { DetailPage, InvalidDetailPage } from "../components/layout";
 import { PayableForm } from "../components/payables/PayableForm";
-import { PayableHeaderCard } from "../components/payables/PayableHeaderCard";
+import { PayableHeader } from "../components/payables/PayableHeader";
 import { PayableTimeline } from "../components/payables/PayableTimeline";
+import { RecordMenu } from "../components/shared/RecordMenu";
+import { useConfirm } from "../components/shared/useConfirm";
+import { useFeedback } from "../components/shared/useFeedback";
 import { usePayableDetail } from "../hooks/usePayableDetail";
 import { usePayables } from "../hooks/usePayables";
+import { errorMessage } from "../presentation/errors";
+import { payableVocabulary } from "../presentation/payableLabels";
 
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
+const pageTitle = "Pendência";
+const backTo = "/pendencias";
+const backLabel = "Voltar para pendências";
+
+function deleteDescription(payable: Payable): string {
+  if (payable.link_count === 0) return "Esta ação não pode ser desfeita.";
+  const plural = payable.link_count > 1;
+  return `${payable.link_count} transação${plural ? "ões" : ""} vinculada${plural ? "s" : ""} ${
+    plural ? "serão desfeitas" : "será desfeita"
+  }; as transações em si permanecem inalteradas.`;
 }
-
-const pageTitle = "Detalhes";
-const backLink = <Link to="/pendencias">Voltar para pendências</Link>;
 
 function ValidPayableDetail({ id, kind }: { id: string; kind: PayableKind }) {
   const payable = usePayableDetail(id, kind);
   const payables = usePayables(kind);
   const navigate = useNavigate();
+  const feedback = useFeedback();
   const [formOpen, setFormOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const confirm = useConfirm();
+  const vocab = payableVocabulary[kind];
 
   const submitEdit = async (write: { name: string; total_amount: number }) => {
     setSaveError(null);
@@ -33,6 +46,7 @@ function ValidPayableDetail({ id, kind }: { id: string; kind: PayableKind }) {
         write: { name: write.name, total_amount: write.total_amount },
       });
       setFormOpen(false);
+      feedback.success("Salvo");
     } catch (error) {
       setSaveError(errorMessage(error, "Não foi possível salvar a pendência."));
     }
@@ -42,48 +56,70 @@ function ValidPayableDetail({ id, kind }: { id: string; kind: PayableKind }) {
     setDeleteError(null);
     try {
       await payables.deletePayable(id);
-      navigate("/pendencias");
+      feedback.success("Excluído");
+      navigate(backTo);
     } catch (error) {
-      setDeleteError(errorMessage(error, "Não foi possível excluir a pendência."));
+      // The Alert sits at the top of the page; the confirm that started this
+      // is long gone, so a toast tells the user where they are.
+      const message = errorMessage(error, "Não foi possível excluir a pendência.");
+      setDeleteError(message);
+      feedback.error(message);
     }
   };
+
+  const snapshot = payable.state.snapshot;
+  const actions = (
+    <RecordMenu
+      label="Mais ações"
+      items={[
+        {
+          key: "edit",
+          label: "Editar",
+          onClick: () => {
+            setSaveError(null);
+            setFormOpen(true);
+          },
+        },
+        {
+          key: "delete",
+          label: "Excluir",
+          danger: true,
+          onClick: () => {
+            if (snapshot === null) return;
+            confirm({ title: vocab.deleteTitle, description: deleteDescription(snapshot), onConfirm: submitDelete });
+          },
+        },
+      ]}
+    />
+  );
 
   return (
     <DetailPage
       title={pageTitle}
-      back={backLink}
+      backTo={backTo}
+      backLabel={backLabel}
+      width="narrow"
       state={payable.state}
       retry={payable.retry}
+      recordTitle={(record) => record.name}
       loadingLabel="Carregando…"
       notFoundMessage="Não encontrada"
       notFoundDescription="Não existe uma dívida ou conta a receber com este identificador."
       unavailableMessage="Não foi possível consultar esta pendência agora."
+      actions={actions}
     >
-      {(snapshot) => (
+      {(record) => (
         <>
           {deleteError && (
-            <Alert
-              type="error"
-              showIcon
-              closable
-              onClose={() => setDeleteError(null)}
-              message={deleteError}
-            />
+            <Alert type="error" showIcon closable onClose={() => setDeleteError(null)} message={deleteError} />
           )}
 
-          <PayableHeaderCard
-            payable={snapshot}
-            onEdit={() => {
-              setSaveError(null);
-              setFormOpen(true);
-            }}
-            onDelete={submitDelete}
-          />
+          <PayableHeader payable={record} />
 
           <PayableTimeline
             payableId={id}
             kind={kind}
-            links={snapshot.links}
+            links={record.links}
             search={payable.search}
             onSearchChange={payable.setSearch}
             candidates={payable.eligibleTransactions}
@@ -96,7 +132,7 @@ function ValidPayableDetail({ id, kind }: { id: string; kind: PayableKind }) {
           <PayableForm
             kind={kind}
             open={formOpen}
-            payable={snapshot}
+            payable={record}
             submitting={payables.isUpdating}
             submitError={saveError}
             onSubmit={submitEdit}
@@ -116,6 +152,6 @@ export function PayableDetailPage() {
   return isUuid(id) ? (
     <ValidPayableDetail id={id} kind={kind} />
   ) : (
-    <InvalidDetailPage title={pageTitle} back={backLink} invalidTitle="Endereço inválido" />
+    <InvalidDetailPage title={pageTitle} backTo={backTo} backLabel={backLabel} invalidTitle="Endereço inválido" />
   );
 }

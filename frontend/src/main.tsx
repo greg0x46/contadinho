@@ -1,5 +1,3 @@
-import { ConfigProvider } from "antd";
-import ptBR from "antd/locale/pt_BR";
 import dayjs from "dayjs";
 import "dayjs/locale/pt-br";
 import { StrictMode } from "react";
@@ -8,9 +6,10 @@ import { QueryClientProvider } from "@tanstack/react-query";
 
 import { createAppQueryClient } from "./app/queryClient";
 import { AppRouter } from "./app/router";
-import { theme } from "./theme/tokens";
+import { ThemeProvider } from "./app/ThemeProvider";
 import "antd/dist/reset.css";
 import "./styles/global.css";
+import "./styles/forms.css";
 import "./styles/sync-runs.css";
 import "./styles/period.css";
 import "./styles/layout.css";
@@ -26,6 +25,7 @@ import "./styles/investments.css";
 import "./styles/netWorth.css";
 import "./styles/scenarios.css";
 import "./styles/statement-imports.css";
+import "./styles/settings.css";
 
 dayjs.locale("pt-br");
 
@@ -39,10 +39,10 @@ const queryClient = createAppQueryClient();
 
 createRoot(root).render(
   <StrictMode>
-    <ConfigProvider locale={ptBR} theme={theme}>
+    <ThemeProvider>
       <QueryClientProvider client={queryClient}>
         <AppRouter />
       </QueryClientProvider>
-    </ConfigProvider>
+    </ThemeProvider>
   </StrictMode>,
 );

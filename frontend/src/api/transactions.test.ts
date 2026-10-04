@@ -83,10 +83,15 @@ describe("transaction inclusion API boundary", () => {
 
 describe("string-only money formatting", () => {
   it.each([
-    ["9007199254740993.1200", "BRL", "BRL 9.007.199.254.740.993,1200"],
-    ["-0.50", "USD", "-USD 0,50"],
-    ["3", "BRL", "BRL 3"],
-  ])("preserves precision, sign, scale and trailing zeros", (value, currency, expected) => {
+    // BRL delegates to formatBRL: always "R$" and two decimals.
+    ["9007199254740993.1200", "BRL", "R$\u00a09.007.199.254.740.993,12"],
+    ["3", "BRL", "R$\u00a03,00"],
+    ["-0.50", "BRL", "-R$\u00a00,50"],
+    // Other currencies keep their code and any extra precision, padded to 2.
+    ["-0.50", "USD", "-USD\u00a00,50"],
+    ["3", "USD", "USD\u00a03,00"],
+    ["1234.5678", "USD", "USD\u00a01.234,5678"],
+  ])("formats %s %s without going through floats", (value, currency, expected) => {
     expect(formatMoney(value, currency)).toBe(expected);
   });
 });

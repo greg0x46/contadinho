@@ -1,24 +1,45 @@
-import { Link, useParams } from "react-router-dom";
+import { Skeleton } from "antd";
+import { useParams } from "react-router-dom";
 
 import { isUuid } from "../api/contracts";
-import { DetailPage, InvalidDetailPage } from "../components/layout";
+import { DetailPage, InvalidDetailPage, Page } from "../components/layout";
 import { InvestmentHeaderCard } from "../components/investments/InvestmentHeaderCard";
 import { InvestmentTimeline } from "../components/investments/InvestmentTimeline";
 import { useInvestmentDetail } from "../hooks/useInvestmentDetail";
 
-const pageTitle = "Detalhes do investimento";
-const backLink = <Link to="/investimentos">Voltar para investimentos</Link>;
+const pageTitle = "Investimento";
+const backTo = "/investimentos";
+const backLabel = "Voltar para investimentos";
+
+/** The loaded page's blocks — summary strip, then a list — so nothing jumps when the record arrives. */
+function InvestmentDetailSkeleton() {
+  return (
+    <div role="status" aria-label="Carregando investimento">
+      <Skeleton active title={{ width: "35%" }} paragraph={{ rows: 2 }} />
+      <Skeleton active title={{ width: "25%" }} paragraph={{ rows: 4 }} />
+    </div>
+  );
+}
 
 function ValidInvestmentDetail({ id }: { id: string }) {
   const investment = useInvestmentDetail(id);
 
+  if (investment.state.freshness === "loading") {
+    return (
+      <Page title={pageTitle} backTo={backTo} backLabel={backLabel} compactMobileHeader>
+        <InvestmentDetailSkeleton />
+      </Page>
+    );
+  }
+
   return (
     <DetailPage
       title={pageTitle}
-      back={backLink}
+      backTo={backTo}
+      backLabel={backLabel}
+      recordTitle={(snapshot) => snapshot.name ?? "Sem nome"}
       state={investment.state}
       retry={investment.retry}
-      loadingLabel="Carregando investimento…"
       notFoundMessage="Investimento não encontrado"
       notFoundDescription="Não existe um investimento com este identificador."
       unavailableMessage="Não foi possível consultar este investimento agora."
@@ -44,6 +65,11 @@ export function InvestmentDetailPage() {
   return isUuid(id) ? (
     <ValidInvestmentDetail id={id} />
   ) : (
-    <InvalidDetailPage title={pageTitle} back={backLink} invalidTitle="Endereço de investimento inválido" />
+    <InvalidDetailPage
+      title={pageTitle}
+      backTo={backTo}
+      backLabel={backLabel}
+      invalidTitle="Endereço de investimento inválido"
+    />
   );
 }

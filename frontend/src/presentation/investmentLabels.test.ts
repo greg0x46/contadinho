@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Investment, InvestmentTransaction } from "../api/contracts";
-import { netContributed, yieldUnavailable } from "./investmentLabels";
+import { formatDecimal, movementTypeLabel, netContributed, quotaCount, yieldUnavailable } from "./investmentLabels";
 
 function movement(overrides: Partial<InvestmentTransaction>): InvestmentTransaction {
   return {
@@ -86,5 +86,27 @@ describe("yieldUnavailable", () => {
     );
     expect(label).toBe("Sem saldo atual");
     expect(hint).not.toBe("");
+  });
+});
+
+describe("pt-BR figures and provider labels", () => {
+  it("writes decimals the pt-BR way, without trailing zeros", () => {
+    expect(formatDecimal("10.65")).toBe("10,65");
+    expect(formatDecimal("100.00")).toBe("100");
+    expect(formatDecimal("0.0215")).toBe("0,0215");
+    expect(formatDecimal("1234567.5")).toBe("1.234.567,5");
+    expect(formatDecimal("-3.2")).toBe("-3,2");
+  });
+
+  it("makes the unit agree with the number of cotas", () => {
+    expect(quotaCount("1")).toBe("1 cota");
+    expect(quotaCount("0.2")).toBe("0,2 cotas");
+    expect(quotaCount("20")).toBe("20 cotas");
+  });
+
+  it("never shows a raw provider enum", () => {
+    expect(movementTypeLabel("OTHER_MOVEMENT")).toBe("Outra movimentação");
+    expect(movementTypeLabel("SOMETHING_NEW")).toBe("Something new");
+    expect(movementTypeLabel("Aplicação programada")).toBe("Aplicação programada");
   });
 });

@@ -15,11 +15,11 @@ export function isInvestmentLinkedProblem(error: unknown): boolean {
 export function manualTransactionErrorMessage(error: unknown, action: "save" | "delete"): string {
   if (isInvestmentLinkedProblem(error)) {
     return action === "delete"
-      ? "Este lançamento tem parcelas vinculadas a aportes ou resgates. Desfaça os vínculos em “Vínculo com investimento”, no detalhe do lançamento, antes de excluí-lo."
-      : "Este lançamento tem parcelas vinculadas a aportes ou resgates. Desfaça os vínculos em “Vínculo com investimento”, no detalhe do lançamento, antes de editá-lo.";
+      ? "Esta transação tem parcelas vinculadas a aportes ou resgates. Desfaça os vínculos em “Vincular a investimento”, no detalhe da transação, antes de excluí-la."
+      : "Esta transação tem parcelas vinculadas a aportes ou resgates. Desfaça os vínculos em “Vincular a investimento”, no detalhe da transação, antes de editá-la.";
   }
   if (error instanceof Error) return error.message;
   return action === "delete"
-    ? "Não foi possível excluir o lançamento manual."
-    : "Não foi possível salvar o lançamento manual.";
+    ? "Não foi possível excluir a transação manual."
+    : "Não foi possível salvar a transação manual.";
 }

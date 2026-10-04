@@ -1,42 +1,43 @@
-import { Alert, Button, DatePicker, Drawer, Flex, Input, InputNumber, Segmented, Select } from "antd";
-import dayjs, { type Dayjs } from "dayjs";
-import { useState } from "react";
+import { DatePicker, Input, Segmented, Select } from "antd";
+import { useEffect, useState } from "react";
 
-import type { Account, Category, ManualTransactionWrite, TransactionItem } from "../../api/contracts";
+import type { Account, Category, ManualTransactionWrite } from "../../api/contracts";
 import { categoryKindLabel, renderCategoryIcon } from "../../presentation/categoryLabels";
+import { AccountSelect } from "../forms/AccountSelect";
+import { FormDrawer } from "../forms/FormDrawer";
+import { FormField } from "../forms/FormField";
+import { MoneyInput } from "../forms/MoneyInput";
+import {
+  blankManualDraft,
+  manualDraftIssue,
+  manualDraftToWrite,
+  manualFieldId,
+  matchesDirection,
+  nextIssue,
+  type Direction,
+  type ManualDraft,
+  type ManualField,
+  type ManualIssue,
+} from "./manualTransactionDraft";
 
-const dateFormat = "YYYY-MM-DD";
-
-type Direction = "inflow" | "outflow";
-
-type Draft = {
-  accountId: string;
-  description: string;
-  direction: Direction;
-  amount: number | null;
-  date: Dayjs;
-  categoryId: string | null;
-};
-
-function blankDraft(accountId: string): Draft {
-  return { accountId, description: "", direction: "outflow", amount: null, date: dayjs(), categoryId: null };
+/**
+ * Sends focus to the field that failed validation (scrolling it into view),
+ * once per failed submit — a message alone can sit out of view above or
+ * below the fold, and a keyboard or screen-reader user would not know where
+ * to go.
+ */
+function useFocusIssue(issue: ManualIssue | null) {
+  const attempt = issue?.attempt;
+  const field = issue?.field;
+  useEffect(() => {
+    if (field === undefined) return;
+    const control = document.getElementById(manualFieldId(field));
+    if (!control) return;
+    control.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    control.focus({ preventScroll: true });
+  }, [attempt, field]);
 }
 
-function draftFrom(transaction: TransactionItem | null, defaultAccountId: string): Draft {
-  if (!transaction) return blankDraft(defaultAccountId);
-  return {
-    accountId: transaction.account.id,
-    description: transaction.description ?? "",
-    direction: transaction.classification === "inflow" ? "inflow" : "outflow",
-    amount: transaction.amount === null ? null : Math.abs(Number(transaction.amount)),
-    date: transaction.occurred_at ? dayjs(transaction.occurred_at) : dayjs(),
-    categoryId: transaction.internal_category?.id ?? null,
-  };
-}
-
-function matchesDirection(kind: Category["kind"], direction: Direction): boolean {
-  return direction === "inflow" ? kind === "income" || kind === "transfer" : kind === "expense" || kind === "transfer";
-}
 
 function categoryOptions(categories: Category[], direction: Direction) {
   const kindOrder = ["expense", "income", "transfer"] as const;
@@ -55,217 +56,186 @@ function categoryOptions(categories: Category[], direction: Direction) {
 }
 
 /**
- * Creates or edits a lançamento manual — a transaction the user authors by
- * hand instead of it arriving through a Pluggy sync, on an account that
- * already exists (see .specs/lancamentos-manuais.md). transaction === null
- * means "create"; otherwise this edits that row's core fields (account,
- * description, signed amount, date). Category keeps going through the
- * existing category picker (TransactionDetailDrawer) once the lançamento
- * exists, but can also be set up front here.
- */
-type FieldsProps = {
-  /** The `<form>` id, so a submit button can live outside the fields (e.g. a sticky footer). */
-  formId: string;
-  transaction: TransactionItem | null;
-  accounts: Account[];
-  categories: Category[];
-  submitError: string | null;
-  onSubmit: (write: ManualTransactionWrite) => void;
-};
-
-/**
- * The fields of a lançamento manual, without a container. The draft is
- * seeded once on mount (remount with a `key` to start over) and rendered as
- * a `<form>` so the submit control can live in a drawer footer or a panel's
- * sticky bar via `form={formId}`.
+ * The fields of a manual transaction — one the person authors by hand
+ * instead of it arriving through a sync, on an account that already exists
+ * (see .specs/lancamentos-manuais.md). Controlled and container-less: the
+ * new-transaction drawer and the panel's edit screen both put them inside
+ * their own `<form>`, so the two flows cannot drift apart.
  */
 export function ManualTransactionFields({
-  formId,
-  transaction,
-  accounts,
+  draft,
+  onChange,
   categories,
-  submitError,
-  onSubmit,
-}: FieldsProps) {
-  const isEditing = transaction !== null;
-  const [draft, setDraft] = useState<Draft>(() => draftFrom(transaction, accounts[0]?.id ?? ""));
-  const [error, setError] = useState<string | null>(null);
-
-  const accountOptions = accounts.map((account) => ({
-    value: account.id,
-    label: [account.name, account.institution_name].filter(Boolean).join(" · ") || account.id,
-  }));
-
-  const submit = () => {
-    if (draft.accountId === "") {
-      setError("Selecione uma conta.");
-      return;
-    }
-    if (draft.description.trim() === "") {
-      setError("Informe uma descrição.");
-      return;
-    }
-    if (draft.amount === null || draft.amount <= 0) {
-      setError("Informe um valor maior que zero.");
-      return;
-    }
-    setError(null);
-    const signed = draft.direction === "outflow" ? -draft.amount : draft.amount;
-    onSubmit({
-      account_id: draft.accountId,
-      description: draft.description.trim(),
-      amount: signed.toFixed(2),
-      occurred_at: draft.date.format(dateFormat),
-      category_id: draft.categoryId,
-    });
-  };
+  isEditing,
+  issue = null,
+}: {
+  draft: ManualDraft;
+  onChange: (update: (current: ManualDraft) => ManualDraft) => void;
+  categories: Category[];
+  isEditing: boolean;
+  /** The validation problem of the last submit: marks its field and says why under it. */
+  issue?: ManualIssue | null;
+}) {
+  useFocusIssue(issue);
+  const messageFor = (field: ManualField) => (issue?.field === field ? issue.message : undefined);
+  const invalid = (field: ManualField) => (issue?.field === field ? true : undefined);
+  const set = <Key extends keyof ManualDraft>(key: Key, value: ManualDraft[Key]) =>
+    onChange((current) => ({ ...current, [key]: value }));
 
   return (
-    <form
-      id={formId}
-      onSubmit={(event) => {
-        event.preventDefault();
-        submit();
-      }}
-    >
-      <Flex vertical gap="middle">
-        {(error ?? submitError) && <Alert type="error" showIcon message={error ?? submitError} />}
-
-        <Alert
-          type="info"
-          showIcon
-          message="O saldo da conta não muda"
-          description="Ele sempre vem do banco. Isso só entra no extrato e nos totais."
+    <>
+      <FormField
+        label="Conta"
+        htmlFor={manualFieldId("account")}
+        error={messageFor("account")}
+        hint="Não altera o saldo da conta, que vem do banco: só entra no extrato e nos totais."
+      >
+        <AccountSelect
+          id={manualFieldId("account")}
+          value={draft.accountId}
+          onChange={(accountId) => set("accountId", accountId ?? "")}
+          invalid={invalid("account")}
         />
+      </FormField>
 
-        <div className="filter-field">
-          <label htmlFor="manual-transaction-account">Conta</label>
-          <Select
-            id="manual-transaction-account"
-            value={draft.accountId || undefined}
-            options={accountOptions}
-            showSearch
-            optionFilterProp="label"
-            placeholder="Selecione uma conta"
-            onChange={(value: string) => setDraft((current) => ({ ...current, accountId: value }))}
-          />
-        </div>
+      <FormField label="Descrição" htmlFor={manualFieldId("description")} error={messageFor("description")}>
+        <Input
+          id={manualFieldId("description")}
+          aria-invalid={invalid("description")}
+          aria-describedby={invalid("description") ? `${manualFieldId("description")}-error` : undefined}
+          status={invalid("description") ? "error" : undefined}
+          value={draft.description}
+          onChange={(event) => set("description", event.target.value)}
+          placeholder="Ex.: Almoço em dinheiro"
+        />
+      </FormField>
 
-        <div className="filter-field">
-          <label htmlFor="manual-transaction-description">Descrição</label>
-          <Input
-            id="manual-transaction-description"
-            value={draft.description}
-            onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
-            placeholder="Ex.: Almoço em dinheiro"
-          />
-        </div>
+      <FormField label="Tipo" labelId="manual-transaction-direction-label">
+        <Segmented
+          block
+          aria-labelledby="manual-transaction-direction-label"
+          value={draft.direction}
+          options={[
+            { value: "outflow", label: "Saída" },
+            { value: "inflow", label: "Entrada" },
+          ]}
+          onChange={(value) => {
+            const direction = value as Direction;
+            onChange((current) => {
+              const selected = categories.find((category) => category.id === current.categoryId);
+              const categoryId = selected && !matchesDirection(selected.kind, direction) ? null : current.categoryId;
+              return { ...current, direction, categoryId };
+            });
+          }}
+        />
+      </FormField>
 
-        <div className="filter-field">
-          <label htmlFor="manual-transaction-direction">Direção</label>
-          <Segmented
-            id="manual-transaction-direction"
-            value={draft.direction}
-            options={[
-              { value: "outflow", label: "Saída" },
-              { value: "inflow", label: "Entrada" },
-            ]}
-            onChange={(value) => {
-              const direction = value as Direction;
-              setDraft((current) => {
-                const selected = categories.find((category) => category.id === current.categoryId);
-                const categoryId = selected && !matchesDirection(selected.kind, direction) ? null : current.categoryId;
-                return { ...current, direction, categoryId };
-              });
-            }}
-          />
-        </div>
+      <FormField label="Valor" htmlFor={manualFieldId("amount")} error={messageFor("amount")}>
+        <MoneyInput
+          id={manualFieldId("amount")}
+          aria-invalid={invalid("amount")}
+          aria-describedby={invalid("amount") ? `${manualFieldId("amount")}-error` : undefined}
+          status={invalid("amount") ? "error" : undefined}
+          min={0.01}
+          value={draft.amount}
+          onChange={(value) => set("amount", value)}
+        />
+      </FormField>
 
-        <div className="filter-field">
-          <label htmlFor="manual-transaction-amount">Valor</label>
-          <InputNumber
-            id="manual-transaction-amount"
-            style={{ width: "100%" }}
-            min={0.01}
-            step={0.01}
-            decimalSeparator=","
-            value={draft.amount}
-            onChange={(value) => setDraft((current) => ({ ...current, amount: value }))}
-            placeholder="0,00"
-          />
-        </div>
+      <FormField label="Data" htmlFor="manual-transaction-date">
+        <DatePicker
+          id="manual-transaction-date"
+          format="DD/MM/YYYY"
+          value={draft.date}
+          onChange={(value) => value && set("date", value)}
+          allowClear={false}
+        />
+      </FormField>
 
-        <div className="filter-field">
-          <label htmlFor="manual-transaction-date">Data</label>
-          <DatePicker
-            id="manual-transaction-date"
-            style={{ width: "100%" }}
-            format="DD/MM/YYYY"
-            value={draft.date}
-            onChange={(value) => value && setDraft((current) => ({ ...current, date: value }))}
-            allowClear={false}
-          />
-        </div>
-
-        <div className="filter-field">
-          <label htmlFor="manual-transaction-category">Categoria (opcional)</label>
-          <Select
-            id="manual-transaction-category"
-            value={draft.categoryId ?? undefined}
-            options={categoryOptions(categories, draft.direction)}
-            allowClear={!isEditing}
-            showSearch
-            optionFilterProp="label"
-            placeholder="Sem categoria"
-            optionRender={(option) => (
-              <span>
-                <span style={{ color: option.data.color }} aria-hidden="true">
-                  {renderCategoryIcon(option.data.icon)}
-                </span>{" "}
-                {option.label}
-              </span>
-            )}
-            onChange={(value: string | undefined) =>
-              setDraft((current) => ({ ...current, categoryId: value ?? null }))
-            }
-          />
-        </div>
-      </Flex>
-    </form>
+      <FormField label="Categoria (opcional)" htmlFor="manual-transaction-category">
+        <Select
+          id="manual-transaction-category"
+          value={draft.categoryId ?? undefined}
+          options={categoryOptions(categories, draft.direction)}
+          allowClear={!isEditing}
+          showSearch
+          optionFilterProp="label"
+          placeholder="Sem categoria"
+          optionRender={(option) => (
+            <span>
+              <span style={{ color: option.data.color }} aria-hidden="true">
+                {renderCategoryIcon(option.data.icon)}
+              </span>{" "}
+              {option.label}
+            </span>
+          )}
+          onChange={(value: string | undefined) => set("categoryId", value ?? null)}
+        />
+      </FormField>
+    </>
   );
 }
 
-const drawerFormId = "manual-transaction-form";
-
-/** The fields inside a side drawer — how a new lançamento is created from the list. */
+/** Creating a manual transaction from the list: the fields inside the standard form drawer. */
 export function ManualTransactionForm({
   open,
+  accounts,
+  categories,
   submitting,
+  submitError,
+  onSubmit,
   onCancel,
-  ...fields
-}: Omit<FieldsProps, "formId"> & {
+}: {
   open: boolean;
+  accounts: Account[];
+  categories: Category[];
   submitting: boolean;
+  submitError: string | null;
+  onSubmit: (write: ManualTransactionWrite) => void;
   onCancel: () => void;
 }) {
-  const isEditing = fields.transaction !== null;
+  const defaultAccountId = accounts[0]?.id ?? "";
+  const [draft, setDraft] = useState<ManualDraft>(() => blankManualDraft(defaultAccountId));
+  const [issue, setIssue] = useState<ManualIssue | null>(null);
+
+  // Every opening starts from a blank draft, on the first account.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setDraft(blankManualDraft(defaultAccountId));
+      setIssue(null);
+    }
+  }
+  // Accounts that arrive after the drawer opened must not be typed over.
+  useEffect(() => {
+    if (open && defaultAccountId !== "") {
+      setDraft((current) => (current.accountId === "" ? { ...current, accountId: defaultAccountId } : current));
+    }
+  }, [open, defaultAccountId]);
+
+  const submit = () => {
+    const problem = manualDraftIssue(draft);
+    setIssue((previous) => nextIssue(previous, problem));
+    if (problem === null) onSubmit(manualDraftToWrite(draft));
+  };
+
   return (
-    <Drawer
-      title={isEditing ? "Editar lançamento manual" : "Novo lançamento manual"}
+    <FormDrawer
+      title="Nova transação"
       open={open}
       onClose={onCancel}
-      width={420}
-      destroyOnHidden
-      footer={
-        <Flex justify="end" gap="small">
-          <Button onClick={onCancel}>Cancelar</Button>
-          <Button type="primary" htmlType="submit" form={drawerFormId} loading={submitting}>
-            Salvar
-          </Button>
-        </Flex>
-      }
+      onSubmit={submit}
+      submitting={submitting}
+      error={submitError}
     >
-      <ManualTransactionFields key={fields.transaction?.id ?? "new"} formId={drawerFormId} {...fields} />
-    </Drawer>
+      <ManualTransactionFields
+        draft={draft}
+        onChange={setDraft}
+        categories={categories}
+        isEditing={false}
+        issue={issue}
+      />
+    </FormDrawer>
   );
 }
