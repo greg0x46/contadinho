@@ -117,7 +117,7 @@ export function useTransactionPanelWrites({
       await manualTransaction.update({ transactionId, write });
       feedback.success("Transação salva");
     } catch (error) {
-      throw new Error(manualTransactionErrorMessage(error, "save"));
+      throw new Error(manualTransactionErrorMessage(error, "save"), { cause: error });
     }
   };
   const deleteManual = async (transactionId: string) => {
