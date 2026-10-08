@@ -51,8 +51,10 @@ type OnIgnoredHook func(ctx context.Context, q Querier, transactionID string) er
 // engine, rather than on the ingestion package that calls it: the engines
 // that react to a new lançamento (automation) must not have to import a
 // provider to describe their own entry point. Package syncsvc aliases this
-// type as TransactionUpsertedHook; nil is a valid no-op.
-type UpsertedHook func(ctx context.Context, conn *sql.DB, transactionID, accountID string) error
+// type as TransactionUpsertedHook; nil is a valid no-op. The caller owns the
+// transaction boundary: hooks must use q for all database effects so failure
+// rolls back both ingestion and its consequences.
+type UpsertedHook func(ctx context.Context, q Querier, transactionID, accountID string) error
 
 type inclusionDecision struct {
 	state     money.InclusionState

@@ -492,8 +492,16 @@ func TestNewTransactionHookMatchesSyncNewTransactionHookSignature(t *testing.T) 
 		return nil
 	}
 	hook := automation.NewTransactionHook(onIgnored)
-	if err := hook(ctx, f.conn, txID, acc); err != nil {
+	tx, err := f.conn.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx: %v", err)
+	}
+	defer tx.Rollback()
+	if err := hook(ctx, tx, txID, acc); err != nil {
 		t.Fatalf("hook: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
 	}
 	if !hookCalled {
 		t.Error("onIgnored hook should have been invoked when a rule ignores the transaction")
