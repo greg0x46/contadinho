@@ -1,11 +1,59 @@
 package httpapi_test
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
 	"github.com/google/uuid"
+
+	"contadinho-go/internal/automation"
+	"contadinho-go/internal/categories"
+	"contadinho-go/internal/money"
 )
+
+// A rule whose target category was later deactivated is a server-side problem:
+// the client never sent a category, so it must not be told its input is invalid.
+func TestCreateManualTransactionWithStaleRuleCategoryIs503NotInvalidCategory(t *testing.T) {
+	srv, conn := newTestServer(t)
+	seed := insertAccount(t, conn, "BANK", "Conta corrente", nil, nil)
+	ctx := context.Background()
+
+	category, err := categories.Create(ctx, conn, "Lazer", money.Expense, "", "")
+	if err != nil {
+		t.Fatalf("categories.Create: %v", err)
+	}
+	_, err = automation.Create(ctx, conn, automation.Write{
+		Name: "streaming", IsActive: true, LogicOperator: automation.LogicOr,
+		Conditions: []automation.Condition{{Field: automation.FieldDescription, Operator: automation.OperatorContains, Value: "streaming"}},
+		Actions:    []automation.ActionWrite{{Type: automation.ActionSetCategory, CategoryID: &category.ID}},
+	})
+	if err != nil {
+		t.Fatalf("automation.Create: %v", err)
+	}
+	inactive := false
+	if _, err := categories.Update(ctx, conn, category.ID, nil, &inactive, nil, nil); err != nil {
+		t.Fatalf("categories.Update: %v", err)
+	}
+
+	body := map[string]any{
+		"account_id": seed.accountID, "description": "Streaming mensal",
+		"amount": "-39.90", "occurred_at": "2026-03-01", "category_id": nil,
+	}
+	resp := doJSON(t, http.MethodPost, srv.URL+"/api/transactions", body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", resp.StatusCode)
+	}
+
+	// An explicit, invalid category is still the client's error.
+	body["category_id"] = category.ID
+	resp = doJSON(t, http.MethodPost, srv.URL+"/api/transactions", body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("explicit invalid category status = %d, want 422", resp.StatusCode)
+	}
+}
 
 func TestManualTransactionLifecycleOverHTTP(t *testing.T) {
 	srv, conn := newTestServer(t)

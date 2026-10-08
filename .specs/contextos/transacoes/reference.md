@@ -70,9 +70,14 @@ duas vias em `.specs/motores-de-dominio.md` seção 1.
 - Lançamento manual: `POST /api/transactions` (cria), `PUT
   /api/transactions/{id}` (edita), `DELETE /api/transactions/{id}` (exclui)
   — as três só aceitam uma transação com `origin='manual'` (409 caso
-  contrário). A criação roda `automation.ApplyToNewTransaction` como uma
-  sync rodaria, e depois aplica `category_id` explícito por cima, se vier —
-  a escolha do usuário sempre vence o que a automação tiver decidido.
+  contrário). O fluxo vive em `ledger.Service` (`internal/ledger`); os
+  handlers só interpretam a requisição e mapeiam erros de domínio para
+  Problem. A criação aplica a categoria aprendida e roda a automação
+  (`automation.ApplyToNewTransactionWithQuerier`) como uma sync rodaria, e
+  depois aplica `category_id` explícito por cima, se vier — a escolha do
+  usuário sempre vence o que a automação tiver decidido. Tudo na mesma
+  transação de banco. `ledger.ApplyNewTransactionDecisions` é a mesma
+  sequência, reutilizada pela confirmação de importação de extrato.
 - Contas/cartões: `GET /api/accounts[/{id}][/cards|/bills]`,
   `PUT /api/accounts/{id}/closing-day`.
 - Investimentos: `GET /api/investments[/{id}][/transactions]`.
