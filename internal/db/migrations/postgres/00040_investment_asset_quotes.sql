@@ -4,9 +4,10 @@
 -- on every sync, so without this table a synced holding has no past price.
 --
 -- One price per asset per day, last writer wins; source records who wrote it
--- ('pluggy', 'issue' — the PU a fixed income title was bought at — 'manual',
--- or a quote connector key such as 'brapi'). Writers and the backfill from
--- raw_imports live in internal/investments/quotes.go.
+-- ('pluggy', 'issue' — the PU a fixed income title was bought at — or a
+-- market data provider name such as 'brapi'). Which writer may replace which
+-- is decided by origin, added in a later migration. Writers and the backfill
+-- from raw_imports live in internal/investments/quotes.go.
 --
 -- issue_date/purchase_date/issuer_cnpj let a fixed income title without a
 -- provider code get a synthetic one (investments.FixedIncomeCode): holdings

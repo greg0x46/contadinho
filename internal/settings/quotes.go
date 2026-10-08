@@ -2,8 +2,8 @@ package settings
 
 import "context"
 
-// KeyBrapiToken stores the optional brapi.dev API token internal/quotes'
-// BrapiConnector sends as an Authorization: Bearer header. Encrypted like
+// KeyBrapiToken stores the optional brapi.dev API token the brapi provider
+// in internal/marketdata sends as an Authorization: Bearer header. Encrypted like
 // the Pluggy credentials it sits next to in Configurações.
 const KeyBrapiToken = "quotes.brapi_token"
 

@@ -12,7 +12,7 @@ import (
 
 // BrapiProvider prices B3 instruments through brapi.dev's quote endpoint.
 //
-// Endpoint verified live while building the original connector (brapi.dev/docs
+// Endpoint verified live while building this provider (brapi.dev/docs
 // plus a real request against the production API): GET /api/quote/{tickers}
 // returns {"results":[{"symbol":"PETR4","regularMarketPrice":<price>,...}]},
 // and with ?range=..&interval=1d also results[0].historicalDataPrice.

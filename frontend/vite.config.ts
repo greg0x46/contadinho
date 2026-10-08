@@ -11,8 +11,8 @@ export default defineConfig({
       "/api": apiProxyTarget,
       "/health": apiProxyTarget,
     },
-    // Only set when tunneling this dev server (e.g. cloudflared quick
-    // tunnels) through a public hostname Vite wouldn't otherwise trust.
+    // Only set when the dev server is reached through a hostname Vite
+    // wouldn't otherwise trust.
     allowedHosts: process.env.CONTADINHO_DEV_ALLOWED_HOST
       ? [process.env.CONTADINHO_DEV_ALLOWED_HOST]
       : undefined,

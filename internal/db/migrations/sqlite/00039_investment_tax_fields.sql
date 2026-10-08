@@ -2,9 +2,10 @@
 -- previously parsed nowhere and silently dropped: amountOriginal (the
 -- principal originally applied), taxes (IR provisioned) and taxes2 (IOF,
 -- regressive, nonzero only in the holding's first 30 days) — all three
--- empirically verified against real Nubank data. The app already computes
--- the correct net yield without them (investments_handlers.go's
--- applyYield/netContributed); this is purely additive detail for display.
+-- empirically verified against real Nubank data. The yield itself is
+-- computed without them (investments_handlers.go's applyYield); these are the
+-- detail the UI deducts from it to state the yield net, and shows as amount
+-- invested, IR withheld and IOF withheld.
 -- Pluggy never populates any of the three for EQUITY — expected, not a bug.
 --
 -- Note: investment_operations already has its own unrelated "taxes" column

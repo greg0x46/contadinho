@@ -9,7 +9,7 @@ import (
 
 // handleQuotesSettings mirrors handlePluggySettings: write-only, and never
 // echoes the saved value back. Unlike Pluggy's credentials, the brapi token
-// is optional — internal/quotes' BrapiConnector sends requests
+// is optional — the brapi provider in internal/marketdata sends requests
 // unauthenticated when it is empty — so an empty body value is accepted too,
 // as the deliberate way to clear a previously saved token.
 func handleQuotesSettings(db *sql.DB, keys *settings.Secrets) http.HandlerFunc {

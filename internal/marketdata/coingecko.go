@@ -14,8 +14,8 @@ import (
 )
 
 // CoinGeckoProvider prices crypto assets through CoinGecko's public,
-// unauthenticated API — verified live while building the original
-// connector: GET api.coingecko.com/api/v3/simple/price?ids=bitcoin&
+// unauthenticated API — verified live while building this
+// provider: GET api.coingecko.com/api/v3/simple/price?ids=bitcoin&
 // vs_currencies=brl returns {"bitcoin":{"brl":<price>}}; an unknown id
 // returns 200 with an empty {} object rather than an error status.
 //
