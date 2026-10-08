@@ -734,7 +734,10 @@ func transactionNotFoundProblem(w http.ResponseWriter) {
 // writeManualTransactionError maps the errors ledger.Service can return for a
 // create or edit to their Problem responses. notManualDetail and
 // investmentLinkedDetail differ between edit and delete, so callers pass them.
-func writeManualTransactionError(w http.ResponseWriter, err error, investmentLinkedDetail, notManualDetail string) {
+// An invalid category is the client's fault only when the request named one:
+// otherwise it comes from an automation rule pointing at a missing or inactive
+// category, which is a server-side 503, not a 422 about input the client never sent.
+func writeManualTransactionError(w http.ResponseWriter, err error, explicitCategory bool, investmentLinkedDetail, notManualDetail string) {
 	switch {
 	case errors.Is(err, transactions.ErrInvestmentLinked):
 		writeProblem(w, 409, "investment-linked-transaction", "Lançamento vinculado a investimento", investmentLinkedDetail)
@@ -744,7 +747,7 @@ func writeManualTransactionError(w http.ResponseWriter, err error, investmentLin
 		writeProblem(w, 409, "transaction-not-manual", "Transação não é manual", notManualDetail)
 	case errors.Is(err, transactions.ErrAccountNotFound):
 		accountNotFoundProblem(w)
-	case errors.Is(err, categories.ErrCategoryInvalid):
+	case explicitCategory && errors.Is(err, categories.ErrCategoryInvalid):
 		invalidCategoryProblem(w)
 	default:
 		manualTransactionUnavailableProblem(w)
@@ -768,7 +771,7 @@ func handleCreateManualTransaction(svc *ledger.Service) http.HandlerFunc {
 		}
 		item, err := svc.CreateManual(r.Context(), input, req.CategoryID)
 		if err != nil {
-			writeManualTransactionError(w, err, "", "")
+			writeManualTransactionError(w, err, req.CategoryID != nil, "", "")
 			return
 		}
 		writeJSON(w, http.StatusCreated, toItemDTO(item))
@@ -792,7 +795,7 @@ func handleUpdateManualTransaction(svc *ledger.Service) http.HandlerFunc {
 		}
 		item, err := svc.UpdateManual(r.Context(), id, input, req.CategoryID)
 		if err != nil {
-			writeManualTransactionError(w, err,
+			writeManualTransactionError(w, err, req.CategoryID != nil,
 				"Desfaça os vínculos de investimento antes de editar o lançamento.",
 				"Só lançamentos manuais podem ser editados.")
 			return
@@ -808,7 +811,7 @@ func handleDeleteManualTransaction(svc *ledger.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		err := svc.DeleteManual(r.Context(), r.PathValue("id"))
 		if err != nil {
-			writeManualTransactionError(w, err,
+			writeManualTransactionError(w, err, false,
 				"Desfaça os vínculos de investimento antes de excluir o lançamento.",
 				"Só lançamentos manuais podem ser excluídos.")
 			return

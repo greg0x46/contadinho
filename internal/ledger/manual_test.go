@@ -94,6 +94,39 @@ func (f *fixture) countTransactions() int {
 	return n
 }
 
+// origins returns the origin of every category event for a transaction, oldest
+// first. Decisions that a later pass skips leave no event, so this history is
+// what proves the order the passes ran in.
+func (f *fixture) origins(id string) []string {
+	f.t.Helper()
+	rows, err := f.conn.Query(`SELECT origin FROM transaction_category_events WHERE transaction_id = ? ORDER BY revision`, id)
+	if err != nil {
+		f.t.Fatalf("origins: %v", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var o string
+		if err := rows.Scan(&o); err != nil {
+			f.t.Fatalf("scan: %v", err)
+		}
+		out = append(out, o)
+	}
+	return out
+}
+
+func assertOrigins(t *testing.T, got []string, want ...string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("category event origins = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("category event origins = %v, want %v", got, want)
+		}
+	}
+}
+
 func (f *fixture) input(description string) transactions.ManualInput {
 	return transactions.ManualInput{
 		AccountID:   f.accountID,
@@ -152,6 +185,24 @@ func TestCreateManualRuleOverridesLearnedCategory(t *testing.T) {
 	if item.InternalCategory == nil || item.InternalCategory.ID != lazer {
 		t.Fatalf("InternalCategory = %+v, want rule category %s", item.InternalCategory, lazer)
 	}
+	// learned must run before the rule: if the rule went first, the learned
+	// pass would be skipped and leave no event.
+	assertOrigins(t, f.origins(item.ID), "learned", "rule")
+}
+
+func TestCreateManualExplicitCategorySkipsLearnedPass(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	mercado, saude := f.category("Mercado"), f.category("Saúde")
+
+	if _, err := f.svc.CreateManual(ctx, f.input("Pilates"), &mercado); err != nil {
+		t.Fatalf("seed CreateManual: %v", err)
+	}
+	item, err := f.svc.CreateManual(ctx, f.input("Pilates"), &saude)
+	if err != nil {
+		t.Fatalf("CreateManual: %v", err)
+	}
+	assertOrigins(t, f.origins(item.ID), "manual")
 }
 
 func TestCreateManualExplicitCategoryBeatsRule(t *testing.T) {
@@ -168,6 +219,27 @@ func TestCreateManualExplicitCategoryBeatsRule(t *testing.T) {
 	}
 	if item.InternalCategory.Origin != "manual" {
 		t.Errorf("Origin = %q, want manual", item.InternalCategory.Origin)
+	}
+	// the rule must run first and be overridden: if the explicit category went
+	// first, the rule would skip the manual decision and leave no event.
+	assertOrigins(t, f.origins(item.ID), "rule", "manual")
+}
+
+func TestCreateManualRuleWithInactiveCategoryFailsWithoutBlamingInput(t *testing.T) {
+	f := newFixture(t)
+	lazer := f.category("Lazer")
+	f.rule(containsRule("streaming", automation.ActionWrite{Type: automation.ActionSetCategory, CategoryID: &lazer}))
+	inactive := false
+	if _, err := categories.Update(context.Background(), f.conn, lazer, nil, &inactive, nil, nil); err != nil {
+		t.Fatalf("deactivate category: %v", err)
+	}
+
+	_, err := f.svc.CreateManual(context.Background(), f.input("Streaming mensal"), nil)
+	if !errors.Is(err, categories.ErrCategoryInvalid) {
+		t.Fatalf("err = %v, want ErrCategoryInvalid from the rule pass", err)
+	}
+	if n := f.countTransactions(); n != 0 {
+		t.Errorf("transactions persisted = %d, want 0 after rollback", n)
 	}
 }
 
@@ -274,5 +346,33 @@ func TestUpdateAndDeleteRejectSyncedTransaction(t *testing.T) {
 	}
 	if err := f.svc.DeleteManual(ctx, syncedID); !errors.Is(err, transactions.ErrNotManual) {
 		t.Errorf("DeleteManual err = %v, want ErrNotManual", err)
+	}
+}
+
+func TestUpdateAndDeleteUnknownTransaction(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	if _, err := f.svc.UpdateManual(ctx, uuid.NewString(), f.input("x"), nil); !errors.Is(err, transactions.ErrTransactionNotFound) {
+		t.Errorf("UpdateManual err = %v, want ErrTransactionNotFound", err)
+	}
+	if err := f.svc.DeleteManual(ctx, uuid.NewString()); !errors.Is(err, transactions.ErrTransactionNotFound) {
+		t.Errorf("DeleteManual err = %v, want ErrTransactionNotFound", err)
+	}
+}
+
+func TestDeleteManualRemovesTheRow(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	created, err := f.svc.CreateManual(ctx, f.input("Descartável"), nil)
+	if err != nil {
+		t.Fatalf("CreateManual: %v", err)
+	}
+	if err := f.svc.DeleteManual(ctx, created.ID); err != nil {
+		t.Fatalf("DeleteManual: %v", err)
+	}
+	if _, found, err := transactions.GetItem(ctx, f.conn, created.ID); err != nil || found {
+		t.Errorf("GetItem after delete: found=%v err=%v, want not found", found, err)
 	}
 }
