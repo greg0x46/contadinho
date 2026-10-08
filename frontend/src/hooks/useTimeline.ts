@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { getTimeline } from "../api/timeline";
 import type { TimelineParams } from "../api/contracts";
+import { queryKeys } from "../api/queryKeys";
 
 /**
  * enabled=false holds the request back while the caller still lacks a window
@@ -10,7 +11,7 @@ import type { TimelineParams } from "../api/contracts";
  */
 export function useTimeline(params: TimelineParams, enabled = true) {
   const query = useQuery({
-    queryKey: ["timeline", params],
+    queryKey: queryKeys.timelineFor(params),
     queryFn: ({ signal }) => getTimeline(params, signal),
     enabled,
   });

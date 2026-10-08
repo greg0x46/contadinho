@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { listAccounts } from "../api/accounts";
+import { queryKeys } from "../api/queryKeys";
 
-export const accountsQueryKey = ["accounts"] as const;
+export const accountsQueryKey = queryKeys.accounts;
 
 export function useAccounts() {
   const accountsQuery = useQuery({

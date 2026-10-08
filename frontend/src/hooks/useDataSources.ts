@@ -3,6 +3,7 @@ import { useCallback } from "react";
 
 import type { DataSource } from "../api/contracts";
 import { createDataSource, listDataSources, updateDataSource } from "../api/dataSources";
+import { invalidateDataSourcesList, queryKeys } from "../api/queryKeys";
 
 export type DataSourceListState =
   | { kind: "loading" }
@@ -10,17 +11,15 @@ export type DataSourceListState =
   | { kind: "empty" }
   | { kind: "unavailable" };
 
-const listKey = ["data-sources", "list"];
-
 export function useDataSources() {
   const queryClient = useQueryClient();
   const query = useQuery({
-    queryKey: listKey,
+    queryKey: queryKeys.dataSourcesList,
     queryFn: ({ signal }) => listDataSources(signal),
   });
 
   const invalidate = useCallback(
-    () => queryClient.invalidateQueries({ queryKey: listKey }),
+    () => invalidateDataSourcesList(queryClient),
     [queryClient],
   );
 

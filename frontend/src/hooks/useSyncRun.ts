@@ -4,6 +4,7 @@ import type { SyncRunDetail } from "../api/contracts";
 import { ApiError } from "../api/problems";
 import { getSyncRun } from "../api/syncRuns";
 import { isFinalStatus } from "../presentation/syncStatus";
+import { queryKeys } from "../api/queryKeys";
 
 export type SyncRunState = {
   runId: string;
@@ -14,7 +15,7 @@ export type SyncRunState = {
 
 export function useSyncRun(runId: string) {
   const query = useQuery({
-    queryKey: ["sync-runs", "detail", runId],
+    queryKey: queryKeys.syncRunDetail(runId),
     queryFn: ({ signal }) => getSyncRun(runId, signal),
     refetchInterval: ({ state }) =>
       state.data !== undefined && !isFinalStatus(state.data.status) ? 3000 : false,

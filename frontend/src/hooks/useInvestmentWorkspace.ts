@@ -36,8 +36,9 @@ import type {
   InvestmentPositionWrite,
   InvestmentReconciliationWrite,
 } from "../api/contracts";
+import { invalidateAfterLedgerChange, queryKeys } from "../api/queryKeys";
 
-export const investmentWorkspaceQueryKey = ["investmentWorkspace"] as const;
+export const investmentWorkspaceQueryKey = queryKeys.investmentWorkspace;
 
 /**
  * The investment ledger has a deliberately small, connected set of views.
@@ -51,44 +52,39 @@ export function useInvestmentWorkspace({ enabled = true }: { enabled?: boolean }
   // transaction drawer's reconciliation panel) mount without firing six
   // requests; mutations stay available regardless.
   const accountsQuery = useQuery({
-    queryKey: [...investmentWorkspaceQueryKey, "accounts"],
+    queryKey: queryKeys.investmentWorkspacePart("accounts"),
     queryFn: ({ signal }) => listInvestmentAccounts(signal),
     enabled,
   });
   const portfoliosQuery = useQuery({
-    queryKey: [...investmentWorkspaceQueryKey, "portfolios"],
+    queryKey: queryKeys.investmentWorkspacePart("portfolios"),
     queryFn: ({ signal }) => listInvestmentPortfolios(signal),
     enabled,
   });
   const positionsQuery = useQuery({
-    queryKey: [...investmentWorkspaceQueryKey, "positions"],
+    queryKey: queryKeys.investmentWorkspacePart("positions"),
     queryFn: ({ signal }) => listInvestmentPositions({ includeClosed: true }, signal),
     enabled,
   });
   const operationsQuery = useQuery({
-    queryKey: [...investmentWorkspaceQueryKey, "operations"],
+    queryKey: queryKeys.investmentWorkspacePart("operations"),
     queryFn: ({ signal }) => listInvestmentOperations({}, signal),
     enabled,
   });
   const reconciliationsQuery = useQuery({
-    queryKey: [...investmentWorkspaceQueryKey, "reconciliations"],
+    queryKey: queryKeys.investmentWorkspacePart("reconciliations"),
     queryFn: ({ signal }) => listInvestmentReconciliations({}, signal),
     enabled,
   });
   const summaryQuery = useQuery({
-    queryKey: [...investmentWorkspaceQueryKey, "summary"],
+    queryKey: queryKeys.investmentWorkspacePart("summary"),
     queryFn: ({ signal }) => getInvestmentSummary(signal),
     enabled,
   });
 
   const refreshLedger = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: investmentWorkspaceQueryKey }),
-      // A reconciliation changes what is reported as ordinary cash flow.
-      queryClient.invalidateQueries({ queryKey: ["transactions"] }),
-      queryClient.invalidateQueries({ queryKey: ["timeline"] }),
-      queryClient.invalidateQueries({ queryKey: ["netWorth"] }),
-    ]);
+    // A reconciliation changes what is reported as ordinary cash flow.
+    await invalidateAfterLedgerChange(queryClient);
   };
 
   const createAccountMutation = useMutation({

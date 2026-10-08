@@ -2,10 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { createPayable, deletePayable, listPayables, updatePayable } from "../api/payables";
 import type { PayableCreate, PayableKind, PayableUpdate } from "../api/contracts";
+import { invalidateAfterPayableChange, queryKeys } from "../api/queryKeys";
 
-export function payablesQueryKey(kind: PayableKind | null) {
-  return ["payables", kind ?? "all"] as const;
-}
+export const payablesQueryKey = queryKeys.payablesOfKind;
 
 export function usePayables(kind: PayableKind | null = null) {
   const queryClient = useQueryClient();
@@ -15,7 +14,7 @@ export function usePayables(kind: PayableKind | null = null) {
     queryFn: ({ signal }) => listPayables(kind, signal),
   });
 
-  const invalidateAll = () => queryClient.invalidateQueries({ queryKey: ["payables"] });
+  const invalidateAll = () => invalidateAfterPayableChange(queryClient);
 
   const createMutation = useMutation({
     mutationFn: (write: PayableCreate) => createPayable(write),

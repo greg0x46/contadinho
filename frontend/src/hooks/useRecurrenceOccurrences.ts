@@ -8,12 +8,11 @@ import {
   putReconciliation,
 } from "../api/recurringCommitments";
 import type { ReconciliationWrite } from "../api/contracts";
-import { recurringCommitmentsQueryKey } from "./useRecurringCommitments";
+import { invalidateAfterOccurrenceReconciliation, queryKeys } from "../api/queryKeys";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
-export const recurrenceOccurrencesQueryKey = (commitmentId: string) =>
-  [...recurringCommitmentsQueryKey, commitmentId, "occurrences"] as const;
+export const recurrenceOccurrencesQueryKey = queryKeys.recurrenceOccurrences;
 
 /**
  * Occurrences of one commitment plus the three writes the UI offers on them:
@@ -36,12 +35,7 @@ export function useRecurrenceOccurrences(commitmentId: string, enabled = true) {
   // and the transaction views that read the same decision have to be
   // refetched too.
   const afterReconciliationChange = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: recurrenceOccurrencesQueryKey(commitmentId) }),
-      queryClient.invalidateQueries({ queryKey: ["timeline"] }),
-      queryClient.invalidateQueries({ queryKey: ["transactions"] }),
-      queryClient.invalidateQueries({ queryKey: ["transactionReconciliation"] }),
-    ]);
+    await invalidateAfterOccurrenceReconciliation(queryClient, commitmentId);
   };
 
   const putMutation = useMutation({
@@ -95,13 +89,7 @@ export function useReconciliationCandidates(commitmentId: string, occurrenceDate
   }, [search]);
 
   const candidatesQuery = useQuery({
-    queryKey: [
-      ...recurringCommitmentsQueryKey,
-      commitmentId,
-      "candidates",
-      occurrenceDate,
-      debouncedSearch,
-    ],
+    queryKey: queryKeys.recurrenceCandidates(commitmentId, occurrenceDate, debouncedSearch),
     queryFn: ({ signal }) =>
       listReconciliationCandidates(commitmentId, occurrenceDate!, debouncedSearch, signal),
     enabled: occurrenceDate !== null,

@@ -12,6 +12,7 @@ import {
   type ImportHistoryItem,
   type ImportPreview,
 } from "../api/statementImports";
+import { invalidateAfterStatementImport, queryKeys } from "../api/queryKeys";
 
 export type ImportListState<T> =
   | { kind: "loading" }
@@ -26,8 +27,6 @@ interface ConfirmRequest {
   allowPartial: boolean;
 }
 
-const accountsKey = ["statement-imports", "accounts"] as const;
-const historyKey = ["statement-imports", "history"] as const;
 
 function listState<T>(query: UseQueryResult<T[]>): ImportListState<T> {
   if (query.isPending) return { kind: "loading" };
@@ -44,11 +43,11 @@ function listState<T>(query: UseQueryResult<T[]>): ImportListState<T> {
 export function useStatementImports() {
   const queryClient = useQueryClient();
   const accountsQuery = useQuery({
-    queryKey: accountsKey,
+    queryKey: queryKeys.statementImportAccounts,
     queryFn: ({ signal }) => listImportAccounts(signal),
   });
   const historyQuery = useQuery({
-    queryKey: historyKey,
+    queryKey: queryKeys.statementImportHistory,
     queryFn: ({ signal }) => listStatementImports(signal),
   });
 
@@ -66,11 +65,7 @@ export function useStatementImports() {
   const confirmMutation = useMutation({
     mutationFn: ({ file, preview, target, allowPartial }: ConfirmRequest) =>
       confirmStatement(file, preview, target, allowPartial),
-    onSuccess: () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: accountsKey }),
-        queryClient.invalidateQueries({ queryKey: historyKey }),
-      ]),
+    onSuccess: () => invalidateAfterStatementImport(queryClient),
     onSettled: () => {
       confirmLock.current = false;
     },

@@ -4,11 +4,12 @@ import type { CategoryDirection } from "../api/contracts";
 import { browserTimezone } from "./useTransactions";
 
 import type { Period } from "./usePeriod";
+import { queryKeys } from "../api/queryKeys";
 
 export function useCategoryBreakdown(period: Period, classification: CategoryDirection) {
   const timezone = browserTimezone();
   const query = useQuery({
-    queryKey: ["transactions", "category-breakdown", timezone, period, classification],
+    queryKey: queryKeys.categoryBreakdown(timezone, period, classification),
     queryFn: ({ signal }) => getCategoryBreakdown(timezone!, period, classification, signal),
     enabled: timezone !== null,
   });

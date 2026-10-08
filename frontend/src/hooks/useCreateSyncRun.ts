@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import type { SyncRun } from "../api/contracts";
 import { createSyncRun } from "../api/syncRuns";
 import { ApiError } from "../api/problems";
+import { invalidateSyncRunList } from "../api/queryKeys";
 
 export type CreateRunState =
   | { kind: "idle" }
@@ -38,7 +39,7 @@ export function useCreateSyncRun(onCreated: (id: string) => void) {
       setState({ kind: "submitting" });
       try {
         const { runs, requested } = await mutation.mutateAsync(sourceId);
-        await queryClient.invalidateQueries({ queryKey: ["sync-runs", "list"] });
+        await invalidateSyncRunList(queryClient);
         // Only navigate straight to the run when the single connection asked
         // for is the single one that started — requested > 1 with one run
         // back means the others were skipped, which the "started" notice

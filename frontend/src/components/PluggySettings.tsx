@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../api/transport";
 import { FormField } from "./forms/FormField";
+import { invalidateDataSources } from "../api/queryKeys";
 
 export function PluggySettings() {
   const client = useQueryClient();
@@ -27,7 +28,7 @@ export function PluggySettings() {
       setSecret("");
       setItem("");
       setSaved(true);
-      void client.invalidateQueries({ queryKey: ["data-sources"] });
+      void invalidateDataSources(client);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível salvar.");
     } finally {

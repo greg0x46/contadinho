@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { getTimelineDataRange } from "../api/timeline";
+import { queryKeys } from "../api/queryKeys";
 
 /**
  * The widest window the balance curve can cover. Only the "todo o período"
@@ -9,7 +10,7 @@ import { getTimelineDataRange } from "../api/timeline";
  */
 export function useTimelineDataRange(enabled: boolean) {
   const query = useQuery({
-    queryKey: ["timeline-data-range"],
+    queryKey: queryKeys.timelineDataRange,
     queryFn: ({ signal }) => getTimelineDataRange(signal),
     enabled,
   });

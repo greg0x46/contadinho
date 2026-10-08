@@ -2,10 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { putReconciliation } from "../api/recurringCommitments";
 import { getTransactionReconciliation } from "../api/transactions";
-import { recurringCommitmentsQueryKey } from "./useRecurringCommitments";
+import { invalidateAfterTransactionReconciliation, queryKeys } from "../api/queryKeys";
 
-export const transactionReconciliationQueryKey = (transactionId: string) =>
-  ["transactionReconciliation", transactionId] as const;
+export const transactionReconciliationQueryKey = queryKeys.transactionReconciliationOf;
 
 /**
  * The transaction drawer's side of reconciliation: what this transaction
@@ -28,11 +27,7 @@ export function useTransactionReconciliation(transactionId: string, enabled = tr
   });
 
   const afterChange = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["transactionReconciliation"] }),
-      queryClient.invalidateQueries({ queryKey: recurringCommitmentsQueryKey }),
-      queryClient.invalidateQueries({ queryKey: ["timeline"] }),
-    ]);
+    await invalidateAfterTransactionReconciliation(queryClient);
   };
 
   const reconcileMutation = useMutation({

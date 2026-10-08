@@ -8,9 +8,9 @@ import {
   updateInvestmentAsset,
 } from "../api/investmentPortfolio";
 import type { InvestmentAssetWrite, InvestmentAssetClassDefinition } from "../api/contracts";
+import { invalidateAfterInvestmentAssetChange, queryKeys } from "../api/queryKeys";
 
-export const investmentAssetsQueryKey = ["investmentAssets"] as const;
-const investmentWorkspaceQueryKey = ["investmentWorkspace"] as const;
+export const investmentAssetsQueryKey = queryKeys.investmentAssets;
 const emptyClassification: InvestmentAssetClassDefinition[] = [];
 
 export function useInvestmentAssets() {
@@ -20,16 +20,13 @@ export function useInvestmentAssets() {
     queryFn: ({ signal }) => listInvestmentAssets(signal),
   });
   const classificationQuery = useQuery({
-    queryKey: ["investmentAssetClassification"],
+    queryKey: queryKeys.investmentAssetClassification,
     queryFn: ({ signal }) => listInvestmentAssetClassification(signal),
     staleTime: Infinity,
   });
 
   const refresh = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: investmentAssetsQueryKey }),
-      queryClient.invalidateQueries({ queryKey: investmentWorkspaceQueryKey }),
-    ]);
+    await invalidateAfterInvestmentAssetChange(queryClient);
   };
 
   const createMutation = useMutation({

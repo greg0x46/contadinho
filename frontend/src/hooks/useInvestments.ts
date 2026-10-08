@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { listInvestments } from "../api/investments";
+import { queryKeys } from "../api/queryKeys";
 
-export const investmentsQueryKey = ["investments"] as const;
+export const investmentsQueryKey = queryKeys.investments;
 
 export function useInvestments() {
   const investmentsQuery = useQuery({

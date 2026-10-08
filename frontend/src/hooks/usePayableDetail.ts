@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { createPayableLink, deletePayableLink, getPayable, listEligibleTransactions } from "../api/payables";
 import type { PayableDetail, PayableKind } from "../api/contracts";
 import { ApiError } from "../api/problems";
-import { payablesQueryKey } from "./usePayables";
+import { invalidateAfterPayableLinkChange, queryKeys } from "../api/queryKeys";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -17,7 +17,7 @@ export type PayableDetailState = {
 
 export function usePayableDetail(payableId: string, kind: PayableKind) {
   const queryClient = useQueryClient();
-  const baseKey = payablesQueryKey(kind);
+  const baseKey = queryKeys.payablesOfKind(kind);
   const detailQuery = useQuery({
     queryKey: [...baseKey, payableId],
     queryFn: ({ signal }) => getPayable(payableId, signal),
@@ -54,10 +54,7 @@ export function usePayableDetail(payableId: string, kind: PayableKind) {
   });
 
   const afterLinkChange = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: [...baseKey, payableId] }),
-      queryClient.invalidateQueries({ queryKey: ["payables"] }),
-    ]);
+    await invalidateAfterPayableLinkChange(queryClient, kind, payableId);
   };
 
   const linkMutation = useMutation({

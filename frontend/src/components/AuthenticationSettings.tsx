@@ -6,11 +6,12 @@ import { changePassword, getSession, logout, setAuthenticationEnabled } from "..
 import { UnavailableState } from "./AsyncState";
 import { FormField } from "./forms/FormField";
 import { Section } from "./layout";
+import { queryKeys } from "../api/queryKeys";
 
 export function AuthenticationSettings() {
   const client = useQueryClient();
   const { data: session, isLoading, isError, refetch } = useQuery({
-    queryKey: ["auth-session"],
+    queryKey: queryKeys.authSession,
     queryFn: ({ signal }) => getSession(signal),
   });
   const [current, setCurrent] = useState("");
@@ -34,7 +35,7 @@ export function AuthenticationSettings() {
     setError(null);
     try {
       const next = await setAuthenticationEnabled(enabled);
-      client.setQueryData(["auth-session"], next);
+      client.setQueryData(queryKeys.authSession, next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível alterar a autenticação.");
     } finally {

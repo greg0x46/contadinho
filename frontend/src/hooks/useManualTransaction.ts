@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { createManualTransaction, deleteManualTransaction, updateManualTransaction } from "../api/transactions";
 import type { ManualTransactionWrite } from "../api/contracts";
+import { invalidateAfterTransactionChange } from "../api/queryKeys";
 
 /**
  * Wraps the three lançamento-manual write endpoints, invalidating every
@@ -11,7 +12,7 @@ import type { ManualTransactionWrite } from "../api/contracts";
  */
 export function useManualTransaction() {
   const queryClient = useQueryClient();
-  const invalidateAll = () => queryClient.invalidateQueries({ queryKey: ["transactions"] });
+  const invalidateAll = () => invalidateAfterTransactionChange(queryClient);
 
   const createMutation = useMutation({
     mutationFn: (write: ManualTransactionWrite) => createManualTransaction(write),
