@@ -1,20 +1,22 @@
-import { ArrowDownOutlined, ArrowUpOutlined, RightOutlined } from "@ant-design/icons";
-import { useState } from "react";
+import { DownOutlined } from "@ant-design/icons";
+import { useId, useState } from "react";
 
 import type { CurrencyTotals } from "../../api/contracts";
 import { formatBRL } from "../../presentation/money";
 import { DataCardSummary } from "../layout/DataCard";
-
-function balanceSign(balance: string): "negative" | "positive" | "zero" {
-  if (balance.startsWith("-")) return "negative";
-  if (Number(balance) === 0) return "zero";
-  return "positive";
-}
+import { Money } from "../shared/Money";
+import { useCompactScreen } from "../shared/useCompactScreen";
 
 /**
- * The summary strip of the transactions DataCard: how many rows, and the
- * inflow / outflow / result of everything the filters matched. On a phone
- * only the count and the result show until "Ver resumo" unfolds the rest.
+ * The summary strip of the transactions DataCard: how many rows and the
+ * result of everything the filters matched, with the inflow / outflow
+ * figures and the note about what the totals include.
+ *
+ * On a phone the strip stays one ~40px line — "19 transações · Resultado
+ * -R$ 2.656,18" — with a chevron that unfolds Entradas, Saídas and the note;
+ * the figures that explain the result are not worth a permanent half
+ * screen of a sticky bar. On a wide screen everything shows, in one quiet
+ * line without icons or big figures.
  */
 export function TransactionSummaryBar({
   totals,
@@ -25,6 +27,7 @@ export function TransactionSummaryBar({
   totalItems: number;
   busy?: boolean;
 }) {
+  const compact = useCompactScreen();
   const [expanded, setExpanded] = useState(false);
   const brl = totals.find((total) => total.currency_code === "BRL") ?? {
     currency_code: "BRL",
@@ -32,49 +35,63 @@ export function TransactionSummaryBar({
     outflow: "0",
     balance: "0",
   };
+  const showDetails = !compact || expanded;
+  const detailsId = useId();
 
   return (
     <DataCardSummary
       label="Resumo financeiro"
       busy={busy}
-      note="Totais dos filtros aplicados, sem transações ignoradas."
+      note={showDetails ? "Totais dos filtros aplicados, sem transações ignoradas." : undefined}
     >
       <div className={`transaction-summary-bar ${expanded ? "is-expanded" : ""}`}>
-        <p className="transaction-summary-count">
-          {totalItems.toLocaleString("pt-BR")} {totalItems === 1 ? "transação" : "transações"}
+        <p className="transaction-summary-line">
+          <span className="transaction-summary-count">
+            {totalItems.toLocaleString("pt-BR")} {totalItems === 1 ? "transação" : "transações"}
+          </span>
+          <span className="transaction-summary-figure transaction-summary-result">
+            <span className="transaction-summary-label">Resultado</span>
+            <Money value={brl.balance} tone="result" className="transaction-summary-value" />
+          </span>
+          {!compact && (
+            <>
+              <span className="transaction-summary-figure">
+                <span className="transaction-summary-label">Entradas</span>
+                <span className="transaction-summary-value">{formatBRL(brl.inflow)}</span>
+              </span>
+              <span className="transaction-summary-figure">
+                <span className="transaction-summary-label">Saídas</span>
+                <span className="transaction-summary-value">{formatBRL(brl.outflow)}</span>
+              </span>
+            </>
+          )}
         </p>
 
-        <div id="transaction-summary-inflow" className="transaction-summary-figure transaction-summary-figure-inflow">
-          <span className="transaction-summary-figure-label">
-            <ArrowUpOutlined aria-hidden="true" /> Entradas
-          </span>
-          <span className="transaction-summary-figure-value">{formatBRL(brl.inflow)}</span>
-        </div>
+        {compact && (
+          <button
+            type="button"
+            className="transaction-summary-toggle"
+            aria-expanded={expanded}
+            aria-controls={expanded ? detailsId : undefined}
+            aria-label={expanded ? "Ocultar resumo" : "Ver resumo"}
+            onClick={() => setExpanded((value) => !value)}
+          >
+            <DownOutlined aria-hidden="true" />
+          </button>
+        )}
 
-        <div id="transaction-summary-outflow" className="transaction-summary-figure transaction-summary-figure-outflow">
-          <span className="transaction-summary-figure-label">
-            <ArrowDownOutlined aria-hidden="true" /> Saídas
-          </span>
-          <span className="transaction-summary-figure-value">{formatBRL(brl.outflow)}</span>
-        </div>
-
-        <div className="transaction-summary-figure transaction-summary-figure-balance">
-          <span className="transaction-summary-figure-label">Resultado do período</span>
-          <span className={`transaction-summary-figure-value transaction-summary-balance is-${balanceSign(brl.balance)}`}>
-            {formatBRL(brl.balance)}
-          </span>
-        </div>
-
-        <button
-          type="button"
-          className="transaction-summary-toggle"
-          aria-expanded={expanded}
-          aria-controls="transaction-summary-inflow transaction-summary-outflow"
-          onClick={() => setExpanded((value) => !value)}
-        >
-          {expanded ? "Ocultar resumo" : "Ver resumo"}
-          <RightOutlined aria-hidden="true" />
-        </button>
+        {compact && expanded && (
+          <dl id={detailsId} className="transaction-summary-details">
+            <div>
+              <dt>Entradas</dt>
+              <dd>{formatBRL(brl.inflow)}</dd>
+            </div>
+            <div>
+              <dt>Saídas</dt>
+              <dd>{formatBRL(brl.outflow)}</dd>
+            </div>
+          </dl>
+        )}
       </div>
     </DataCardSummary>
   );

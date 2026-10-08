@@ -1,18 +1,22 @@
-import { Card } from "antd";
+import { Alert } from "antd";
 import { useState } from "react";
 
 import type { InvestmentOperation, InvestmentOperationWrite } from "../../api/contracts";
 import { useInvestmentWorkspace } from "../../hooks/useInvestmentWorkspace";
+import { errorMessage } from "../../presentation/errors";
+import { Section } from "../layout";
+import { useFeedback } from "../shared/useFeedback";
 import { InvestmentOperationForm } from "./InvestmentOperationForm";
-import { InvestmentOperationList } from "./InvestmentOperationList";
+import { InvestmentOperationsTable } from "./InvestmentOperationsTable";
 
 /**
- * The movimentações of the position backed by this synced investment. They
- * live here rather than in the account list so that page stays a summary;
- * correcting or deleting one happens where its position is shown in detail.
+ * The movimentações of the position backed by this synced investment, where
+ * the position is shown in detail: correcting or deleting one happens here as
+ * well as from the account's own list.
  */
 export function InvestmentPositionOperations({ investmentId }: { investmentId: string }) {
   const workspace = useInvestmentWorkspace();
+  const feedback = useFeedback();
   const [editing, setEditing] = useState<InvestmentOperation | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -31,23 +35,36 @@ export function InvestmentPositionOperations({ investmentId }: { investmentId: s
     try {
       await workspace.updateOperation({ operationId: editing.id, write });
       setEditing(null);
+      feedback.success("Salvo");
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : "Não foi possível salvar a movimentação.");
+      setSaveError(errorMessage(error, "Não foi possível salvar a movimentação."));
     }
   };
   const remove = async (operation: InvestmentOperation) => {
     setActionError(null);
     try {
       await workspace.deleteOperation(operation.id);
+      feedback.success("Excluído");
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Não foi possível excluir a movimentação.");
+      const message = errorMessage(error, "Não foi possível excluir a movimentação.");
+      setActionError(message);
+      feedback.error(message);
     }
   };
 
   return (
-    <Card title={`Movimentações registradas (${operations.length})`}>
-      {actionError && <p role="alert">{actionError}</p>}
-      <InvestmentOperationList
+    <Section title={`Movimentações registradas (${operations.length})`}>
+      {actionError && (
+        <Alert
+          type="error"
+          showIcon
+          closable
+          onClose={() => setActionError(null)}
+          message={actionError}
+          style={{ marginBottom: 16 }}
+        />
+      )}
+      <InvestmentOperationsTable
         operations={operations}
         positions={workspace.positions}
         onEdit={(operation) => {
@@ -69,6 +86,6 @@ export function InvestmentPositionOperations({ investmentId }: { investmentId: s
         onSubmitCompound={() => undefined}
         onCancel={() => setEditing(null)}
       />
-    </Card>
+    </Section>
   );
 }

@@ -1,46 +1,48 @@
 import type { Account } from "../../api/contracts";
-import { formatBRL } from "../../presentation/money";
+import { sumBRL } from "../../presentation/money";
+import { SummaryStrip } from "../layout";
+import { Money } from "../shared/Money";
+
+function isBRL(account: Account): boolean {
+  return account.currency_code === null || account.currency_code === "BRL";
+}
 
 // Totals cover BRL accounts only: mixing currencies into one figure would be
 // wrong, and the same restriction already applies to the credit-card total on
 // the home dashboard.
-function sumBRL(accounts: Account[], pick: (account: Account) => string | null): string {
-  const total = accounts
-    .filter((account) => account.currency_code === null || account.currency_code === "BRL")
-    .reduce((running, account) => running + Number(pick(account) ?? "0"), 0);
-  return total.toFixed(2);
+function sumAccounts(accounts: Account[], pick: (account: Account) => string | null): string {
+  return sumBRL(accounts.filter(isBRL).map((account) => pick(account) ?? "0"));
 }
 
 /**
- * The page's hero figure — total balance across bank accounts — with the
- * card invoice and available limit as smaller, secondary figures beside it.
- * The credit limit itself isn't repeated here: it belongs to the cards
- * section header, next to the cards it actually limits.
+ * The page's hero figure — the balance across bank accounts — with what the
+ * cards currently owe as its one secondary figure.
+ *
+ * The cards' available limit is deliberately not a summary figure: each card
+ * row already says how much of its own limit is left, and a limit summed
+ * across issuers is not a pool anyone can spend from. The total limit sits in
+ * the cards section's header, next to the cards it actually limits.
  */
 export function AccountsSummary({ accounts }: { accounts: Account[] }) {
   const bank = accounts.filter((account) => account.account_type !== "CREDIT");
   const credit = accounts.filter((account) => account.account_type === "CREDIT");
+  const hasForeignAccounts = bank.some((account) => !isBRL(account));
 
   return (
-    <section className="accounts-summary" aria-label="Resumo das contas">
-      <div className="accounts-summary-hero">
-        <span className="accounts-summary-hero-label">Saldo total</span>
-        <p className="accounts-summary-hero-value">{formatBRL(sumBRL(bank, (account) => account.balance))}</p>
-      </div>
-      <div className="accounts-summary-secondary">
-        <div className="accounts-summary-figure">
-          <span className="accounts-summary-figure-label">Fatura dos cartões</span>
-          <span className="accounts-summary-figure-value">
-            {formatBRL(sumBRL(credit, (account) => account.balance))}
-          </span>
-        </div>
-        <div className="accounts-summary-figure">
-          <span className="accounts-summary-figure-label">Limite disponível</span>
-          <span className="accounts-summary-figure-value">
-            {formatBRL(sumBRL(credit, (account) => account.available_credit_limit))}
-          </span>
-        </div>
-      </div>
-    </section>
+    <SummaryStrip
+      label="Saldo em contas"
+      value={<Money value={sumAccounts(bank, (account) => account.balance)} tone="balance" size="hero" />}
+      note={hasForeignAccounts ? "Soma só as contas em reais." : undefined}
+      items={
+        credit.length > 0
+          ? [
+              {
+                label: "Fatura atual dos cartões",
+                value: <Money value={sumAccounts(credit, (account) => account.balance)} tone="balance" />,
+              },
+            ]
+          : undefined
+      }
+    />
   );
 }

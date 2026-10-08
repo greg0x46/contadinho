@@ -1,10 +1,8 @@
-import { DeleteOutlined, EditOutlined, MoreOutlined } from "@ant-design/icons";
 import { useQueryClient } from "@tanstack/react-query";
-import { Button, Dropdown, Modal } from "antd";
+import { Alert, Button } from "antd";
 import { useEffect, useState } from "react";
 
 import type {
-  Account,
   Category,
   ManualTransactionWrite,
   RecurringCommitmentWrite,
@@ -17,11 +15,22 @@ import { recurringCommitmentPrefill } from "../../presentation/transactionDetail
 import { InvestmentLinkNewOperationScreen, InvestmentLinkScreen } from "../investments/InvestmentLinkScreen";
 import { RecurringCommitmentFields } from "../recurringCommitments/RecurringCommitmentForm";
 import { PanelFooter, PanelSection, PanelStack } from "../shared/PanelStack";
+import { RecordMenu } from "../shared/RecordMenu";
+import { useConfirm } from "../shared/useConfirm";
 import { useScreenStack } from "../shared/useScreenStack";
 import { ManualTransactionFields } from "./ManualTransactionForm";
+import {
+  manualDraftFrom,
+  manualDraftIssue,
+  nextIssue,
+  type ManualIssue,
+  manualDraftToWrite,
+  type ManualDraft,
+} from "./manualTransactionDraft";
 import { TransactionDetailsScreen, TransactionTechnicalScreen } from "./TransactionInfoScreens";
 import { TransactionOverviewScreen } from "./TransactionOverviewScreen";
 import { TransactionReconcileScreen } from "./TransactionReconcileScreen";
+import type { WriteIssue } from "./useTransactionPanelWrites";
 
 /**
  * Every place the panel can show. Each is a whole screen that replaces the
@@ -45,7 +54,7 @@ const screenTitle: Record<TransactionScreen["kind"], string> = {
   reconcile: "Conciliar com recorrência",
   investment: "Vincular a investimento",
   "investment-new": "Nova movimentação",
-  "edit-manual": "Editar lançamento",
+  "edit-manual": "Editar transação",
 };
 
 const root: TransactionScreen = { kind: "overview" };
@@ -53,12 +62,15 @@ const root: TransactionScreen = { kind: "overview" };
 export type TransactionPanelProps = {
   item: TransactionItem | null;
   categories?: Category[];
-  accounts?: Account[];
   onClose: () => void;
   onInclusion?: (id: string, state: TransactionInclusionState) => void;
   inclusionPending?: boolean;
+  /** A failed "considerar nos totais" write on this line, shown next to the switch. */
+  inclusionError?: WriteIssue | null;
   onCategory?: (id: string, categoryId: string) => void;
   categoryPending?: boolean;
+  /** A failed category write on this line, shown under the category field. */
+  categoryError?: WriteIssue | null;
   /** Rejects with an Error whose message is ready to show. */
   onSaveManual?: (id: string, write: ManualTransactionWrite) => Promise<void>;
   saveManualPending?: boolean;
@@ -86,12 +98,13 @@ function TransactionStack({
   item,
   open,
   categories = [],
-  accounts = [],
   onClose,
   onInclusion,
   inclusionPending = false,
+  inclusionError = null,
   onCategory,
   categoryPending = false,
+  categoryError = null,
   onSaveManual,
   saveManualPending = false,
   onDeleteManual,
@@ -99,7 +112,7 @@ function TransactionStack({
   deleteManualError = null,
 }: TransactionPanelProps & { item: TransactionItem; open: boolean }) {
   const stack = useScreenStack<TransactionScreen>(root);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const confirm = useConfirm();
   const current = stack.current;
   // The stack outlives the container's content (which the Drawer destroys
   // on close), so reopening the same line must start from the overview.
@@ -109,18 +122,32 @@ function TransactionStack({
   }, [open, reset]);
   const isManual = item.origin === "manual";
 
-  const menu = isManual
-    ? {
-        items: [
-          { key: "edit", icon: <EditOutlined />, label: "Editar lançamento", disabled: !onSaveManual },
-          { key: "delete", icon: <DeleteOutlined />, label: "Excluir lançamento", danger: true, disabled: !onDeleteManual },
-        ],
-        onClick: ({ key }: { key: string }) => {
-          if (key === "edit") stack.push({ kind: "edit-manual" });
-          if (key === "delete") setConfirmDelete(true);
-        },
-      }
-    : null;
+  const menu =
+    isManual && current.kind === "overview" ? (
+      <RecordMenu
+        label="Mais ações"
+        items={[
+          {
+            key: "edit",
+            label: "Editar transação",
+            disabled: !onSaveManual,
+            onClick: () => stack.push({ kind: "edit-manual" }),
+          },
+          {
+            key: "delete",
+            label: "Excluir transação",
+            danger: true,
+            disabled: !onDeleteManual || deleteManualPending,
+            onClick: () =>
+              confirm({
+                title: "Excluir transação",
+                description: "Esta ação não pode ser desfeita.",
+                onConfirm: () => onDeleteManual?.(item.id),
+              }),
+          },
+        ]}
+      />
+    ) : null;
 
   return (
     <PanelStack
@@ -128,13 +155,7 @@ function TransactionStack({
       onClose={onClose}
       title={screenTitle[current.kind]}
       onBack={stack.depth > 1 ? stack.pop : undefined}
-      extra={
-        menu && current.kind === "overview" ? (
-          <Dropdown menu={menu} trigger={["click"]} placement="bottomRight">
-            <Button type="text" icon={<MoreOutlined />} aria-label="Mais ações" />
-          </Dropdown>
-        ) : null
-      }
+      extra={menu}
     >
       {current.kind === "overview" && (
         <TransactionOverviewScreen
@@ -144,6 +165,8 @@ function TransactionStack({
           categoryPending={categoryPending}
           onInclusion={onInclusion}
           inclusionPending={inclusionPending}
+          inclusionError={inclusionError}
+          categoryError={categoryError}
           deleteError={deleteManualError}
           navigate={stack.push}
         />
@@ -167,28 +190,12 @@ function TransactionStack({
       {current.kind === "edit-manual" && onSaveManual && (
         <EditManualScreen
           item={item}
-          accounts={accounts}
           categories={categories}
           submitting={saveManualPending}
           onSave={onSaveManual}
           onDone={stack.reset}
         />
       )}
-
-      <Modal
-        open={confirmDelete}
-        title="Excluir lançamento manual"
-        okText="Excluir"
-        cancelText="Cancelar"
-        okButtonProps={{ danger: true, loading: deleteManualPending }}
-        onOk={() => {
-          onDeleteManual?.(item.id);
-          setConfirmDelete(false);
-        }}
-        onCancel={() => setConfirmDelete(false)}
-      >
-        Esta ação não pode ser desfeita.
-      </Modal>
     </PanelStack>
   );
 }
@@ -218,7 +225,7 @@ function CreateRecurrenceScreen({
       await queryClient.invalidateQueries({ queryKey: transactionReconciliationQueryKey(item.id) });
       onDone();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Não foi possível salvar o compromisso.");
+      setError(caught instanceof Error ? caught.message : "Não foi possível salvar a recorrência.");
     }
   };
 
@@ -231,6 +238,7 @@ function CreateRecurrenceScreen({
           initialDraft={recurringCommitmentPrefill(item)}
           categories={categories}
           submitError={error}
+          submitting={commitments.isSaving}
           onSubmit={(write) => void submit(write)}
         />
       </PanelSection>
@@ -245,43 +253,60 @@ function CreateRecurrenceScreen({
 
 const manualFormId = "transaction-edit-manual-form";
 
-/** Editing a lançamento manual in place of the overview, not in a second drawer. */
+/**
+ * Editing a manual transaction in place of the overview, not in a second
+ * drawer. The same fields as the new-transaction drawer, in the panel's own
+ * form with the shell's sticky Salvar.
+ */
 function EditManualScreen({
   item,
-  accounts,
   categories,
   submitting,
   onSave,
   onDone,
 }: {
   item: TransactionItem;
-  accounts: Account[];
   categories: Category[];
   submitting: boolean;
   onSave: (id: string, write: ManualTransactionWrite) => Promise<void>;
   onDone: () => void;
 }) {
+  const [draft, setDraft] = useState<ManualDraft>(() => manualDraftFrom(item, item.account.id));
   const [error, setError] = useState<string | null>(null);
-  const submit = async (write: ManualTransactionWrite) => {
+  const [issue, setIssue] = useState<ManualIssue | null>(null);
+  const submit = async () => {
+    const problem = manualDraftIssue(draft);
+    setIssue((previous) => nextIssue(previous, problem));
     setError(null);
+    if (problem !== null) return;
     try {
-      await onSave(item.id, write);
+      await onSave(item.id, manualDraftToWrite(draft));
       onDone();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Não foi possível salvar o lançamento.");
+      setError(caught instanceof Error ? caught.message : "Não foi possível salvar a transação.");
     }
   };
   return (
     <>
       <PanelSection>
-        <ManualTransactionFields
-          formId={manualFormId}
-          transaction={item}
-          accounts={accounts}
-          categories={categories}
-          submitError={error}
-          onSubmit={(write) => void submit(write)}
-        />
+        <form
+          id={manualFormId}
+          className="form-drawer-form"
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
+          {error && <Alert type="error" showIcon message={error} />}
+          <ManualTransactionFields
+            draft={draft}
+            onChange={setDraft}
+            categories={categories}
+            isEditing
+            issue={issue}
+          />
+        </form>
       </PanelSection>
       <PanelFooter>
         <Button type="primary" block htmlType="submit" form={manualFormId} loading={submitting}>

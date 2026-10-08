@@ -1,18 +1,4 @@
-import {
-  Alert,
-  Button,
-  Checkbox,
-  DatePicker,
-  Divider,
-  Drawer,
-  Flex,
-  Input,
-  InputNumber,
-  Segmented,
-  Select,
-  Switch,
-  Typography,
-} from "antd";
+import { Button, Checkbox, DatePicker, Divider, Input, InputNumber, Popconfirm, Segmented, Select, Switch } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { useEffect, useState } from "react";
 
@@ -38,7 +24,12 @@ import {
   ruleLogicOperatorLabel,
 } from "../../presentation/ruleConditionLabels";
 import { categoryKindLabel } from "../../presentation/categoryLabels";
+import { AccountSelect } from "../forms/AccountSelect";
+import { FormDrawer } from "../forms/FormDrawer";
+import { FormField } from "../forms/FormField";
+import { MoneyInput } from "../forms/MoneyInput";
 import { ConditionFieldConfig, ConditionListEditor } from "../shared/ConditionListEditor";
+import { deleteRuleDescription } from "./deleteRuleDescription";
 
 const dateFormat = "YYYY-MM-DD";
 
@@ -177,6 +168,7 @@ export function AutomationEntryForm({
   submitError,
   onSubmit,
   onCancel,
+  onDelete,
 }: {
   open: boolean;
   entry: AutomationEntry | null;
@@ -189,6 +181,8 @@ export function AutomationEntryForm({
   submitError: string | null;
   onSubmit: (payload: AutomationEntrySubmitPayload) => void;
   onCancel: () => void;
+  /** Deleting lives in the edit sheet, not on the row: one tap target per row. */
+  onDelete?: (rule: AutomationRule) => void;
 }) {
   const isEditing = entry !== null;
   const initialActionTypes: AutomationActionType[] = entry
@@ -360,7 +354,7 @@ export function AutomationEntryForm({
     let reconcile: AutomationEntrySubmitPayload["reconcile"] = null;
     if (actionTypes.includes("reconcile")) {
       if (commitmentDraft.name.trim() === "") {
-        setError("Informe um nome para o compromisso.");
+        setError("Informe um nome para a recorrência.");
         return;
       }
       if (commitmentDraft.amount === null || commitmentDraft.amount <= 0) {
@@ -416,45 +410,46 @@ export function AutomationEntryForm({
   };
 
   return (
-    <Drawer
+    <FormDrawer
       title={isEditing ? "Editar automação" : "Nova automação"}
       open={open}
       onClose={onCancel}
-      width={480}
-      destroyOnHidden
-      footer={
-        <Flex justify="end" gap="small">
-          <Button onClick={onCancel}>Cancelar</Button>
-          <Button type="primary" loading={submitting} onClick={submit}>
-            Salvar
-          </Button>
-        </Flex>
-      }
+      onSubmit={submit}
+      submitting={submitting}
+      error={error ?? submitError}
     >
-      <Flex vertical gap="middle" className="automation-entry-form">
-        {(error ?? submitError) && <Alert type="error" showIcon message={error ?? submitError} />}
+      <FormField label="Nome da automação" htmlFor="automation-rule-name">
+        <Input
+          id="automation-rule-name"
+          value={ruleDraft.name}
+          onChange={(event) => setRuleDraft((current) => ({ ...current, name: event.target.value }))}
+          placeholder="Ex.: Ignorar assinaturas, Conciliar aluguel"
+        />
+      </FormField>
 
-        <div className="filter-field">
-          <label htmlFor="automation-rule-name">Nome da automação</label>
-          <Input
-            id="automation-rule-name"
-            value={ruleDraft.name}
-            onChange={(event) => setRuleDraft((current) => ({ ...current, name: event.target.value }))}
-            placeholder="Ex.: Ignorar assinaturas, Conciliar aluguel"
-          />
-        </div>
+      <FormField label="Ativa" htmlFor="automation-rule-active">
+        <Switch
+          id="automation-rule-active"
+          aria-label="Automação ativa"
+          checked={ruleDraft.isActive}
+          onChange={(checked) => setRuleDraft((current) => ({ ...current, isActive: checked }))}
+          style={{ width: "fit-content" }}
+        />
+      </FormField>
 
-        <Flex align="center" gap="small">
-          <Switch
-            id="automation-rule-active"
-            checked={ruleDraft.isActive}
-            onChange={(checked) => setRuleDraft((current) => ({ ...current, isActive: checked }))}
-          />
-          <label htmlFor="automation-rule-active">Ativa</label>
-        </Flex>
+      <FormField label="Condições" labelId="automation-conditions-label">
+        <ConditionListEditor
+          conditions={ruleDraft.conditions}
+          fieldConfigs={conditionFieldConfigs}
+          onChange={(conditions) => setRuleDraft((current) => ({ ...current, conditions }))}
+        />
+      </FormField>
 
-        <div className="filter-field">
-          <label htmlFor="automation-rule-logic">Combinar condições com</label>
+      {/* With one condition "E" and "OU" mean the same thing, so the choice
+          only appears once there is something to combine. The stored
+          operator is untouched either way. */}
+      {ruleDraft.conditions.length >= 2 && (
+        <FormField label="Combinar condições com" htmlFor="automation-rule-logic">
           <Select
             id="automation-rule-logic"
             value={ruleDraft.logicOperator}
@@ -463,224 +458,207 @@ export function AutomationEntryForm({
               setRuleDraft((current) => ({ ...current, logicOperator: value }))
             }
           />
-        </div>
+        </FormField>
+      )}
 
-        <Flex vertical gap="small">
-          <span>Condições</span>
-          <ConditionListEditor
-            conditions={ruleDraft.conditions}
-            fieldConfigs={conditionFieldConfigs}
-            onChange={(conditions) => setRuleDraft((current) => ({ ...current, conditions }))}
+      <FormField label="Ações" labelId="automation-actions-label">
+        <Checkbox.Group
+          aria-labelledby="automation-actions-label"
+          value={actionTypes}
+          options={actionOptions}
+          disabled={isEditing}
+          onChange={(value) => setActionTypesAndReset(value as AutomationActionType[])}
+        />
+      </FormField>
+
+      {actionTypes.includes("set_category") && (
+        <FormField label="Categoria a aplicar" htmlFor="automation-entry-category">
+          <Select
+            id="automation-entry-category"
+            value={categoryId ?? undefined}
+            options={ruleCategoryOptions}
+            showSearch
+            optionFilterProp="label"
+            placeholder="Selecione uma categoria"
+            onChange={(value: string) => setCategoryId(value)}
           />
-        </Flex>
+        </FormField>
+      )}
 
-        <div className="filter-field">
-          <span>Ações</span>
-          <Checkbox.Group
-            aria-label="Ações"
-            value={actionTypes}
-            options={actionOptions}
-            disabled={isEditing}
-            onChange={(value) => setActionTypesAndReset(value as AutomationActionType[])}
-          />
-        </div>
+      {(actionTypes.includes("ignore") || actionTypes.includes("set_category")) && (
+        <Checkbox checked={applyRetroactively} onChange={(event) => setApplyRetroactively(event.target.checked)}>
+          Aplicar agora às transações existentes que casarem com as condições
+        </Checkbox>
+      )}
 
-        {actionTypes.includes("set_category") && (
-          <div className="filter-field">
-            <label htmlFor="automation-entry-category">Categoria a aplicar</label>
+      {actionTypes.includes("reconcile") && (
+        <>
+          {!isEditing && (
+            <FormField label="Recorrência" labelId="recurring-commitment-mode-label">
+              <Segmented
+                id="recurring-commitment-mode"
+                aria-labelledby="recurring-commitment-mode-label"
+                value={commitmentMode}
+                options={commitmentModeOptions}
+                onChange={(value) => setCommitmentModeAndReset(value as "new" | "existing")}
+              />
+            </FormField>
+          )}
+
+          {commitmentMode === "existing" && (
+            <FormField label="Selecione uma recorrência" htmlFor="recurring-commitment-existing">
+              <Select
+                id="recurring-commitment-existing"
+                showSearch
+                optionFilterProp="label"
+                loading={commitmentsLoading}
+                placeholder="Selecione uma recorrência existente"
+                value={selectedCommitmentId ?? undefined}
+                options={commitments.map((commitment) => ({ value: commitment.id, label: commitment.name }))}
+                onChange={(value: string) => selectExistingCommitment(value)}
+              />
+            </FormField>
+          )}
+
+          <Divider orientation="left" plain style={{ margin: 0 }}>
+            Dados da recorrência
+          </Divider>
+
+          <FormField label="Nome" htmlFor="recurring-commitment-name">
+            <Input
+              id="recurring-commitment-name"
+              value={commitmentDraft.name}
+              onChange={(event) => setCommitmentDraft((current) => ({ ...current, name: event.target.value }))}
+              placeholder="Ex.: Salário, Aluguel, Netflix"
+            />
+          </FormField>
+
+          <FormField label="Tipo" htmlFor="recurring-commitment-kind">
             <Select
-              id="automation-entry-category"
-              value={categoryId ?? undefined}
-              options={ruleCategoryOptions}
+              id="recurring-commitment-kind"
+              value={commitmentDraft.kind}
+              options={kindOptions}
+              onChange={(value: RecurringCommitmentKind) =>
+                setCommitmentDraft((current) => ({ ...current, kind: value }))
+              }
+            />
+          </FormField>
+
+          <FormField label="Valor" htmlFor="recurring-commitment-amount">
+            <MoneyInput
+              id="recurring-commitment-amount"
+              min={0.01}
+              value={commitmentDraft.amount}
+              onChange={(value) => setCommitmentDraft((current) => ({ ...current, amount: value }))}
+            />
+          </FormField>
+
+          <FormField label="Categoria" htmlFor="recurring-commitment-category">
+            <Select
+              id="recurring-commitment-category"
+              value={commitmentDraft.categoryId ?? undefined}
+              options={commitmentCategoryOptions}
               showSearch
               optionFilterProp="label"
               placeholder="Selecione uma categoria"
-              onChange={(value: string) => setCategoryId(value)}
+              onChange={(value: string) => setCommitmentDraft((current) => ({ ...current, categoryId: value }))}
             />
-          </div>
-        )}
+          </FormField>
 
-        {(actionTypes.includes("ignore") || actionTypes.includes("set_category")) && (
-          <Checkbox checked={applyRetroactively} onChange={(event) => setApplyRetroactively(event.target.checked)}>
-            Aplicar agora às transações existentes que casarem com as condições
-          </Checkbox>
-        )}
+          <FormField label="Conta (opcional)" htmlFor="recurring-commitment-account">
+            <AccountSelect
+              id="recurring-commitment-account"
+              optional
+              value={commitmentDraft.accountId}
+              onChange={(accountId) => setCommitmentDraft((current) => ({ ...current, accountId: accountId ?? "" }))}
+            />
+          </FormField>
 
-        {actionTypes.includes("reconcile") && (
-          <>
-            {!isEditing && (
-              <div className="filter-field">
-                <label htmlFor="recurring-commitment-mode">Recorrência</label>
-                <Segmented
-                  id="recurring-commitment-mode"
-                  value={commitmentMode}
-                  options={commitmentModeOptions}
-                  onChange={(value) => setCommitmentModeAndReset(value as "new" | "existing")}
-                />
-              </div>
-            )}
+          <FormField label="Cadência" htmlFor="recurring-commitment-cadence">
+            <Select
+              id="recurring-commitment-cadence"
+              value={commitmentDraft.cadence}
+              options={cadenceOptions}
+              onChange={(value: RecurringCommitmentCadence) =>
+                setCommitmentDraft((current) => ({ ...current, cadence: value }))
+              }
+            />
+          </FormField>
 
-            {commitmentMode === "existing" && (
-              <div className="filter-field">
-                <label htmlFor="recurring-commitment-existing">Selecione uma recorrência</label>
-                <Select
-                  id="recurring-commitment-existing"
-                  showSearch
-                  optionFilterProp="label"
-                  loading={commitmentsLoading}
-                  placeholder="Selecione uma recorrência existente"
-                  value={selectedCommitmentId ?? undefined}
-                  options={commitments.map((commitment) => ({ value: commitment.id, label: commitment.name }))}
-                  onChange={(value: string) => selectExistingCommitment(value)}
-                />
-              </div>
-            )}
+          <FormField
+            label="Dia do mês"
+            htmlFor="recurring-commitment-day"
+            hint="Usado só para agendar a data esperada no calendário — não obriga a conciliação a exigir esse dia."
+          >
+            <InputNumber
+              id="recurring-commitment-day"
+              style={{ width: "100%" }}
+              min={1}
+              max={31}
+              inputMode="numeric"
+              value={commitmentDraft.dayOfMonth}
+              onChange={(value) => setCommitmentDraft((current) => ({ ...current, dayOfMonth: value }))}
+            />
+          </FormField>
 
-            <Divider orientation="left" plain style={{ margin: 0 }}>
-              Dados da recorrência
-            </Divider>
-
-            <div className="filter-field">
-              <label htmlFor="recurring-commitment-name">Nome</label>
-              <Input
-                id="recurring-commitment-name"
-                value={commitmentDraft.name}
-                onChange={(event) =>
-                  setCommitmentDraft((current) => ({ ...current, name: event.target.value }))
-                }
-                placeholder="Ex.: Salário, Aluguel, Netflix"
-              />
-            </div>
-
-            <div className="filter-field">
-              <label htmlFor="recurring-commitment-kind">Tipo</label>
+          {commitmentDraft.cadence === "annual" && (
+            <FormField label="Mês do ano" htmlFor="recurring-commitment-month">
               <Select
-                id="recurring-commitment-kind"
-                value={commitmentDraft.kind}
-                options={kindOptions}
-                onChange={(value: RecurringCommitmentKind) =>
-                  setCommitmentDraft((current) => ({ ...current, kind: value }))
-                }
+                id="recurring-commitment-month"
+                value={commitmentDraft.monthOfYear ?? undefined}
+                options={monthOptions}
+                placeholder="Selecione um mês"
+                onChange={(value: number) => setCommitmentDraft((current) => ({ ...current, monthOfYear: value }))}
               />
-            </div>
+            </FormField>
+          )}
 
-            <div className="filter-field">
-              <label htmlFor="recurring-commitment-amount">Valor</label>
-              <InputNumber
-                id="recurring-commitment-amount"
-                style={{ width: "100%" }}
-                min={0.01}
-                step={0.01}
-                decimalSeparator=","
-                value={commitmentDraft.amount}
-                onChange={(value) => setCommitmentDraft((current) => ({ ...current, amount: value }))}
-                placeholder="0,00"
-              />
-            </div>
+          <FormField label="Data de início" htmlFor="recurring-commitment-start-date">
+            <DatePicker
+              id="recurring-commitment-start-date"
+              style={{ width: "100%" }}
+              format="DD/MM/YYYY"
+              value={commitmentDraft.startDate}
+              allowClear={false}
+              onChange={(value) => value && setCommitmentDraft((current) => ({ ...current, startDate: value }))}
+            />
+          </FormField>
 
-            <div className="filter-field">
-              <label htmlFor="recurring-commitment-category">Categoria</label>
-              <Select
-                id="recurring-commitment-category"
-                value={commitmentDraft.categoryId ?? undefined}
-                options={commitmentCategoryOptions}
-                showSearch
-                optionFilterProp="label"
-                placeholder="Selecione uma categoria"
-                onChange={(value: string) => setCommitmentDraft((current) => ({ ...current, categoryId: value }))}
-              />
-            </div>
+          <FormField label="Data de término (opcional)" htmlFor="recurring-commitment-end-date">
+            <DatePicker
+              id="recurring-commitment-end-date"
+              style={{ width: "100%" }}
+              format="DD/MM/YYYY"
+              value={commitmentDraft.endDate}
+              onChange={(value) => setCommitmentDraft((current) => ({ ...current, endDate: value }))}
+            />
+          </FormField>
 
-            <div className="filter-field">
-              <label htmlFor="recurring-commitment-account">Conta (opcional)</label>
-              <Input
-                id="recurring-commitment-account"
-                value={commitmentDraft.accountId}
-                onChange={(event) =>
-                  setCommitmentDraft((current) => ({ ...current, accountId: event.target.value }))
-                }
-                placeholder="ID da conta"
-              />
-            </div>
+          <FormField label="Recorrência ativa" htmlFor="recurring-commitment-active">
+            <Switch
+              id="recurring-commitment-active"
+              aria-label="Recorrência ativa"
+              checked={commitmentDraft.isActive}
+              onChange={(checked) => setCommitmentDraft((current) => ({ ...current, isActive: checked }))}
+              style={{ width: "fit-content" }}
+            />
+          </FormField>
+        </>
+      )}
 
-            <div className="filter-field">
-              <label htmlFor="recurring-commitment-cadence">Cadência</label>
-              <Select
-                id="recurring-commitment-cadence"
-                value={commitmentDraft.cadence}
-                options={cadenceOptions}
-                onChange={(value: RecurringCommitmentCadence) =>
-                  setCommitmentDraft((current) => ({ ...current, cadence: value }))
-                }
-              />
-            </div>
-
-            <div className="filter-field">
-              <label htmlFor="recurring-commitment-day">Dia do mês</label>
-              <InputNumber
-                id="recurring-commitment-day"
-                style={{ width: "100%" }}
-                min={1}
-                max={31}
-                value={commitmentDraft.dayOfMonth}
-                onChange={(value) => setCommitmentDraft((current) => ({ ...current, dayOfMonth: value }))}
-              />
-              <Typography.Text type="secondary">
-                Usado só para agendar a data esperada no calendário — não obriga a conciliação a exigir esse dia.
-              </Typography.Text>
-            </div>
-
-            {commitmentDraft.cadence === "annual" && (
-              <div className="filter-field">
-                <label htmlFor="recurring-commitment-month">Mês do ano</label>
-                <Select
-                  id="recurring-commitment-month"
-                  value={commitmentDraft.monthOfYear ?? undefined}
-                  options={monthOptions}
-                  placeholder="Selecione um mês"
-                  onChange={(value: number) =>
-                    setCommitmentDraft((current) => ({ ...current, monthOfYear: value }))
-                  }
-                />
-              </div>
-            )}
-
-            <div className="filter-field">
-              <label htmlFor="recurring-commitment-start-date">Data de início</label>
-              <DatePicker
-                id="recurring-commitment-start-date"
-                style={{ width: "100%" }}
-                format="DD/MM/YYYY"
-                value={commitmentDraft.startDate}
-                allowClear={false}
-                onChange={(value) =>
-                  value && setCommitmentDraft((current) => ({ ...current, startDate: value }))
-                }
-              />
-            </div>
-
-            <div className="filter-field">
-              <label htmlFor="recurring-commitment-end-date">Data de término (opcional)</label>
-              <DatePicker
-                id="recurring-commitment-end-date"
-                style={{ width: "100%" }}
-                format="DD/MM/YYYY"
-                value={commitmentDraft.endDate}
-                onChange={(value) => setCommitmentDraft((current) => ({ ...current, endDate: value }))}
-              />
-            </div>
-
-            <Flex align="center" gap="small">
-              <Switch
-                id="recurring-commitment-active"
-                checked={commitmentDraft.isActive}
-                onChange={(checked) => setCommitmentDraft((current) => ({ ...current, isActive: checked }))}
-              />
-              <label htmlFor="recurring-commitment-active">Ativo</label>
-            </Flex>
-          </>
-        )}
-      </Flex>
-    </Drawer>
+      {entry && onDelete && (
+        <div className="automation-form-delete">
+          <Popconfirm
+            title="Excluir automação"
+            description={deleteRuleDescription(entry.rule)}
+            onConfirm={() => onDelete(entry.rule)}
+            okText="Excluir"
+            cancelText="Cancelar"
+          >
+            <Button danger>Excluir automação</Button>
+          </Popconfirm>
+        </div>
+      )}
+    </FormDrawer>
   );
 }

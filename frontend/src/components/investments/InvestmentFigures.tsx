@@ -1,50 +1,54 @@
-import { Tooltip } from "antd";
+import { Popover } from "antd";
 import type { ReactNode } from "react";
 
-import { formatSignedBRL } from "../../presentation/money";
-import { formatPercent, isZeroBRL } from "./investmentFigures";
+import { moneyTone } from "../../presentation/money";
+import { Money } from "../shared/Money";
+import { formatPercent } from "./investmentMath";
 
 export type InvestmentFigure = { label: string; value: ReactNode; hint?: string };
 
 /**
  * The account and the goal views answer the same five questions, so they share
- * one row instead of drifting into two slightly different vocabularies.
+ * one strip instead of drifting into two slightly different vocabularies. A
+ * figure's explanation opens on tap or hover (and from the keyboard) from its
+ * underlined label — a hover-only tooltip would be unreachable on a phone.
  */
 export function InvestmentFigures({ figures }: { figures: InvestmentFigure[] }) {
   return (
-    <div className="investment-figures">
+    <dl className="investment-figures">
       {figures.map((figure) => (
         <div key={figure.label} className="investment-figure">
-          <span className="investment-figure-label">
+          <dt>
             {figure.hint ? (
-              <Tooltip title={figure.hint}>
-                <span>{figure.label}</span>
-              </Tooltip>
+              <Popover content={figure.hint} trigger={["hover", "click"]} placement="bottomLeft">
+                <button type="button" className="investment-figure-hint">
+                  {figure.label}
+                </button>
+              </Popover>
             ) : (
               figure.label
             )}
-          </span>
-          <span className="investment-figure-value">{figure.value}</span>
+          </dt>
+          <dd>{figure.value}</dd>
         </div>
       ))}
-    </div>
+    </dl>
   );
 }
 
 /**
- * Rendimento in R$ with its % beside it. The sign is spelled out (+/−) so
- * direction never depends on the colour alone.
+ * Rendimento in R$ with its % beside it. The amount goes through the app's
+ * money rule for a result (explicit +/−, never colour alone), and the % takes
+ * the same tone so the two read as one figure.
  */
 export function InvestmentYieldValue({ gain, percent }: { gain: string; percent: number | null }) {
-  const direction = isZeroBRL(gain) ? "zero" : gain.startsWith("-") ? "negative" : "positive";
-  const amount = formatSignedBRL(
-    gain,
-    direction === "positive" ? "inflow" : direction === "negative" ? "outflow" : "unclassified",
-  );
+  const { color } = moneyTone(gain, "result");
   return (
-    <span className={`investment-yield is-${direction}`}>
-      <span className="investment-yield-amount">{amount}</span>
-      {percent !== null && <span className="investment-yield-percent">{formatPercent(percent)}</span>}
+    <span className="investment-yield">
+      <Money value={gain} tone="result" />
+      {percent !== null && (
+        <span className={`investment-yield-percent money-${color}`}>{formatPercent(percent)}</span>
+      )}
     </span>
   );
 }

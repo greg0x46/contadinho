@@ -1,12 +1,16 @@
 import type { InvestmentOperation, InvestmentPosition, InvestmentSummary } from "../../api/contracts";
-import { formatBRL } from "../../presentation/money";
+import { Money } from "../shared/Money";
+import { SummaryStrip } from "../layout";
 import { InvestmentYieldValue } from "./InvestmentFigures";
-import { accountMovements, aggregateYield, costsByPosition, groupCost, type LinkedInvestments } from "./investmentFigures";
+import { accountMovements, aggregateYield, costsByPosition, groupCost, type LinkedInvestments } from "./investmentMath";
 
 /**
- * The page's hero figure — total value across every custody account — with
- * aportes, resgates, caixa disponível and o quanto vem de instituições como
- * secondary figures beside it. Same shape as AccountsSummary.
+ * The page's hero figure — total value across every investment account —
+ * with rendimento líquido, aportes, resgates, IR/Taxas, saldo para investir
+ * and o quanto vem de instituições as secondary figures. Aportes and resgates
+ * sum the whole recorded history (there is no period here), so the labels say
+ * "desde o início"; the note explains the others instead of hiding them in a
+ * hover-only tooltip.
  */
 export function InvestmentWorkspaceSummary({
   summary,
@@ -17,6 +21,7 @@ export function InvestmentWorkspaceSummary({
   summary: InvestmentSummary | null;
   positions: InvestmentPosition[];
   operations: InvestmentOperation[];
+  /** Provider holdings by id: a synced position reads its rendimento and IR/IOF from here. */
   linked: LinkedInvestments;
 }) {
   const movements = accountMovements(operations);
@@ -24,59 +29,21 @@ export function InvestmentWorkspaceSummary({
   const cost = groupCost(operations, positions, linked);
 
   return (
-    <section className="investments-summary" aria-label="Total investido">
-      <div className="investments-summary-hero">
-        <span className="investments-summary-hero-label">Valor atual</span>
-        <p className="investments-summary-hero-value">{formatBRL(summary?.total_value ?? "0")}</p>
-      </div>
-      <div className="investments-summary-secondary">
-        <div className="investments-summary-figure">
-          <span
-            className="investments-summary-figure-label"
-            title="Soma do rendimento das posições que o têm, já descontados IR, IOF e taxas."
-          >
-            Rendimento líquido
-          </span>
-          <span className="investments-summary-figure-value">
-            <InvestmentYieldValue gain={yieldAggregate.gain} percent={yieldAggregate.percent} />
-          </span>
-        </div>
-        <div className="investments-summary-figure">
-          <span className="investments-summary-figure-label">Aportes</span>
-          <span className="investments-summary-figure-value">{formatBRL(movements.deposits)}</span>
-        </div>
-        <div className="investments-summary-figure">
-          <span className="investments-summary-figure-label">Resgates</span>
-          <span className="investments-summary-figure-value">{formatBRL(movements.withdrawals)}</span>
-        </div>
-        <div className="investments-summary-figure">
-          <span
-            className="investments-summary-figure-label"
-            title="Taxas e impostos das movimentações, mais IR e IOF informados pela instituição."
-          >
-            IR/Taxas
-          </span>
-          <span className="investments-summary-figure-value">{formatBRL(cost)}</span>
-        </div>
-        <div className="investments-summary-figure">
-          <span
-            className="investments-summary-figure-label"
-            title="Já saiu da conta corrente, ainda não foi aplicado em nenhuma posição."
-          >
-            Caixa disponível para investir
-          </span>
-          <span className="investments-summary-figure-value">{formatBRL(summary?.cash_balance ?? "0")}</span>
-        </div>
-        <div className="investments-summary-figure">
-          <span
-            className="investments-summary-figure-label"
-            title="Parte do total que vem da integração bancária; o restante é registro manual."
-          >
-            Informado pela instituição
-          </span>
-          <span className="investments-summary-figure-value">{formatBRL(summary?.synced_value ?? "0")}</span>
-        </div>
-      </div>
-    </section>
+    <SummaryStrip
+      label="Valor atual"
+      value={<Money value={summary?.total_value ?? "0"} tone="balance" size="hero" />}
+      items={[
+        {
+          label: "Rendimento líquido",
+          value: <InvestmentYieldValue gain={yieldAggregate.gain} percent={yieldAggregate.percent} />,
+        },
+        { label: "Aportes desde o início", value: <Money value={movements.deposits} tone="neutral" /> },
+        { label: "Resgates desde o início", value: <Money value={movements.withdrawals} tone="neutral" /> },
+        { label: "IR/Taxas", value: <Money value={cost} tone="neutral" /> },
+        { label: "Saldo para investir", value: <Money value={summary?.cash_balance ?? "0"} tone="neutral" /> },
+        { label: "Informado pela instituição", value: <Money value={summary?.synced_value ?? "0"} tone="neutral" /> },
+      ]}
+      note="Rendimento líquido: soma das posições com rendimento conhecido, já descontados IR, IOF e taxas. IR/Taxas: taxas e impostos das movimentações, mais o IR e o IOF informados pela instituição. Saldo para investir: já saiu da conta corrente e ainda não virou posição. Informado pela instituição: parte do total que vem da integração."
+    />
   );
 }

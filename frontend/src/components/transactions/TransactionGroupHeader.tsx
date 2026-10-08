@@ -1,5 +1,5 @@
 import type { TransactionGroup as Group } from "../../api/contracts";
-import { formatBRL } from "../../presentation/money";
+import { Money } from "../shared/Money";
 
 const shortDate = new Intl.DateTimeFormat("pt-BR", {
   day: "numeric",
@@ -39,7 +39,9 @@ export function TransactionGroupHeader({ group }: { group: Group }) {
       <dl className="transaction-group-result">
         <div>
           <dt>Resultado</dt>
-          <dd>{formatBRL(balance)}</dd>
+          <dd>
+            <Money value={balance} tone="result" />
+          </dd>
         </div>
       </dl>
     </header>

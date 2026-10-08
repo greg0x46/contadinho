@@ -1,4 +1,3 @@
-import { WalletOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
@@ -7,10 +6,30 @@ import type { Period } from "../../hooks/usePeriod";
 import { useHomePeriodBounds } from "../../hooks/useHomePeriodBounds";
 import { useTimeline } from "../../hooks/useTimeline";
 import { formatBRL } from "../../presentation/money";
-import { SummaryCard } from "../shared/SummaryCard";
+import { Skeleton } from "antd";
+
+import { UnavailableState } from "../AsyncState";
+import { Section, SummaryStrip } from "../layout";
+import { Money } from "../shared/Money";
 
 const dateFormat = "YYYY-MM-DD";
 
+// Entradas and saídas arrive as unsigned magnitudes, so the direction is
+// stated; a zero total stays unsigned and untinted ("+R$ 0,00" would claim
+// something happened).
+function FlowFigure({ value, direction }: { value: string; direction: "inflow" | "outflow" }) {
+  const zero = /^-?0*(\.0*)?$/.test(value);
+  return zero ? <Money value={value} tone="neutral" /> : <Money value={value} tone="flow" direction={direction} />;
+}
+
+/**
+ * Home's hero: the period's result as the page's one big figure, with
+ * entradas and saídas as a two-column definition strip underneath (each a
+ * link to the matching transactions). There is no share bar between them:
+ * the two figures already say it, and a green/red bar would paint an ordinary
+ * outflow in the colour reserved for trouble. The scenario caveat is small
+ * print under the figure, never a sentence above it.
+ */
 export function PeriodBalanceCard({ period }: { period: Period }) {
   const { bounds, isLoading: rangeLoading, error: rangeError, refetch: refetchRange } =
     useHomePeriodBounds(period);
@@ -38,58 +57,67 @@ export function PeriodBalanceCard({ period }: { period: Period }) {
   const inflow = totals?.income ?? null;
   const outflow = totals?.expense ?? null;
   const balance = totals?.result ?? null;
-  const inflowNumber = Number(inflow ?? 0);
-  const outflowNumber = Number(outflow ?? 0);
-  const inflowShare = inflowNumber + outflowNumber > 0 ? (inflowNumber / (inflowNumber + outflowNumber)) * 100 : 0;
   const empty = inflow === "0.00" && outflow === "0.00";
   const isLoading = timeline.isLoading || rangeLoading;
   const error = timeline.error ?? rangeError;
 
+  if (isLoading || error || !bounds || balance === null || inflow === null || outflow === null) {
+    return (
+      <Section title="Resultado do período">
+        {isLoading && (
+          // The shape of the strip it becomes: hero figure, then the two figures.
+          <div role="status" aria-label="Carregando o resultado do período">
+            <Skeleton.Input active block style={{ height: 36, marginBottom: 12 }} />
+            <Skeleton active title={false} paragraph={{ rows: 1 }} />
+          </div>
+        )}
+        {!isLoading && (
+          <UnavailableState
+            onRetry={() => {
+              if (rangeError) refetchRange();
+              if (timeline.error) timeline.refetch();
+            }}
+          >
+            Não foi possível carregar o resultado do período.
+          </UnavailableState>
+        )}
+      </Section>
+    );
+  }
+
+  const transactionsLink = (classification: "inflow" | "outflow") =>
+    `/transacoes?date_from=${bounds.from}&date_to=${bounds.to}&classification=${classification}`;
+
   return (
-    <SummaryCard
-      icon={<WalletOutlined aria-hidden="true" />}
-      title="Saldo do período"
-      isLoading={isLoading}
-      error={error}
-      hasData={balance !== null && bounds !== null}
-      loadingLabel="Carregando o saldo do período…"
-      errorLabel="Não foi possível carregar o saldo do período."
-      onRetry={() => {
-        if (rangeError) refetchRange();
-        if (timeline.error) timeline.refetch();
-      }}
-    >
-      {bounds && balance !== null && inflow !== null && outflow !== null && (
-        <div className="period-balance">
-          <p className="period-balance-description">Entradas menos saídas, considerando os cenários ativos</p>
-          <div>
-            <p className="period-balance-figure">
-              {balance !== "0.00" && !balance.startsWith("-") ? "+" : ""}{formatBRL(balance)}
-            </p>
-            {empty && <p className="period-balance-description">Nenhuma movimentação no período</p>}
-          </div>
-          {!empty && (
-            <div
-              className="dashboard-meter period-balance-meter"
-              role="img"
-              aria-label={`Entradas: ${formatBRL(inflow)}. Saídas: ${formatBRL(outflow)}.`}
+    <SummaryStrip
+      className="period-balance"
+      label="Resultado do período"
+      value={<Money value={balance} tone="result" size="hero" />}
+      note={empty ? "Nenhuma movimentação no período" : "Entradas menos saídas, incluindo cenários ativos"}
+      items={[
+        {
+          label: "Entradas",
+          value: (
+            <Link
+              to={transactionsLink("inflow")}
+              aria-label={`Entradas: ${formatBRL(inflow)}. Ver transações`}
             >
-              <span className="period-balance-meter-inflow" style={{ width: `${inflowShare}%` }} />
-              <span className="period-balance-meter-outflow" style={{ width: `${100 - inflowShare}%` }} />
-            </div>
-          )}
-          <div className="period-balance-totals">
-            <Link to={`/transacoes?date_from=${bounds.from}&date_to=${bounds.to}&classification=inflow`}>
-              <span>Entradas</span>
-              <strong>{formatBRL(inflow)}</strong>
+              <FlowFigure value={inflow} direction="inflow" />
             </Link>
-            <Link to={`/transacoes?date_from=${bounds.from}&date_to=${bounds.to}&classification=outflow`}>
-              <span>Saídas</span>
-              <strong>{formatBRL(outflow)}</strong>
+          ),
+        },
+        {
+          label: "Saídas",
+          value: (
+            <Link
+              to={transactionsLink("outflow")}
+              aria-label={`Saídas: ${formatBRL(outflow)}. Ver transações`}
+            >
+              <FlowFigure value={outflow} direction="outflow" />
             </Link>
-          </div>
-        </div>
-      )}
-    </SummaryCard>
+          ),
+        },
+      ]}
+    />
   );
 }

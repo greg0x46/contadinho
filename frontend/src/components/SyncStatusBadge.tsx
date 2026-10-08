@@ -1,31 +1,20 @@
-import {
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  SyncOutlined,
-  WarningOutlined,
-} from "@ant-design/icons";
-import { Tag } from "antd";
 import type { SyncStatus } from "../api/contracts";
 import { getStatusMetadata } from "../presentation/syncStatus";
+import { StatusTag, type StatusTagTone } from "./shared/StatusTag";
 
+const toneOf: Record<ReturnType<typeof getStatusMetadata>["tone"], StatusTagTone> = {
+  progress: "info",
+  success: "success",
+  warning: "warning",
+  danger: "danger",
+};
+
+/**
+ * A run's status as the shared tag. Lists show it only for runs that need a
+ * look (the plain "Concluída" is not tagged there); a run's own page always
+ * says it.
+ */
 export function SyncStatusBadge({ status }: { status: SyncStatus }) {
   const metadata = getStatusMetadata(status);
-  const color = {
-    progress: "processing",
-    success: "success",
-    warning: "warning",
-    danger: "error",
-  }[metadata.tone];
-  const icon = {
-    progress: <SyncOutlined aria-hidden />,
-    success: <CheckCircleOutlined aria-hidden />,
-    warning: <WarningOutlined aria-hidden />,
-    danger: <CloseCircleOutlined aria-hidden />,
-  }[metadata.tone];
-
-  return (
-    <Tag color={color} icon={icon}>
-      {metadata.label}
-    </Tag>
-  );
+  return <StatusTag tone={toneOf[metadata.tone]}>{metadata.label}</StatusTag>;
 }

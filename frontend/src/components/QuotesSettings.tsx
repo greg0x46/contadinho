@@ -1,6 +1,8 @@
-import { Alert, Button, Card, Flex, Input } from "antd";
+import { Alert, Button, Input } from "antd";
 import { useState } from "react";
 import { apiFetch } from "../api/transport";
+import { FormField } from "./forms/FormField";
+import { Section } from "./layout";
 
 // Modeled directly on PluggySettings.tsx: a write-only credential form for
 // PUT /api/settings/quotes. Unlike Pluggy's client id/secret, the brapi
@@ -32,24 +34,33 @@ export function QuotesSettings() {
     }
   };
   return (
-    <Card title="Cotações automáticas — token da brapi (opcional)" style={{ marginBottom: 24 }}>
-      <form onSubmit={(event) => { event.preventDefault(); void save(); }}>
-        <Flex vertical gap="middle" style={{ maxWidth: 440 }}>
-          <p>
-            Por padrão, a cotação automática de posições manuais usa o Yahoo Finance como fonte principal;
-            a brapi (B3) e a CoinGecko (criptomoedas) são usadas quando ele falha.
-          </p>
-          <p>
-            O token da brapi só importa nesse fallback da B3: sem ele, apenas um conjunto restrito
-            de tickers responde. O valor salvo não é exibido novamente.
-          </p>
-          {error && <Alert type="error" message={error} />}
-          {saved && <Alert type="success" message="Token salvo." />}
-          <label htmlFor="quotes-brapi-token">Token da brapi</label>
-          <Input.Password id="quotes-brapi-token" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} />
-          <Button htmlType="submit" loading={busy}>Salvar token</Button>
-        </Flex>
+    <Section title="Cotações automáticas">
+      <form
+        className="settings-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save();
+        }}
+      >
+        <p className="settings-radio-hint">
+          Por padrão, a cotação automática de posições manuais usa o Yahoo Finance como fonte principal; a brapi (B3) e
+          a CoinGecko (criptomoedas) são usadas quando ele falha. O token da brapi só importa nesse fallback da B3: sem
+          ele, apenas um conjunto restrito de tickers responde. O valor salvo não é exibido novamente.
+        </p>
+        {error && <Alert type="error" message={error} />}
+        {saved && <Alert type="success" message="Token salvo." />}
+        <FormField label="Token da brapi (opcional)" htmlFor="quotes-brapi-token">
+          <Input.Password
+            id="quotes-brapi-token"
+            autoComplete="off"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+          />
+        </FormField>
+        <Button htmlType="submit" loading={busy}>
+          Salvar token
+        </Button>
       </form>
-    </Card>
+    </Section>
   );
 }

@@ -14,7 +14,8 @@ import type {
   TransactionItem,
 } from "../../api/contracts";
 import { useInvestmentWorkspace } from "../../hooks/useInvestmentWorkspace";
-import { isPositiveDecimal, isZeroDecimal, subtractDecimals, sumDecimals } from "../../presentation/decimal";
+import { formatDateOnly } from "../../presentation/dates";
+import { isPositiveDecimal,isZeroDecimal, subtractDecimals, sumDecimals } from "../../presentation/decimal";
 import { investmentOperationKindLabel } from "../../presentation/investmentWorkspaceLabels";
 import { formatBRL } from "../../presentation/money";
 import { detailValue } from "../../presentation/transactionDetail";
@@ -42,7 +43,7 @@ function pickerDescription(kind: string, position: string | null | undefined): s
 }
 
 function operationLabel(operation: InvestmentOperation, accountName: string, positionName: string | null): string {
-  const figures = `${formatBRL(operation.amount)} · ${dayjs(operation.occurred_on).format("DD/MM/YYYY")}`;
+  const figures = `${formatBRL(operation.amount)} · ${formatDateOnly(operation.occurred_on)}`;
   if (operation.source === "synced") {
     return joinLabel([operation.notes ?? "Movimento importado", accountName, figures]);
   }

@@ -272,7 +272,7 @@ async function sendManualTransaction(
 }
 
 export function createManualTransaction(write: ManualTransactionWrite): Promise<TransactionItem> {
-  return sendManualTransaction("POST", "/api/transactions", write, "Não foi possível criar o lançamento manual.");
+  return sendManualTransaction("POST", "/api/transactions", write, "Não foi possível criar a transação manual.");
 }
 
 export function updateManualTransaction(
@@ -283,12 +283,12 @@ export function updateManualTransaction(
     "PUT",
     `/api/transactions/${encodeURIComponent(transactionId)}`,
     write,
-    "Não foi possível salvar o lançamento manual.",
+    "Não foi possível salvar a transação manual.",
   );
 }
 
 export async function deleteManualTransaction(transactionId: string): Promise<void> {
-  const failure = "Não foi possível excluir o lançamento manual.";
+  const failure = "Não foi possível excluir a transação manual.";
   let response: Response;
   try {
     response = await apiFetch(`/api/transactions/${encodeURIComponent(transactionId)}`, { method: "DELETE" });

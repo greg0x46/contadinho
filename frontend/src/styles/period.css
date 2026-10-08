@@ -60,13 +60,13 @@
 }
 
 .filter-period-navigation-bare .ant-btn:hover {
-  background: #eaf0f8;
+  background: var(--color-hover);
 }
 
 .filter-period-navigation-bare .filter-period-heading {
   padding-inline: 0.5rem;
-  font-size: 1.125rem;
-  color: var(--color-text-primary);
+  font-size: var(--fs-row);
+  color: var(--color-text);
 }
 
 .filter-period-presets {
@@ -83,7 +83,7 @@
 }
 
 .filter-date-panel label {
-  color: #44546f;
+  color: var(--color-text-secondary);
   font-size: 0.75rem;
   font-weight: 600;
 }
@@ -94,6 +94,39 @@
   }
 
   .filter-period-navigation-bare .filter-period-heading {
-    font-size: 1rem;
+    font-size: var(--fs-row);
+  }
+
+  /* One line even at 360px: the label shortens with an ellipsis before it
+     wraps, and the "Este mês" shortcut keeps its own width. */
+  .filter-period-navigation {
+    flex-wrap: nowrap;
+  }
+
+  .filter-period-navigation .filter-period-heading {
+    min-width: 0;
+    flex: 0 1 auto;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  .filter-period-navigation .filter-period-heading > span:not(.anticon) {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .filter-period-navigation > .ant-btn-link {
+    flex: none;
+    padding-inline: 0.5rem;
+    white-space: nowrap;
+  }
+}
+
+/* The arrows are icon-only: a 44px touch target on a phone. */
+@media (max-width: 47.99rem) {
+  .filter-period-navigation .filter-period-arrow.ant-btn {
+    min-width: 44px;
+    min-height: 44px;
   }
 }

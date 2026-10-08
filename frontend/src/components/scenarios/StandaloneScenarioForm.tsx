@@ -1,5 +1,8 @@
-import { Alert, Button, Drawer, Flex, Input } from "antd";
+import { Input } from "antd";
 import { useEffect, useState } from "react";
+
+import { FormDrawer } from "../forms/FormDrawer";
+import { FormField } from "../forms/FormField";
 
 export function StandaloneScenarioForm({
   open,
@@ -34,33 +37,26 @@ export function StandaloneScenarioForm({
   };
 
   return (
-    <Drawer
+    <FormDrawer
       title="Novo cenário"
       open={open}
       onClose={onCancel}
-      width={400}
-      destroyOnHidden
-      footer={
-        <Flex justify="end" gap="small">
-          <Button onClick={onCancel}>Cancelar</Button>
-          <Button type="primary" loading={submitting} onClick={submit}>
-            Salvar
-          </Button>
-        </Flex>
-      }
+      onSubmit={submit}
+      submitting={submitting}
+      error={error ?? submitError}
     >
-      <Flex vertical gap="middle">
-        {(error ?? submitError) && <Alert type="error" showIcon message={error ?? submitError} />}
-        <div className="filter-field">
-          <label htmlFor="standalone-scenario-name">Nome</label>
-          <Input
-            id="standalone-scenario-name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Ex.: Viagem, Novo emprego"
-          />
-        </div>
-      </Flex>
-    </Drawer>
+      <FormField
+        label="Nome"
+        htmlFor="standalone-scenario-name"
+        hint="Depois de criar, adicione as transações hipotéticas do cenário."
+      >
+        <Input
+          id="standalone-scenario-name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Ex.: Viagem, Novo emprego"
+        />
+      </FormField>
+    </FormDrawer>
   );
 }

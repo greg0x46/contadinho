@@ -4,8 +4,8 @@
 
 .timeline-chart-tooltip {
   background: #fff;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius, 8px);
   padding: 8px 12px;
   font-size: 12px;
 }
@@ -13,7 +13,7 @@
 .timeline-chart-tooltip-entries {
   margin: 6px 0 0;
   padding: 6px 0 0;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-strong);
   list-style: none;
   max-width: 22rem;
 }
@@ -38,4 +38,42 @@
 
 .timeline-chart-tooltip-more {
   font-style: italic;
+}
+
+/* Legend: HTML swatches so "solid = happened, dashed = forecast" is drawn
+   exactly as the lines are (border-top carries the dash). */
+.timeline-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.25rem 1rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--fs-small, 0.8125rem);
+  list-style: none;
+}
+
+.timeline-chart-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.timeline-chart-swatch {
+  display: inline-block;
+  width: 1.25rem;
+  border-top: 2px solid currentColor;
+}
+
+.timeline-chart-swatch.is-dashed {
+  border-top-style: dashed;
+}
+
+.timeline-chart-swatch.is-dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  border: 0;
+  border-radius: 50%;
+  background: currentColor;
 }

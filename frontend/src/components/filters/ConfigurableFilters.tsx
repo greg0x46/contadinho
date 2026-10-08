@@ -62,6 +62,8 @@ type Props<Values extends object> = {
   config: FilterConfig<Values>[];
   onApply: (values: Values) => void;
   onClear: () => void;
+  /** Discreet one-tap toggles under the toolbar row (see QuickFilters), owned by the caller. */
+  shortcuts?: ReactNode;
   /** The shaping side of the toolbar (group by, sort), owned by the caller. */
   end?: ReactNode;
   /**
@@ -147,6 +149,7 @@ export function ConfigurableFilters<Values extends object>({
   onApply,
   onClear,
   end,
+  shortcuts,
   renderAdvanced,
 }: Props<Values>) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -404,7 +407,16 @@ export function ConfigurableFilters<Values extends object>({
           </>
         }
         end={end}
-        chips={chipList || undefined}
+        chips={
+          shortcuts || chipList ? (
+            // One row: it scrolls sideways on a phone instead of stacking
+            // shortcuts and active chips into a second and third line.
+            <div className="filter-chips-row">
+              {shortcuts}
+              {chipList}
+            </div>
+          ) : undefined
+        }
       />
       <FilterPanel
         open={advancedOpen}

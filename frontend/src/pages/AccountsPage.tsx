@@ -6,14 +6,12 @@ import type { Account } from "../api/contracts";
 import { AccountsSummary } from "../components/accounts/AccountsSummary";
 import { BankAccountList } from "../components/accounts/BankAccountList";
 import { CreditCardList } from "../components/accounts/CreditCardList";
-import { BottomActionBar, Page } from "../components/layout";
-import { useCompactScreen } from "../components/shared/useCompactScreen";
+import { EmptyState, Page, PageAction, Section } from "../components/layout";
 import { useAccounts } from "../hooks/useAccounts";
 
 export function AccountsPage() {
   const accounts = useAccounts();
   const navigate = useNavigate();
-  const compact = useCompactScreen();
 
   const openDetail = (account: Account) => navigate(`/contas-e-cartoes/${account.id}`);
   // Accounts with no type at all are bank accounts for display purposes:
@@ -21,13 +19,17 @@ export function AccountsPage() {
   // columns are meaningless without it.
   const bank = accounts.accounts.filter((account) => account.account_type !== "CREDIT");
   const credit = accounts.accounts.filter((account) => account.account_type === "CREDIT");
+  // A failed load with nothing to show is not "no accounts": it only says it failed.
+  const loadFailed = accounts.error !== null && accounts.accounts.length === 0;
+  const hasNoAccounts = !accounts.isLoading && !loadFailed && accounts.accounts.length === 0;
 
-  // The compact header hides page actions on a phone, so the import action
-  // moves to the bottom bar there.
   const importAction = (
-    <Button icon={<UploadOutlined />} onClick={() => navigate("/contas-e-cartoes/importar")}>
-      Importar extrato
-    </Button>
+    <PageAction
+      icon={<UploadOutlined aria-hidden="true" />}
+      label="Importar extrato"
+      shortLabel="Importar"
+      onClick={() => navigate("/contas-e-cartoes/importar")}
+    />
   );
 
   return (
@@ -36,8 +38,8 @@ export function AccountsPage() {
       description="Saldos e detalhes das suas contas conectadas e importadas por arquivo"
       actions={importAction}
       className="accounts-page"
+      width="narrow"
       compactMobileHeader
-      hasBottomActionBar
     >
       {accounts.error && (
         <Alert
@@ -48,12 +50,23 @@ export function AccountsPage() {
           style={{ marginBottom: 16 }}
         />
       )}
-      <div className="accounts-page-sections">
-        {!accounts.isLoading && accounts.accounts.length > 0 && <AccountsSummary accounts={accounts.accounts} />}
-        <BankAccountList accounts={bank} isLoading={accounts.isLoading} onOpen={openDetail} />
-        <CreditCardList accounts={credit} isLoading={accounts.isLoading} onOpen={openDetail} />
-      </div>
-      {compact && <BottomActionBar>{importAction}</BottomActionBar>}
+      {hasNoAccounts ? (
+        // One block instead of an empty "Contas bancárias" and an empty
+        // "Cartões de crédito" stacked: with nothing at all, say it once.
+        <Section title="Contas">
+          <EmptyState
+            title="Nenhuma conta ainda"
+            hint="Importe um extrato ou conecte um banco em Configurações para ver saldos, faturas e limites aqui."
+            action={<Button onClick={() => navigate("/configuracoes/open-banking")}>Conectar um banco</Button>}
+          />
+        </Section>
+      ) : (
+        <div className="accounts-page-sections">
+          {!accounts.isLoading && accounts.accounts.length > 0 && <AccountsSummary accounts={accounts.accounts} />}
+          <BankAccountList accounts={bank} isLoading={accounts.isLoading} failed={loadFailed} onOpen={openDetail} />
+          <CreditCardList accounts={credit} isLoading={accounts.isLoading} failed={loadFailed} onOpen={openDetail} />
+        </div>
+      )}
     </Page>
   );
 }

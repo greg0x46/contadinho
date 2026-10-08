@@ -1,9 +1,7 @@
-import { Alert, Button, DatePicker, Drawer, Flex, Input, InputNumber, Select, Typography } from "antd";
+import { DatePicker, Input, InputNumber, Select } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { listInvestmentAssets } from "../../api/investmentPortfolio";
-import { investmentAssetsQueryKey } from "../../hooks/useInvestmentAssets";
 
 import type {
   InvestmentAccount,
@@ -12,6 +10,12 @@ import type {
   InvestmentPositionUpdate,
   InvestmentPositionWrite,
 } from "../../api/contracts";
+import { listInvestmentAssets } from "../../api/investmentPortfolio";
+import { investmentAssetsQueryKey } from "../../hooks/useInvestmentAssets";
+import { FormDrawer } from "../forms/FormDrawer";
+import { FormField } from "../forms/FormField";
+import { MoneyInput } from "../forms/MoneyInput";
+import { fromMoneyInput, toMoneyInput } from "./moneyDraft";
 
 type Draft = {
   accountId: string;
@@ -124,7 +128,7 @@ export function InvestmentPositionForm({
       return;
     }
     if (!isEditing && draft.accountId === "") {
-      setError("Selecione uma conta manual de custódia.");
+      setError("Selecione uma conta de investimento manual.");
       return;
     }
     if ((draft.initialQuantity !== null && !positive(draft.initialQuantity)) || (draft.initialUnitCost !== null && !positive(draft.initialUnitCost))) {
@@ -161,179 +165,164 @@ export function InvestmentPositionForm({
     });
   };
 
-  const setDecimal = (field: "initialQuantity" | "initialUnitCost" | "initialValue", value: string | number | null) =>
+  // Quantity and unit cost keep more than two decimals, so they stay plain
+  // string-mode numbers; only the initial value is a money field.
+  const setDecimal = (field: "initialQuantity" | "initialUnitCost", value: string | number | null) =>
     setDraft((current) => ({ ...current, [field]: value === null ? null : String(value) }));
 
   return (
-    <Drawer
+    <FormDrawer
       title={isEditing ? "Editar posição manual" : "Nova posição manual"}
       open={open}
       onClose={onCancel}
-      width={500}
-      destroyOnHidden
-      footer={
-        <Flex justify="end" gap="small">
-          <Button onClick={onCancel}>Cancelar</Button>
-          <Button type="primary" loading={submitting} onClick={submit}>
-            Salvar
-          </Button>
-        </Flex>
-      }
+      onSubmit={submit}
+      submitting={submitting}
+      error={error ?? submitError}
     >
-      <Flex vertical gap="middle">
-        {(error ?? submitError) && <Alert type="error" showIcon message={error ?? submitError} />}
-        {!isEditing && (
-          <Alert
-            type="info"
-            showIcon
-            message="Posição manual em BRL"
-            description="Ativos com cotação automática buscam preços de mercado. Para os demais, registre avaliações manuais; sem avaliação, o valor exibido é o custo acumulado."
-          />
-        )}
-        <div className="filter-field">
-          <label htmlFor="investment-position-account">Conta de custódia</label>
+      {!isEditing && (
+        <p className="form-field-hint">
+          Posição manual em reais. Ativos com cotação automática buscam preços de mercado. Para os demais, registre
+          avaliações manuais; sem avaliação, o valor exibido é o custo acumulado.
+        </p>
+      )}
+      <FormField
+        label="Conta de investimento"
+        htmlFor="investment-position-account"
+        hint={isEditing ? "A conta é definida na criação." : undefined}
+      >
+        <Select
+          id="investment-position-account"
+          value={draft.accountId || undefined}
+          options={accountOptions}
+          disabled={isEditing}
+          placeholder="Selecione uma conta manual"
+          onChange={(value: string) => setDraft((current) => ({ ...current, accountId: value }))}
+        />
+      </FormField>
+      {!isEditing && assetOptions.length > 0 && (
+        <FormField
+          label="Ativo existente (opcional)"
+          htmlFor="investment-position-asset"
+          hint="O mesmo ativo pode ser mantido em várias contas."
+        >
           <Select
-            id="investment-position-account"
-            value={draft.accountId || undefined}
-            options={accountOptions}
-            disabled={isEditing}
-            placeholder="Selecione uma conta manual"
-            onChange={(value: string) => setDraft((current) => ({ ...current, accountId: value }))}
-          />
-          {isEditing && <Typography.Text type="secondary">A conta é definida na criação.</Typography.Text>}
-        </div>
-        {!isEditing && assetOptions.length > 0 && (
-          <div className="filter-field">
-            <label htmlFor="investment-position-asset">Ativo existente (opcional)</label>
-            <Select
-              id="investment-position-asset"
-              value={draft.assetId ?? undefined}
-              options={assetOptions}
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              placeholder="Cadastre um novo ativo abaixo"
-              loading={catalog.isLoading}
-              onChange={(value: string | undefined) => {
-                const selected = catalog.data?.find((item) => item.id === value) ?? positions.find((item) => item.asset_id === value);
-                setDraft((current) => ({ ...current, assetId: value ?? null,
-                  name: selected?.name ?? current.name, ticker: selected?.ticker ?? current.ticker,
-                  assetType: selected?.asset_type ?? current.assetType }));
-              }}
-            />
-            <Typography.Text type="secondary">O mesmo ativo pode ser mantido em várias contas.</Typography.Text>
-          </div>
-        )}
-        <div className="filter-field">
-          <label htmlFor="investment-position-name">Nome</label>
-          <Input
-            id="investment-position-name"
-            value={draft.name}
-            autoFocus
-            onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-            placeholder="Ex.: Tesouro Selic 2029"
-          />
-        </div>
-        <Flex gap="middle" wrap>
-          <div className="filter-field" style={{ flex: 1, minWidth: 180 }}>
-            <label htmlFor="investment-position-ticker">Código (opcional)</label>
-            <Input
-              id="investment-position-ticker"
-              value={draft.ticker}
-              onChange={(event) => setDraft((current) => ({ ...current, ticker: event.target.value }))}
-              placeholder="Ex.: BOVA11"
-            />
-          </div>
-          <div className="filter-field" style={{ flex: 1, minWidth: 180 }}>
-            <label htmlFor="investment-position-type">Tipo do ativo</label>
-            <Input
-              id="investment-position-type"
-              value={draft.assetType}
-              onChange={(event) => setDraft((current) => ({ ...current, assetType: event.target.value }))}
-              placeholder="Ex.: ETF, CDB, Fundo"
-            />
-          </div>
-        </Flex>
-        <div className="filter-field">
-          <label htmlFor="investment-position-goal">Objetivo (opcional)</label>
-          <Select
-            id="investment-position-goal"
-            value={draft.portfolioId ?? undefined}
-            options={portfolioOptions}
+            id="investment-position-asset"
+            value={draft.assetId ?? undefined}
+            options={assetOptions}
             allowClear
-            placeholder="Sem objetivo"
             showSearch
             optionFilterProp="label"
-            onChange={(value: string | undefined) => setDraft((current) => ({ ...current, portfolioId: value ?? null }))}
+            placeholder="Cadastre um novo ativo abaixo"
+            loading={catalog.isLoading}
+            onChange={(value: string | undefined) => {
+              const selected = catalog.data?.find((item) => item.id === value) ?? positions.find((item) => item.asset_id === value);
+              setDraft((current) => ({ ...current, assetId: value ?? null,
+                name: selected?.name ?? current.name, ticker: selected?.ticker ?? current.ticker,
+                assetType: selected?.asset_type ?? current.assetType }));
+            }}
           />
-        </div>
-        {!isEditing && (
-          <>
-            <Flex gap="middle" wrap>
-              <div className="filter-field" style={{ flex: 1, minWidth: 140 }}>
-                <label htmlFor="investment-position-quantity">Quantidade inicial</label>
-                <InputNumber
-                  id="investment-position-quantity"
-                  style={{ width: "100%" }}
-                  min="0.00000001"
-                  stringMode
-                  decimalSeparator=","
-                  value={draft.initialQuantity}
-                  onChange={(value) => setDecimal("initialQuantity", value)}
-                  placeholder="Opcional se informar o valor"
-                />
-              </div>
-              <div className="filter-field" style={{ flex: 1, minWidth: 140 }}>
-                <label htmlFor="investment-position-unit-cost">Custo unitário</label>
-                <InputNumber
-                  id="investment-position-unit-cost"
-                  style={{ width: "100%" }}
-                  min="0.00000001"
-                  stringMode
-                  decimalSeparator=","
-                  value={draft.initialUnitCost}
-                  onChange={(value) => setDecimal("initialUnitCost", value)}
-                  placeholder="Opcional se informar o valor"
-                />
-              </div>
-            </Flex>
-            <div className="filter-field">
-              <label htmlFor="investment-position-value">Valor inicial</label>
+        </FormField>
+      )}
+      <FormField label="Nome" htmlFor="investment-position-name">
+        <Input
+          id="investment-position-name"
+          value={draft.name}
+          autoFocus
+          onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+          placeholder="Ex.: Tesouro Selic 2029"
+        />
+      </FormField>
+      <div className="investment-form-pair">
+        <FormField label="Código (opcional)" htmlFor="investment-position-ticker">
+          <Input
+            id="investment-position-ticker"
+            value={draft.ticker}
+            onChange={(event) => setDraft((current) => ({ ...current, ticker: event.target.value }))}
+            placeholder="Ex.: BOVA11"
+          />
+        </FormField>
+        <FormField label="Tipo do ativo" htmlFor="investment-position-type">
+          <Input
+            id="investment-position-type"
+            value={draft.assetType}
+            onChange={(event) => setDraft((current) => ({ ...current, assetType: event.target.value }))}
+            placeholder="Ex.: ETF, CDB, Fundo"
+          />
+        </FormField>
+      </div>
+      <FormField label="Objetivo (opcional)" htmlFor="investment-position-goal">
+        <Select
+          id="investment-position-goal"
+          value={draft.portfolioId ?? undefined}
+          options={portfolioOptions}
+          allowClear
+          placeholder="Sem objetivo"
+          showSearch
+          optionFilterProp="label"
+          onChange={(value: string | undefined) => setDraft((current) => ({ ...current, portfolioId: value ?? null }))}
+        />
+      </FormField>
+      {!isEditing && (
+        <>
+          <div className="investment-form-pair">
+            <FormField label="Quantidade inicial" htmlFor="investment-position-quantity">
               <InputNumber
-                id="investment-position-value"
+                id="investment-position-quantity"
                 style={{ width: "100%" }}
-                min="0.01"
-                step="0.01"
+                min="0.00000001"
                 stringMode
+                inputMode="decimal"
                 decimalSeparator=","
-                value={draft.initialValue}
-                onChange={(value) => setDecimal("initialValue", value)}
-                placeholder="Informe este valor ou quantidade e custo unitário"
+                value={draft.initialQuantity}
+                onChange={(value) => setDecimal("initialQuantity", value)}
               />
-            </div>
-            <div className="filter-field">
-              <label htmlFor="investment-position-date">Data do saldo inicial</label>
-              <DatePicker
-                id="investment-position-date"
+            </FormField>
+            <FormField label="Custo unitário" htmlFor="investment-position-unit-cost">
+              <InputNumber
+                id="investment-position-unit-cost"
                 style={{ width: "100%" }}
-                value={draft.occurredOn}
-                allowClear={false}
-                format="DD/MM/YYYY"
-                onChange={(value) => value && setDraft((current) => ({ ...current, occurredOn: value }))}
+                min="0.00000001"
+                stringMode
+                inputMode="decimal"
+                prefix="R$"
+                decimalSeparator=","
+                value={draft.initialUnitCost}
+                onChange={(value) => setDecimal("initialUnitCost", value)}
               />
-            </div>
-          </>
-        )}
-        <div className="filter-field">
-          <label htmlFor="investment-position-notes">Observações (opcional)</label>
-          <Input.TextArea
-            id="investment-position-notes"
-            value={draft.notes}
-            rows={3}
-            onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
-          />
-        </div>
-      </Flex>
-    </Drawer>
+            </FormField>
+          </div>
+          <FormField
+            label="Valor inicial"
+            htmlFor="investment-position-value"
+            hint="Informe o valor, ou a quantidade e o custo unitário."
+          >
+            <MoneyInput
+              id="investment-position-value"
+              min={0.01}
+              value={toMoneyInput(draft.initialValue)}
+              onChange={(value) => setDraft((current) => ({ ...current, initialValue: fromMoneyInput(value) }))}
+            />
+          </FormField>
+          <FormField label="Data do saldo inicial" htmlFor="investment-position-date">
+            <DatePicker
+              id="investment-position-date"
+              style={{ width: "100%" }}
+              value={draft.occurredOn}
+              allowClear={false}
+              format="DD/MM/YYYY"
+              onChange={(value) => value && setDraft((current) => ({ ...current, occurredOn: value }))}
+            />
+          </FormField>
+        </>
+      )}
+      <FormField label="Observações (opcional)" htmlFor="investment-position-notes">
+        <Input.TextArea
+          id="investment-position-notes"
+          value={draft.notes}
+          rows={3}
+          onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
+        />
+      </FormField>
+    </FormDrawer>
   );
 }

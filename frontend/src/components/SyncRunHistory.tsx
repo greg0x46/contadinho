@@ -1,67 +1,88 @@
 import type { ProColumns } from "@ant-design/pro-table";
 import ProTable from "@ant-design/pro-table";
-import { Space } from "antd";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import type { SyncRun } from "../api/contracts";
-import { formatDate } from "../presentation/dates";
-import { DataCardSummary } from "./layout/DataCard";
+import { formatDate, formatLocalDay } from "../presentation/dates";
+import { ResponsiveList } from "./layout";
 import { SyncStatusBadge } from "./SyncStatusBadge";
 
-/** The summary strip of the sync-run history DataCard: how many runs are listed. */
-export function SyncRunHistorySummary({ runs }: { runs: SyncRun[] }) {
-  return (
-    <DataCardSummary label="Resumo das sincronizações">
-      <p className="sync-history-summary-count">
-        {runs.length} {runs.length === 1 ? "sincronização" : "sincronizações"}
-      </p>
-    </DataCardSummary>
-  );
+const detailsPath = (run: SyncRun) => `/configuracoes/open-banking/sync-runs/${run.id}`;
+const detailsLabel = (run: SyncRun) => `Ver detalhes da sincronização iniciada em ${formatDate(run.started_at)}`;
+
+/**
+ * One lighter line for a run on a phone: when, and what it moved. Short on
+ * purpose — a failed or partial run has a status tag beside the text, and a
+ * line that wraps to three beside it reads as noise. Updates only when there
+ * were some; the accounts count is in the run's detail.
+ */
+function runMeta(run: SyncRun): string {
+  return [
+    formatLocalDay(run.started_at),
+    `${run.transactions_inserted} ${run.transactions_inserted === 1 ? "nova" : "novas"}`,
+    run.transactions_updated > 0
+      ? `${run.transactions_updated} ${run.transactions_updated === 1 ? "atualizada" : "atualizadas"}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
+/**
+ * The sync history: a table from `md` up and, on a phone, rows — connection,
+ * when and what it moved, with the status shown only when the run did not
+ * simply complete — each one a link to the run's detail. In the table the row
+ * opens the run too; the date is the link for the keyboard.
+ */
 export function SyncRunHistory({ runs }: { runs: SyncRun[] }) {
+  const navigate = useNavigate();
   const columns: ProColumns<SyncRun>[] = [
     {
       title: "Início",
       dataIndex: "started_at",
-      render: (_, run) => <time dateTime={run.started_at}>{formatDate(run.started_at)}</time>,
+      render: (_, run) => (
+        <Link aria-label={detailsLabel(run)} to={detailsPath(run)}>
+          <time dateTime={run.started_at}>{formatDate(run.started_at)}</time>
+        </Link>
+      ),
     },
     { title: "Conexão", dataIndex: "source_name" },
     {
       title: "Situação",
       dataIndex: "status",
-      render: (_, run) => <SyncStatusBadge status={run.status} />,
+      // The common case is plain text; only the runs that need a look get a tag.
+      render: (_, run) =>
+        run.status === "completed" ? "Concluída" : <SyncStatusBadge status={run.status} />,
     },
     { title: "Contas processadas", dataIndex: "accounts_processed", align: "right" },
     { title: "Transações incluídas", dataIndex: "transactions_inserted", align: "right" },
     { title: "Transações atualizadas", dataIndex: "transactions_updated", align: "right" },
-    {
-      title: "Ação",
-      valueType: "option",
-      render: (_, run) => (
-        <Space>
-          <Link
-            aria-label={`Ver detalhes da sincronização iniciada em ${formatDate(run.started_at)}`}
-            to={`/configuracoes/open-banking/sync-runs/${run.id}`}
-          >
-            Ver detalhes
-          </Link>
-        </Space>
-      ),
-    },
   ];
 
   return (
-    <ProTable<SyncRun>
-      aria-label="Sincronizações recentes"
-      columns={columns}
-      dataSource={runs}
-      rowKey="id"
-      search={false}
-      options={false}
-      pagination={false}
-      cardBordered
-      scroll={{ x: "max-content" }}
+    <ResponsiveList<SyncRun>
+      label="Sincronizações recentes"
+      items={runs}
+      getKey={(run) => run.id}
+      row={(run) => ({
+        title: run.source_name,
+        meta: runMeta(run),
+        status: run.status === "completed" ? undefined : <SyncStatusBadge status={run.status} />,
+        href: detailsPath(run),
+        ariaLabel: detailsLabel(run),
+      })}
+      wide={
+        <ProTable<SyncRun>
+          aria-label="Sincronizações recentes"
+          columns={columns}
+          dataSource={runs}
+          rowKey="id"
+          search={false}
+          options={false}
+          pagination={false}
+          onRow={(run) => ({ onClick: () => navigate(detailsPath(run)), style: { cursor: "pointer" } })}
+        />
+      }
     />
   );
 }

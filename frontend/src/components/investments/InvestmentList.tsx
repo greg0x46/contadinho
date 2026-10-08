@@ -1,45 +1,29 @@
-import { FundOutlined } from "@ant-design/icons";
-import { Skeleton, Tooltip } from "antd";
+import { Skeleton } from "antd";
 
 import type { Investment } from "../../api/contracts";
 import { investmentTypeLabel, investmentYield, yieldUnavailable } from "../../presentation/investmentLabels";
-import { formatBRL } from "../../presentation/money";
-import { colors } from "../../theme/tokens";
+import { EmptyState, ListRow, Section } from "../layout";
+import { Money } from "../shared/Money";
 
+/**
+ * The yield under the saldo: a signed result when the backend states one, or
+ * the short reason it does not. The longer explanation is on the investment's
+ * own page, where it reads as text instead of a hover-only tooltip.
+ */
 function YieldFigure({ investment }: { investment: Investment }) {
   const estimate = investmentYield(investment);
-  if (estimate === null) {
-    const { label, hint } = yieldUnavailable(investment);
-    return (
-      <Tooltip title={hint === "" ? undefined : hint}>
-        <span className="investment-row-figure-value">{label}</span>
-      </Tooltip>
-    );
-  }
-  const negative = estimate.value.startsWith("-");
+  if (estimate === null) return <span className="investment-row-yield">{yieldUnavailable(investment).label}</span>;
   return (
-    <Tooltip
-      title={
-        estimate.source === "informado"
-          ? "Informado pela instituição"
-          : "Calculado a partir do histórico de aplicações e resgates"
-      }
-    >
-      <span
-        className="investment-row-figure-value"
-        style={{ color: negative ? colors.error : colors.success }}
-      >
-        {formatBRL(estimate.value)}
-      </span>
-    </Tooltip>
+    <span className="investment-row-yield">
+      Rendimento <Money value={estimate.value} tone="result" />
+    </span>
   );
 }
 
 /**
- * Investimentos sincronizados as flat rows: name + institution/type on the
- * left, saldo atual and rendimento as the two figures on the right — the
- * same recipe as BankAccountList/CreditCardList on Contas e cartões, instead
- * of a ProTable grid.
+ * Investimentos sincronizados as flat rows: name 500 with institution and
+ * type as the one meta line, saldo atual 600 on the right and the yield
+ * under it. Each row opens the investment.
  */
 export function InvestmentList({
   investments,
@@ -51,57 +35,33 @@ export function InvestmentList({
   onOpen: (investment: Investment) => void;
 }) {
   return (
-    <section className="investments-section" aria-label="Investimentos sincronizados">
-      <header className="investments-section-header">
-        <h2>Investimentos sincronizados</h2>
-        {!isLoading && investments.length > 0 && (
-          <small>
-            {investments.length} {investments.length === 1 ? "investimento" : "investimentos"}
-          </small>
-        )}
-      </header>
+    <Section title="Investimentos sincronizados">
       {isLoading ? (
-        <div className="investments-section-loading" role="status" aria-label="Carregando investimentos">
+        <div role="status" aria-label="Carregando investimentos">
           <Skeleton active paragraph={{ rows: 2 }} title={false} />
         </div>
       ) : investments.length === 0 ? (
-        <div className="debt-list-empty">
-          <FundOutlined className="debt-list-empty-icon" aria-hidden="true" />
-          <span>Nenhum investimento sincronizado ainda.</span>
-        </div>
+        <EmptyState
+          title="Nenhum investimento sincronizado ainda"
+          hint="Quando uma instituição conectada enviar investimentos, eles aparecem aqui."
+        />
       ) : (
-        <div className="investments-section-rows">
+        <ul className="list-rows" aria-label="Investimentos sincronizados">
           {investments.map((investment) => (
-            <button
+            <ListRow
               key={investment.id}
-              type="button"
-              className="investment-row"
+              title={investment.name ?? "Sem nome"}
+              meta={[investment.source_display_name, investmentTypeLabel(investment.investment_type)]
+                .filter(Boolean)
+                .join(" · ")}
+              trailing={investment.balance !== null ? <Money value={investment.balance} tone="balance" /> : "—"}
+              status={<YieldFigure investment={investment} />}
               onClick={() => onOpen(investment)}
-            >
-              <span className="investment-row-identity">
-                <span className="investment-row-name">{investment.name ?? "Sem nome"}</span>
-                <span className="investment-row-meta">
-                  {[investment.source_display_name, investmentTypeLabel(investment.investment_type)]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </span>
-              </span>
-              <span className="investment-row-figures">
-                <span className="investment-row-figure">
-                  <span className="investment-row-figure-label">Saldo atual</span>
-                  <span className="investment-row-figure-value">
-                    {investment.balance !== null ? formatBRL(investment.balance) : "—"}
-                  </span>
-                </span>
-                <span className="investment-row-figure">
-                  <span className="investment-row-figure-label">Rendimento</span>
-                  <YieldFigure investment={investment} />
-                </span>
-              </span>
-            </button>
+              ariaLabel={`Abrir ${investment.name ?? "investimento sem nome"}`}
+            />
           ))}
-        </div>
+        </ul>
       )}
-    </section>
+    </Section>
   );
 }

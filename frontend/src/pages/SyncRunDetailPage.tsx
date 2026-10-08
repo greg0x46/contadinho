@@ -1,4 +1,4 @@
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 
 import { isUuid } from "../api/contracts";
 import { DetailPage, InvalidDetailPage } from "../components/layout";
@@ -6,8 +6,9 @@ import { SyncFailureList } from "../components/SyncFailureList";
 import { SyncRunOverview } from "../components/SyncRunOverview";
 import { useSyncRun } from "../hooks/useSyncRun";
 
-const pageTitle = "Detalhes da sincronização";
-const backLink = <Link to="/configuracoes/open-banking">Voltar para sincronizações</Link>;
+const pageTitle = "Sincronização";
+const backTo = "/configuracoes/open-banking";
+const backLabel = "Voltar para sincronizações";
 
 function ValidRunDetail({ id }: { id: string }) {
   const { state, retry } = useSyncRun(id);
@@ -15,7 +16,9 @@ function ValidRunDetail({ id }: { id: string }) {
   return (
     <DetailPage
       title={pageTitle}
-      back={backLink}
+      backTo={backTo}
+      backLabel={backLabel}
+      width="narrow"
       state={state}
       retry={retry}
       loadingLabel="Carregando sincronização…"
@@ -38,6 +41,12 @@ export function SyncRunDetailPage() {
   return isUuid(id) ? (
     <ValidRunDetail id={id} />
   ) : (
-    <InvalidDetailPage title={pageTitle} back={backLink} invalidTitle="Endereço de sincronização inválido" />
+    <InvalidDetailPage
+      title={pageTitle}
+      backTo={backTo}
+      backLabel={backLabel}
+      width="narrow"
+      invalidTitle="Endereço de sincronização inválido"
+    />
   );
 }

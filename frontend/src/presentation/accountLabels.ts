@@ -83,8 +83,16 @@ export function isCreditAccount(account: Account): boolean {
   return account.account_type === "CREDIT";
 }
 
+/**
+ * The record's one name, in the list row and as the detail page's heading
+ * alike: the account's own name ("Conta Corrente", "Cartão Platinum" — what
+ * tells two accounts of one bank apart), falling back to the short
+ * institution name for an account that has none. The institution rides
+ * along on the identity line instead (see `accountMetaLine`).
+ */
 export function accountDisplayName(account: Account): string {
-  return account.name ?? account.institution_name ?? "Conta sem nome";
+  if (account.name !== null) return account.name;
+  return account.institution_name !== null ? shortInstitutionName(account.institution_name) : "Conta sem nome";
 }
 
 // A registered institution name often carries a corporate suffix and a
@@ -99,12 +107,11 @@ export function shortInstitutionName(name: string): string {
   return short || brand;
 }
 
-/** The account detail page's heading: the institution first, since that's
- *  how a user recognizes the account, falling back to whatever name the
- *  account itself carries. */
+/** The account detail page's heading. It is the same name the list row shows
+ *  (`accountDisplayName`): a record is not called one thing in the list and
+ *  another once opened. */
 export function accountHeaderTitle(account: Account): string {
-  if (account.institution_name !== null) return shortInstitutionName(account.institution_name);
-  return account.name ?? "Conta sem nome";
+  return accountDisplayName(account);
 }
 
 /** "Conta corrente · •••• 0966" — the compact identity line under a name,
@@ -112,6 +119,18 @@ export function accountHeaderTitle(account: Account): string {
 export function accountIdentityLine(account: Account): string {
   const parts = [accountSubtypeLabel(account.account_subtype), maskedAccountNumber(account.number)];
   return parts.filter((part): part is string => part !== null).join(" · ");
+}
+
+/** "Conta corrente · •••• 0966 · Nu Pagamentos": the identity line plus the
+ *  institution — the part of the account the name does not already carry. Only
+ *  the parts that exist, so an account with nothing to say gets "" and no line,
+ *  never a lone dash. Shared by the list rows and the detail header. */
+export function accountMetaLine(account: Account): string {
+  const name = accountDisplayName(account);
+  const institution = account.institution_name !== null ? shortInstitutionName(account.institution_name) : "";
+  return [accountIdentityLine(account), institution !== name ? institution : ""]
+    .filter((part) => part !== "")
+    .join(" · ");
 }
 
 /** Accounts carry their own currency, unlike the rest of the app, which is

@@ -1,0 +1,169 @@
+/* Settings hub, Segurança/Geral forms and the signed-out login screen
+   (imported in main.tsx like every other sheet). */
+
+/* ---- Settings hub: grouped navigation rows ---------------------------- */
+
+.settings-group + .settings-group {
+  margin-top: 1rem;
+}
+
+.settings-group .list-row {
+  min-height: 48px;
+}
+
+.settings-row-chevron {
+  color: var(--color-text-tertiary);
+  font-size: var(--fs-caption);
+}
+
+/* ---- Settings forms (Geral, Segurança): one flat surface, one column --- */
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 28rem;
+}
+
+.settings-form .ant-btn {
+  align-self: flex-start;
+}
+
+.settings-radio {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.settings-radio .ant-radio-wrapper {
+  align-items: flex-start;
+  font-weight: 500;
+}
+
+/* antd centres the radio on the whole label; with a hint under the title it
+   belongs beside the title's first line. */
+.settings-radio .ant-radio-wrapper > .ant-radio {
+  align-self: flex-start;
+  margin-top: 0.1875rem;
+}
+
+.settings-radio-hint {
+  display: block;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--fs-small);
+  font-weight: 400;
+}
+
+/* Quiet secondary actions below the password form. */
+.settings-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* The destructive action of an edit sheet: last, set apart by a hairline. */
+.automation-form-delete,
+.scenario-form-delete {
+  display: flex;
+  margin-top: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+/* Settings lists (Automações, Cenários) sit on a flush white surface like
+   every other list; ListRow brings no side padding of its own, so the card
+   gives the rows the page gutter. */
+.settings-list-card .list-rows,
+.settings-list-card .ant-skeleton {
+  padding-inline: var(--page-gutter);
+}
+
+.settings-list-card .ant-skeleton {
+  padding-block: 1rem;
+}
+
+/* A long name is two lines at most in a settings row (the full text opens in the editor). */
+.settings-list-card .list-row-title {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.automation-actions {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A row's meta line can be a long rule summary: two lines at most. */
+.meta-clamp {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* ---- Login: brand lockup over a single column on the page background --- */
+
+.login-page {
+  display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem var(--page-gutter, 1rem);
+  background: var(--color-bg);
+}
+
+.login-panel {
+  display: flex;
+  width: 100%;
+  max-width: 22rem;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.login-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.login-brand-logo {
+  width: auto;
+  height: 88px;
+  object-fit: contain;
+}
+
+/* Same face as the app bar's wordmark (see .app-brand-title in global.css). */
+.login-brand-name {
+  margin: 0.5rem 0 0;
+  color: var(--color-text);
+  font-family: "Baloo 2", "Segoe UI", sans-serif;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.login-brand-tagline {
+  margin: 0.125rem 0 0;
+  color: var(--color-text-secondary);
+  font-family: "Baloo 2", "Segoe UI", sans-serif;
+  font-size: var(--fs-body);
+  font-weight: 500;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* The primary action is the one 48px control of the screen. */
+.login-form .ant-btn-lg {
+  height: 48px;
+}

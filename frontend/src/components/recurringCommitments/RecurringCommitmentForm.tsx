@@ -1,6 +1,6 @@
-import { Alert, Button, DatePicker, Divider, Drawer, Flex, Input, InputNumber, Select, Switch, Typography } from "antd";
+import { Alert, DatePicker, Flex, Input, InputNumber, Select, Switch } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
-import { useState } from "react";
+import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 
 import type {
   Category,
@@ -13,6 +13,10 @@ import {
   recurringCommitmentCadenceLabel,
   recurringCommitmentKindLabel,
 } from "../../presentation/recurringCommitmentLabels";
+import { AccountSelect } from "../forms/AccountSelect";
+import { FormDrawer } from "../forms/FormDrawer";
+import { FormField } from "../forms/FormField";
+import { MoneyInput } from "../forms/MoneyInput";
 
 const dateFormat = "YYYY-MM-DD";
 
@@ -41,22 +45,27 @@ export type RecurringCommitmentDraft = {
   isActive: boolean;
 };
 
-const blankDraft: RecurringCommitmentDraft = {
-  name: "",
-  kind: "expense",
-  amount: null,
-  categoryId: null,
-  accountId: "",
-  cadence: "monthly",
-  dayOfMonth: null,
-  monthOfYear: null,
-  startDate: dayjs(),
-  endDate: null,
-  isActive: true,
-};
+function blankDraft(): RecurringCommitmentDraft {
+  return {
+    name: "",
+    kind: "expense",
+    amount: null,
+    categoryId: null,
+    accountId: "",
+    cadence: "monthly",
+    dayOfMonth: null,
+    monthOfYear: null,
+    startDate: dayjs(),
+    endDate: null,
+    isActive: true,
+  };
+}
 
-function draftFrom(commitment: RecurringCommitment | null): RecurringCommitmentDraft {
-  if (!commitment) return blankDraft;
+function draftFrom(
+  commitment: RecurringCommitment | null,
+  initialDraft?: Partial<RecurringCommitmentDraft> | null,
+): RecurringCommitmentDraft {
+  if (!commitment) return { ...blankDraft(), ...initialDraft };
   return {
     name: commitment.name,
     kind: commitment.kind,
@@ -72,6 +81,176 @@ function draftFrom(commitment: RecurringCommitment | null): RecurringCommitmentD
   };
 }
 
+/** Validates the draft; an empty "Dia do mês" falls back to the start date's day. */
+function buildWrite(
+  draft: RecurringCommitmentDraft,
+): { error: string } | { write: RecurringCommitmentWrite } {
+  if (draft.name.trim() === "") return { error: "Informe um nome para a recorrência." };
+  if (draft.amount === null || draft.amount <= 0) return { error: "Informe um valor maior que zero." };
+  if (draft.categoryId === null) return { error: "Selecione uma categoria." };
+  if (draft.cadence === "annual" && draft.monthOfYear === null) {
+    return { error: "Informe o mês do ano para uma recorrência anual." };
+  }
+  if (draft.endDate && draft.endDate.isBefore(draft.startDate, "day")) {
+    return { error: "A data de término não pode ser anterior à data de início." };
+  }
+  return {
+    write: {
+      name: draft.name.trim(),
+      kind: draft.kind,
+      amount: draft.amount.toFixed(2),
+      category_id: draft.categoryId,
+      account_id: draft.accountId.trim() === "" ? null : draft.accountId.trim(),
+      cadence: draft.cadence,
+      day_of_month: draft.dayOfMonth ?? draft.startDate.date(),
+      month_of_year: draft.cadence === "annual" ? draft.monthOfYear : null,
+      start_date: draft.startDate.format(dateFormat),
+      end_date: draft.endDate ? draft.endDate.format(dateFormat) : null,
+      is_active: draft.isActive,
+    },
+  };
+}
+
+/**
+ * The inputs of a recurrence, without a container or a `<form>`: the drawer
+ * and the transaction panel each wrap them in their own form. The draft lives
+ * in the caller.
+ */
+function RecurringCommitmentFieldset({
+  draft,
+  setDraft,
+  categories,
+}: {
+  draft: RecurringCommitmentDraft;
+  setDraft: Dispatch<SetStateAction<RecurringCommitmentDraft>>;
+  categories: Category[];
+}) {
+  const categoryOptions = categories
+    .filter((category) => category.is_active && category.kind !== "transfer")
+    .map((category) => ({ value: category.id, label: category.name }));
+
+  return (
+    <>
+      <FormField label="Nome" htmlFor="recurring-commitment-name">
+        <Input
+          id="recurring-commitment-name"
+          value={draft.name}
+          onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+          placeholder="Ex.: Salário, Aluguel, Netflix"
+        />
+      </FormField>
+
+      <FormField label="Tipo" htmlFor="recurring-commitment-kind">
+        <Select
+          id="recurring-commitment-kind"
+          value={draft.kind}
+          options={kindOptions}
+          onChange={(value: RecurringCommitmentKind) => setDraft((current) => ({ ...current, kind: value }))}
+        />
+      </FormField>
+
+      <FormField label="Valor" htmlFor="recurring-commitment-amount">
+        <MoneyInput
+          id="recurring-commitment-amount"
+          min={0.01}
+          value={draft.amount}
+          onChange={(value) => setDraft((current) => ({ ...current, amount: value }))}
+        />
+      </FormField>
+
+      <FormField label="Categoria" htmlFor="recurring-commitment-category">
+        <Select
+          id="recurring-commitment-category"
+          value={draft.categoryId ?? undefined}
+          options={categoryOptions}
+          showSearch
+          optionFilterProp="label"
+          placeholder="Selecione uma categoria"
+          onChange={(value: string) => setDraft((current) => ({ ...current, categoryId: value }))}
+        />
+      </FormField>
+
+      <FormField label="Conta (opcional)" htmlFor="recurring-commitment-account">
+        <AccountSelect
+          id="recurring-commitment-account"
+          optional
+          value={draft.accountId}
+          onChange={(accountId) => setDraft((current) => ({ ...current, accountId: accountId ?? "" }))}
+        />
+      </FormField>
+
+      <FormField label="Cadência" htmlFor="recurring-commitment-cadence">
+        <Select
+          id="recurring-commitment-cadence"
+          value={draft.cadence}
+          options={cadenceOptions}
+          onChange={(value: RecurringCommitmentCadence) => setDraft((current) => ({ ...current, cadence: value }))}
+        />
+      </FormField>
+
+      <FormField
+        label="Dia do mês"
+        htmlFor="recurring-commitment-day"
+        hint="Usado só para agendar a data esperada no calendário. Em branco, vale o dia da data de início."
+      >
+        <InputNumber
+          id="recurring-commitment-day"
+          style={{ width: "100%" }}
+          min={1}
+          max={31}
+          inputMode="numeric"
+          value={draft.dayOfMonth}
+          placeholder={String(draft.startDate.date())}
+          onChange={(value) => setDraft((current) => ({ ...current, dayOfMonth: value }))}
+        />
+      </FormField>
+
+      {draft.cadence === "annual" && (
+        <FormField label="Mês do ano" htmlFor="recurring-commitment-month">
+          <Select
+            id="recurring-commitment-month"
+            value={draft.monthOfYear ?? undefined}
+            options={monthOptions}
+            placeholder="Selecione um mês"
+            onChange={(value: number) => setDraft((current) => ({ ...current, monthOfYear: value }))}
+          />
+        </FormField>
+      )}
+
+      <FormField label="Data de início" htmlFor="recurring-commitment-start-date">
+        <DatePicker
+          id="recurring-commitment-start-date"
+          style={{ width: "100%" }}
+          format="DD/MM/YYYY"
+          value={draft.startDate}
+          allowClear={false}
+          onChange={(value) => value && setDraft((current) => ({ ...current, startDate: value }))}
+        />
+      </FormField>
+
+      <FormField label="Data de término (opcional)" htmlFor="recurring-commitment-end-date">
+        <DatePicker
+          id="recurring-commitment-end-date"
+          style={{ width: "100%" }}
+          format="DD/MM/YYYY"
+          value={draft.endDate}
+          onChange={(value) => setDraft((current) => ({ ...current, endDate: value }))}
+        />
+      </FormField>
+
+      <FormField label="Ativa" htmlFor="recurring-commitment-active">
+        <Switch
+          id="recurring-commitment-active"
+          aria-label="Recorrência ativa"
+          checked={draft.isActive}
+          onChange={(checked) => setDraft((current) => ({ ...current, isActive: checked }))}
+          style={{ width: "fit-content" }}
+        />
+      </FormField>
+    </>
+  );
+}
+
 type FieldsProps = {
   /** The `<form>` id, so a submit button can live outside the fields (e.g. a sticky footer). */
   formId: string;
@@ -83,10 +262,11 @@ type FieldsProps = {
 };
 
 /**
- * The fields of a compromisso recorrente, without a container. The draft is
- * seeded once on mount (remount with a `key` to start over) and rendered as
- * a `<form>` so the submit control can live in a drawer footer or a panel's
- * sticky bar via `form={formId}`.
+ * The fields of a recurrence as a `<form>` of their own, for hosts that bring
+ * a submit control of their own (the transaction panel's sticky footer). The
+ * draft is seeded once on mount (remount with a `key` to start over). While
+ * `submitting`, Enter in a field does nothing — the host's button is already
+ * disabled by its own spinner, but the keyboard would still send a second write.
  */
 export function RecurringCommitmentFields({
   formId,
@@ -94,244 +274,90 @@ export function RecurringCommitmentFields({
   initialDraft,
   categories,
   submitError,
+  submitting = false,
   onSubmit,
-}: FieldsProps) {
-  const [draft, setDraft] = useState<RecurringCommitmentDraft>(() => ({
-    ...draftFrom(commitment),
-    ...(commitment ? {} : initialDraft),
-  }));
+}: FieldsProps & { submitting?: boolean }) {
+  const [draft, setDraft] = useState<RecurringCommitmentDraft>(() => draftFrom(commitment, initialDraft));
   const [error, setError] = useState<string | null>(null);
-
-  const categoryOptions = categories
-    .filter((category) => category.is_active && category.kind !== "transfer")
-    .map((category) => ({ value: category.id, label: category.name }));
-
-  const submit = () => {
-    if (draft.name.trim() === "") {
-      setError("Informe um nome para o compromisso.");
-      return;
-    }
-    if (draft.amount === null || draft.amount <= 0) {
-      setError("Informe um valor maior que zero.");
-      return;
-    }
-    if (draft.categoryId === null) {
-      setError("Selecione uma categoria.");
-      return;
-    }
-    if (draft.dayOfMonth === null) {
-      setError("Informe o dia do mês.");
-      return;
-    }
-    if (draft.cadence === "annual" && draft.monthOfYear === null) {
-      setError("Informe o mês do ano para uma recorrência anual.");
-      return;
-    }
-    if (draft.endDate && draft.endDate.isBefore(draft.startDate, "day")) {
-      setError("A data de término não pode ser anterior à data de início.");
-      return;
-    }
-    setError(null);
-    onSubmit({
-      name: draft.name.trim(),
-      kind: draft.kind,
-      amount: draft.amount.toFixed(2),
-      category_id: draft.categoryId,
-      account_id: draft.accountId.trim() === "" ? null : draft.accountId.trim(),
-      cadence: draft.cadence,
-      day_of_month: draft.dayOfMonth,
-      month_of_year: draft.cadence === "annual" ? draft.monthOfYear : null,
-      start_date: draft.startDate.format(dateFormat),
-      end_date: draft.endDate ? draft.endDate.format(dateFormat) : null,
-      is_active: draft.isActive,
-    });
-  };
 
   return (
     <form
       id={formId}
       onSubmit={(event) => {
         event.preventDefault();
-        submit();
+        if (submitting) return;
+        const built = buildWrite(draft);
+        if ("error" in built) {
+          setError(built.error);
+          return;
+        }
+        setError(null);
+        onSubmit(built.write);
       }}
     >
       <Flex vertical gap="middle">
         {(error ?? submitError) && <Alert type="error" showIcon message={error ?? submitError} />}
-
-        <Divider orientation="left" plain style={{ margin: 0 }}>
-          Dados da recorrência
-        </Divider>
-
-        <div className="filter-field">
-          <label htmlFor="recurring-commitment-name">Nome</label>
-          <Input
-            id="recurring-commitment-name"
-            value={draft.name}
-            onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-            placeholder="Ex.: Salário, Aluguel, Netflix"
-          />
-        </div>
-
-        <div className="filter-field">
-          <label htmlFor="recurring-commitment-kind">Tipo</label>
-          <Select
-            id="recurring-commitment-kind"
-            value={draft.kind}
-            options={kindOptions}
-            onChange={(value: RecurringCommitmentKind) =>
-              setDraft((current) => ({ ...current, kind: value }))
-            }
-          />
-        </div>
-
-        <div className="filter-field">
-          <label htmlFor="recurring-commitment-amount">Valor</label>
-          <InputNumber
-            id="recurring-commitment-amount"
-            style={{ width: "100%" }}
-            min={0.01}
-            step={0.01}
-            decimalSeparator=","
-            value={draft.amount}
-            onChange={(value) => setDraft((current) => ({ ...current, amount: value }))}
-            placeholder="0,00"
-          />
-        </div>
-
-        <div className="filter-field">
-          <label htmlFor="recurring-commitment-category">Categoria</label>
-          <Select
-            id="recurring-commitment-category"
-            value={draft.categoryId ?? undefined}
-            options={categoryOptions}
-            showSearch
-            optionFilterProp="label"
-            placeholder="Selecione uma categoria"
-            onChange={(value: string) => setDraft((current) => ({ ...current, categoryId: value }))}
-          />
-        </div>
-
-        <div className="filter-field">
-          <label htmlFor="recurring-commitment-account">Conta (opcional)</label>
-          <Input
-            id="recurring-commitment-account"
-            value={draft.accountId}
-            onChange={(event) =>
-              setDraft((current) => ({ ...current, accountId: event.target.value }))
-            }
-            placeholder="ID da conta"
-          />
-        </div>
-
-        <div className="filter-field">
-          <label htmlFor="recurring-commitment-cadence">Cadência</label>
-          <Select
-            id="recurring-commitment-cadence"
-            value={draft.cadence}
-            options={cadenceOptions}
-            onChange={(value: RecurringCommitmentCadence) =>
-              setDraft((current) => ({ ...current, cadence: value }))
-            }
-          />
-        </div>
-
-        <div className="filter-field">
-          <label htmlFor="recurring-commitment-day">Dia do mês</label>
-          <InputNumber
-            id="recurring-commitment-day"
-            style={{ width: "100%" }}
-            min={1}
-            max={31}
-            value={draft.dayOfMonth}
-            onChange={(value) => setDraft((current) => ({ ...current, dayOfMonth: value }))}
-          />
-          <Typography.Text type="secondary">
-            Usado só para agendar a data esperada no calendário.
-          </Typography.Text>
-        </div>
-
-        {draft.cadence === "annual" && (
-          <div className="filter-field">
-            <label htmlFor="recurring-commitment-month">Mês do ano</label>
-            <Select
-              id="recurring-commitment-month"
-              value={draft.monthOfYear ?? undefined}
-              options={monthOptions}
-              placeholder="Selecione um mês"
-              onChange={(value: number) =>
-                setDraft((current) => ({ ...current, monthOfYear: value }))
-              }
-            />
-          </div>
-        )}
-
-        <div className="filter-field">
-          <label htmlFor="recurring-commitment-start-date">Data de início</label>
-          <DatePicker
-            id="recurring-commitment-start-date"
-            style={{ width: "100%" }}
-            format="DD/MM/YYYY"
-            value={draft.startDate}
-            allowClear={false}
-            onChange={(value) => value && setDraft((current) => ({ ...current, startDate: value }))}
-          />
-        </div>
-
-        <div className="filter-field">
-          <label htmlFor="recurring-commitment-end-date">Data de término (opcional)</label>
-          <DatePicker
-            id="recurring-commitment-end-date"
-            style={{ width: "100%" }}
-            format="DD/MM/YYYY"
-            value={draft.endDate}
-            onChange={(value) => setDraft((current) => ({ ...current, endDate: value }))}
-          />
-        </div>
-
-        <Flex align="center" gap="small">
-          <Switch
-            id="recurring-commitment-active"
-            checked={draft.isActive}
-            onChange={(checked) => setDraft((current) => ({ ...current, isActive: checked }))}
-          />
-          <label htmlFor="recurring-commitment-active">Ativo</label>
-        </Flex>
+        <RecurringCommitmentFieldset draft={draft} setDraft={setDraft} categories={categories} />
       </Flex>
     </form>
   );
 }
 
-const drawerFormId = "recurring-commitment-form";
-
-/** The fields inside a side drawer — the Recorrências page's own editor. */
+/**
+ * The Recorrências page's editor: the shared form drawer (full-screen sheet
+ * on a phone) around the same fields. `extra` is extra content under the
+ * fields while editing — on a phone it carries what the table's expanded row
+ * carries on a wide screen (the occurrences) and the delete action.
+ */
 export function RecurringCommitmentForm({
   open,
+  commitment,
+  initialDraft,
+  categories,
   submitting,
+  submitError,
+  onSubmit,
   onCancel,
-  ...fields
+  extra,
 }: Omit<FieldsProps, "formId"> & {
   open: boolean;
   submitting: boolean;
   onCancel: () => void;
+  extra?: ReactNode;
 }) {
-  const isEditing = fields.commitment !== null;
+  const [draft, setDraft] = useState<RecurringCommitmentDraft>(() => draftFrom(commitment, initialDraft));
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setDraft(draftFrom(commitment, initialDraft));
+      setError(null);
+    }
+    // The draft is seeded when the drawer opens; later prop changes must not reset what is being typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, commitment?.id]);
+
+  const submit = () => {
+    const built = buildWrite(draft);
+    if ("error" in built) {
+      setError(built.error);
+      return;
+    }
+    setError(null);
+    onSubmit(built.write);
+  };
+
   return (
-    <Drawer
-      title={isEditing ? "Editar compromisso" : "Novo compromisso"}
+    <FormDrawer
+      title={commitment ? "Editar recorrência" : "Nova recorrência"}
       open={open}
       onClose={onCancel}
-      width={480}
-      destroyOnHidden
-      footer={
-        <Flex justify="end" gap="small">
-          <Button onClick={onCancel}>Cancelar</Button>
-          <Button type="primary" htmlType="submit" form={drawerFormId} loading={submitting}>
-            Salvar
-          </Button>
-        </Flex>
-      }
+      onSubmit={submit}
+      submitting={submitting}
+      error={error ?? submitError}
     >
-      <RecurringCommitmentFields key={fields.commitment?.id ?? "new"} formId={drawerFormId} {...fields} />
-    </Drawer>
+      <RecurringCommitmentFieldset draft={draft} setDraft={setDraft} categories={categories} />
+      {extra}
+    </FormDrawer>
   );
 }

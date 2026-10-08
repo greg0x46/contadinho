@@ -15,7 +15,7 @@ import {
 } from "./contracts";
 import { ApiError, isAbortError } from "./problems";
 
-const defaultMessage = "Não foi possível salvar o compromisso recorrente.";
+const defaultMessage = "Não foi possível salvar a recorrência.";
 
 async function send<T>(
   input: RequestInfo | URL,

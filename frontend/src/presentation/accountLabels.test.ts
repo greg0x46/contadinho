@@ -5,6 +5,7 @@ import {
   accountDisplayName,
   accountHeaderTitle,
   accountIdentityLine,
+  accountMetaLine,
   shortInstitutionName,
 } from "./accountLabels";
 
@@ -24,18 +25,46 @@ describe("shortInstitutionName", () => {
 });
 
 describe("accountHeaderTitle", () => {
-  it("prefers the short institution name over the account's own name", () => {
+  // The record has one name: the list row and the heading of its detail page.
+  it("is the very name the list row shows, whatever the institution", () => {
     const account = { ...bankAccount, institution_name: "Nu Pagamentos S.A. - Instituição de Pagamento" };
-    expect(accountHeaderTitle(account)).toBe("Nu Pagamentos");
+    expect(accountHeaderTitle(account)).toBe("Conta Corrente");
+    expect(accountHeaderTitle(account)).toBe(accountDisplayName(account));
   });
 
   // institution_name is already the display-safe field (see contracts.ts):
   // when it is null — a non-real institution like Pluggy's proxy connector,
   // filtered out server-side — this must never fall back to the raw
-  // `institution` field, only to the account's own name.
-  it("falls back to the account name when institution_name is unavailable", () => {
-    const account = { ...bankAccount, institution: "MeuPluggy", institution_name: null };
-    expect(accountHeaderTitle(account)).toBe(bankAccount.name);
+  // `institution` field.
+  it("never falls back to the raw institution field", () => {
+    const account = { ...bankAccount, name: null, institution: "MeuPluggy", institution_name: null };
+    expect(accountHeaderTitle(account)).toBe("Conta sem nome");
+  });
+
+  it("falls back to the short institution name for an account with no name of its own", () => {
+    const account = {
+      ...bankAccount,
+      name: null,
+      institution_name: "Nu Pagamentos S.A. - Instituição de Pagamento",
+    };
+    expect(accountHeaderTitle(account)).toBe("Nu Pagamentos");
+  });
+});
+
+describe("accountMetaLine", () => {
+  it("adds the short institution to the identity line, since the name does not carry it", () => {
+    const account = { ...bankAccount, institution_name: "Nu Pagamentos S.A. - Instituição de Pagamento" };
+    expect(accountMetaLine(account)).toBe("Conta corrente · •••• 3456 · Nu Pagamentos");
+  });
+
+  it("does not repeat the institution when it is the name", () => {
+    const account = { ...bankAccount, name: null, institution_name: "Nu Pagamentos S.A." };
+    expect(accountMetaLine(account)).toBe("Conta corrente · •••• 3456");
+  });
+
+  it("is empty for an account with nothing to say", () => {
+    const account = { ...bankAccount, number: null, account_subtype: null, institution_name: null };
+    expect(accountMetaLine(account)).toBe("");
   });
 });
 

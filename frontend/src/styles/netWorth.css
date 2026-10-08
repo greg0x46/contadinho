@@ -1,97 +1,15 @@
-/* Patrimônio líquido: a hero summary (net worth is the one figure that
-   matters) with cash/investments/card/debts as secondary breakdown figures —
-   same shape as .accounts-summary — then the evolution chart in its own
-   bounded surface. Written mobile-first. */
+/* Patrimônio líquido: the hero strip (SummaryStrip) and the evolution chart
+   (Section) are the shared surfaces; this file only spaces them and styles
+   the footnote under the chart. */
 
-.net-worth-note {
-  margin: 0 0 1rem;
-  color: var(--color-text-secondary);
-  font-size: 0.8125rem;
-}
-
-.net-worth-summary {
+.net-worth-page {
   display: flex;
   flex-direction: column;
-  gap: 0.875rem;
-  margin-bottom: 1rem;
-  padding: 1rem 1.25rem;
-  border: 1px solid var(--color-border-secondary);
-  border-radius: 10px;
-  background: var(--color-bg-container);
+  gap: 1rem;
 }
 
-.net-worth-summary-hero {
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-  min-width: 0;
-}
-
-.net-worth-summary-hero-label {
+.net-worth-footnote {
+  margin: 0.5rem 0 0;
   color: var(--color-text-secondary);
-  font-size: 0.8125rem;
-}
-
-.net-worth-summary-hero-value {
-  margin: 0;
-  overflow-wrap: break-word;
-  color: var(--color-text-primary);
-  font-size: clamp(1.75rem, 7vw, 2.5rem);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.15;
-}
-
-.net-worth-summary-secondary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem 2rem;
-}
-
-.net-worth-summary-figure {
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-  min-width: 0;
-}
-
-.net-worth-summary-figure-label {
-  color: var(--color-text-secondary);
-  font-size: 0.75rem;
-}
-
-.net-worth-summary-figure-value {
-  color: var(--color-text-primary);
-  font-size: 1.0625rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-}
-
-@media (min-width: 48rem) {
-  .net-worth-summary {
-    flex-direction: row;
-    align-items: center;
-    gap: 1.5rem;
-  }
-
-  .net-worth-summary-secondary {
-    margin-left: auto;
-    gap: 2rem;
-  }
-}
-
-/* ---- Evolution chart: bounded surface instead of a floating plot. ------ */
-
-.net-worth-chart-card {
-  padding: 1rem 1.25rem;
-  border: 1px solid var(--color-border-secondary);
-  border-radius: 10px;
-  background: var(--color-bg-container);
-}
-
-.net-worth-chart-title {
-  margin: 0 0 0.75rem;
-  color: var(--color-text-primary);
-  font-size: 0.9375rem;
-  font-weight: 600;
+  font-size: var(--fs-caption, 0.75rem);
 }

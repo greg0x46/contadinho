@@ -1,8 +1,8 @@
-/* Investimentos: a hero summary (total investido), then one flat, bordered
-   section per account or per goal — identity + tags left, actions right,
-   figures row, then the positions/operations tables — the same "card
-   outside, hairline rows inside" language as accounts.css and
-   transactions.css. Written mobile-first. */
+/* Investimentos: SummaryStrip + one Section per account or goal (figures,
+   positions as rows on a phone / a flat table from md up, movements behind a
+   disclosure). Surfaces, rows, empty states and the summary come from
+   layout.css; this file only holds what is specific to the investment
+   screens. Written mobile-first. */
 
 .investments-list {
   display: flex;
@@ -10,151 +10,50 @@
   gap: 1rem;
 }
 
-/* ---- Workspace summary: "Valor atual" is the hero figure, the rest is
-   secondary — same shape as .accounts-summary. ------------------------- */
-
-.investments-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 0.875rem;
-  margin-bottom: 1rem;
-  padding: 1rem 1.25rem;
-  border: 1px solid var(--color-border-secondary);
-  border-radius: 10px;
-  background: var(--color-bg-container);
+.investments-list + .investments-footnote,
+.section + .investments-hint {
+  margin-top: 1rem;
 }
 
-.investments-summary-hero {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  gap: 0.125rem;
-  min-width: 0;
-}
-
-.investments-summary-hero-label {
+/* One quiet line of explanation: what a view means, never an alert box. */
+.investments-hint,
+.investment-note {
+  margin: 0 0 0.75rem;
   color: var(--color-text-secondary);
-  font-size: 0.8125rem;
+  font-size: var(--fs-small);
 }
 
-.investments-summary-hero-value {
-  margin: 0;
-  color: var(--color-text-primary);
-  font-size: 1.75rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+.investments-footnote {
+  margin: 0.5rem 0 0;
+  text-align: center;
+}
+
+.investments-footnote .ant-btn-link {
+  color: var(--color-text-secondary);
+  font-size: var(--fs-small);
+}
+
+.investment-quiet {
+  color: var(--color-text-secondary);
+  font-size: var(--fs-small);
+}
+
+.investment-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
   white-space: nowrap;
 }
 
-.investments-summary-secondary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem 1rem;
-}
-
-.investments-summary-figure {
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-  min-width: 0;
-}
-
-.investments-summary-figure-label {
-  color: var(--color-text-secondary);
-  font-size: 0.75rem;
-}
-
-.investments-summary-figure-value {
-  color: var(--color-text-primary);
-  font-size: 1.0625rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-}
-
-@media (min-width: 48rem) {
-  .investments-summary {
-    flex-direction: row;
-    align-items: center;
-    gap: 1.5rem;
-  }
-
-  .investments-summary-secondary {
-    display: flex;
-    flex-wrap: wrap;
-    margin-left: auto;
-    gap: 0.75rem 2rem;
-  }
-}
-
-/* ---- Section shell: one per account or goal, replacing a plain antd Card
-   so a stack of them reads as bounded flat sections, not a card grid. ---- */
-
-.investment-card {
-  border: 1px solid var(--color-border-secondary);
-  border-radius: 10px;
-  background: var(--color-bg-container);
-  overflow: hidden;
-}
-
-.investment-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  min-height: 3.25rem;
-  padding: 0.5rem 0.75rem 0.5rem 1.25rem;
-  border-bottom: 1px solid var(--color-border-secondary);
-}
-
-.investment-card-identity {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.375rem 0.5rem;
-  min-width: 0;
-}
-
-.investment-card-name {
-  margin: 0;
-  color: var(--color-text-primary);
-  font-size: 0.9375rem;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
-.investment-card-identity .ant-tag {
-  margin: 0;
-}
-
-/* Every action of the card sits behind one "···" — see ActionsMenu. */
-.investment-card-menu {
-  flex-shrink: 0;
-}
-
-.investment-card-body {
-  padding: 1rem 1.25rem;
-}
-
-.investment-card-body > *:not(:last-child) {
-  margin-bottom: 1rem;
-}
-
-.investment-card-goal {
-  display: flex;
-  flex-direction: column;
-  gap: 0.375rem;
-  color: var(--color-text-secondary);
-  font-size: 0.8125rem;
-}
-
-/* ---- Figures: label above value, same hierarchy as card-row-figure. Two
-   columns on a phone with "Valor atual" across both as the hero; as many
-   columns as fit from md up. -------------------------------------------- */
+/* ---- Figures strip inside an account or goal section --------------------- */
 
 .investment-figures {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem 1rem;
+  margin: 0 0 0.75rem;
 }
 
 .investment-figure {
@@ -164,276 +63,144 @@
   min-width: 0;
 }
 
-.investment-figure:first-child {
-  grid-column: 1 / -1;
-}
-
-.investment-figure:first-child .investment-figure-value {
-  font-size: 1.25rem;
-  font-weight: 700;
-}
-
-.investment-figure-label {
+.investment-figure dt {
   color: var(--color-text-secondary);
-  font-size: 0.75rem;
+  font-size: var(--fs-caption);
 }
 
-.investment-figure-label .anticon {
-  margin-left: 0.25rem;
-}
-
-.investment-figure-value {
-  color: var(--color-text-primary);
-  font-size: 0.9375rem;
-  font-weight: 600;
+.investment-figure dd {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--fs-row);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
+}
+
+/* The explanation opens from the label; the dotted underline says so. */
+.investment-figure-hint {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 0.2em;
+}
+
+/* The label is 14px tall; on a phone the tap target grows without the type. */
+@media (max-width: 47.99rem) {
+  .investment-figure-hint {
+    position: relative;
+  }
+
+  .investment-figure-hint::after {
+    content: "";
+    position: absolute;
+    inset: -14px -8px;
+  }
+}
+
+.investment-figure-hint:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 @media (min-width: 48rem) {
   .investment-figures {
-    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-    gap: 0.75rem 1.75rem;
-  }
-
-  .investment-figure:first-child {
-    grid-column: auto;
-  }
-
-  .investment-figure:first-child .investment-figure-value {
-    font-size: 0.9375rem;
-    font-weight: 600;
+    grid-template-columns: repeat(3, minmax(0, max-content));
+    gap: 0.75rem 2rem;
   }
 }
 
-/* ---- Positions: flat rows inside the section, edge to edge. Phone: identity
-   and its "···" on top, the figures under it in two columns, the goal picker
-   last at full width. From md: one dense line. ----------------------------- */
-
-.investment-list-empty {
-  margin: 0;
-  padding: 0.5rem 0;
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-}
-
-.investment-position-list {
-  margin: 0 -1.25rem -1rem;
-  padding: 0;
-  border-top: 1px solid var(--color-border-secondary);
-  list-style: none;
-}
-
-.investment-position-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas:
-    "identity menu"
-    "figures figures"
-    "goal goal";
-  align-items: start;
-  gap: 0.625rem 0.5rem;
-  padding: 0.875rem 1.25rem;
-  border-bottom: 1px solid var(--color-border-secondary);
-}
-
-.investment-position-row:last-child {
-  border-bottom: 0;
-}
-
-.investment-position-identity {
-  display: grid;
-  grid-area: identity;
-  gap: 0.125rem;
-  min-width: 0;
-}
-
-.investment-position-name {
-  color: var(--color-text-primary);
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
-.investment-position-name .ant-tag {
-  margin: 0 0 0 0.5rem;
-}
-
-.investment-position-meta {
-  color: var(--color-text-secondary);
-  font-size: 0.8125rem;
-  overflow-wrap: anywhere;
-}
-
-.investment-position-menu {
-  grid-area: menu;
-  margin: -0.5rem -0.5rem 0 0;
-}
-
-.investment-position-figures {
-  display: grid;
-  grid-area: figures;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5rem 1rem;
-  margin: 0;
-}
-
-.investment-position-figure {
+.investment-goal {
   display: flex;
   flex-direction: column;
-  gap: 0.125rem;
-  min-width: 0;
-}
-
-.investment-position-figure-label {
-  color: var(--color-text-secondary);
-  font-size: 0.75rem;
-}
-
-.investment-position-figure-value {
-  margin: 0;
-  color: var(--color-text-primary);
-  font-size: 0.9375rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-}
-
-.investment-position-figure-note {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: 0.75rem;
-  overflow-wrap: anywhere;
-}
-
-.investment-position-goal {
-  display: flex;
-  flex-direction: column;
-  grid-area: goal;
   gap: 0.25rem;
-  min-width: 0;
-}
-
-.investment-position-goal-label {
+  margin-bottom: 0.75rem;
   color: var(--color-text-secondary);
-  font-size: 0.75rem;
+  font-size: var(--fs-small);
 }
 
-.investment-position-goal .ant-select {
-  width: 100%;
-}
+/* ---- Rows (compact): value 600 on the right, yield under it, "···" at the end */
 
-@media (min-width: 48rem) {
-  .investment-position-row {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 2.4fr) 11rem 2.5rem;
-    grid-template-areas: "identity figures goal menu";
-    align-items: center;
-    gap: 1.25rem;
-  }
-
-  .investment-position-menu {
-    margin: 0;
-  }
-
-  .investment-position-figures {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem 1.25rem;
-  }
-
-  .investment-position-figure {
-    min-width: 5.5rem;
-    max-width: 11rem;
-  }
-
-  .investment-position-goal-label {
-    display: none;
-  }
-}
-
-/* ---- Operations (position detail): what happened and when on the left,
-   the amount beside its "···" on the right. Already the phone layout, so it
-   has no md override. ----------------------------------------------------- */
-
-.investment-operation-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.investment-operation-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  padding: 0.75rem 0;
-  border-bottom: 1px solid var(--color-border-secondary);
-}
-
-.investment-operation-row:last-child {
-  border-bottom: 0;
-}
-
-.investment-operation-main {
-  display: grid;
-  flex: 1;
-  gap: 0.125rem;
-  min-width: 0;
-}
-
-.investment-operation-kind {
-  display: flex;
-  flex-wrap: wrap;
+.investment-row-trailing {
+  display: inline-flex;
   align-items: center;
-  gap: 0.25rem 0.5rem;
-  color: var(--color-text-primary);
+  gap: 0.25rem;
+  margin-right: -0.5rem;
+}
+
+.investment-row-figures {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.investment-row-value {
   font-weight: 600;
 }
 
-.investment-operation-kind .ant-tag {
-  margin: 0;
-}
-
-.investment-operation-meta,
-.investment-operation-notes {
+.investment-row-yield {
   color: var(--color-text-secondary);
-  font-size: 0.8125rem;
-  overflow-wrap: anywhere;
+  font-size: var(--fs-small);
+  font-weight: 400;
 }
 
-.investment-operation-amount {
-  color: var(--color-text-primary);
-  font-size: 0.9375rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
+/* ---- Rendimento: the R$ result (a Money) with its % beside it, same tone ---- */
+
+.investment-yield {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.375rem;
   white-space: nowrap;
 }
 
-.investment-operation-menu-slot {
-  flex: none;
-  width: 2.5rem;
-  margin: -0.5rem -0.5rem 0 0;
+.investment-yield-percent {
+  font-size: var(--fs-small);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
-/* ---- Tables: flatten antd's stock chrome to the app's hairline language
-   instead of the default shadowed, grey-header look. --------------------- */
+/* In the table's figure column the % sits under the amount, like the other quiet lines. */
+.investment-cell-end .investment-yield {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0;
+}
+
+/* ---- Movements disclosure: part of the section, not a nested card -------- */
+
+.investment-operations.ant-collapse {
+  margin-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+  border-radius: 0;
+  background: transparent;
+}
+
+.investment-operations .ant-collapse-item {
+  border: 0;
+}
+
+.investment-operations .ant-collapse-header {
+  padding-inline: 0 !important;
+  color: var(--color-text-secondary);
+  font-size: var(--fs-small);
+}
+
+.investment-operations .ant-collapse-content-box {
+  padding: 0 !important;
+}
+
+/* ---- Tables (md and up): flat, hairlines only ---------------------------- */
 
 .investment-table.ant-table-wrapper .ant-table {
   background: transparent;
 }
 
-.investment-table.ant-table-wrapper .ant-table-thead > tr > th {
-  border-bottom: 1px solid var(--color-border-secondary);
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: none;
-}
-
-.investment-table.ant-table-wrapper .ant-table-thead > tr > th::before {
-  display: none;
-}
-
 .investment-table.ant-table-wrapper .ant-table-tbody > tr > td {
-  border-bottom: 1px solid var(--color-border-secondary);
-  font-size: 0.875rem;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--fs-body);
 }
 
 .investment-table.ant-table-wrapper .ant-table-tbody > tr:last-child > td {
@@ -441,184 +208,88 @@
 }
 
 .investment-table.ant-table-wrapper .ant-table-tbody > tr:hover > td {
-  background: rgba(23, 43, 77, 0.035);
+  background: var(--color-hover);
 }
 
-/* ---- Synced investments: identity left, figures right — same recipe as
-   accounts.css's .account-row / .card-row. ------------------------------- */
-
-.investments-section {
-  border: 1px solid var(--color-border-secondary);
-  border-radius: 10px;
-  background: var(--color-bg-container);
-  overflow: hidden;
+.investment-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
 }
 
-.investments-section-header {
+/* A position's name looks the same whether or not it has a detail page: the
+   link is ink, underlined on hover — not a green name beside plain ones. */
+.investment-name-link,
+.investment-name-link:hover {
+  color: inherit;
+}
+
+.investment-name-link:hover {
+  text-decoration: underline;
+}
+
+.investment-cell-end {
+  align-items: flex-end;
+}
+
+.investment-cell-title,
+.investment-cell-value {
+  color: var(--color-text);
+}
+
+.investment-cell-title {
+  font-weight: 500;
+}
+
+.investment-cell-value {
+  font-weight: 600;
+}
+
+.investment-number {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Forms: two short fields side by side, one column on a phone --------- */
+
+.investment-form-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+
+@media (min-width: 48rem) {
+  .investment-form-pair {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ---- Detail page: facts as a plain label / value list -------------------- */
+
+.investment-facts {
+  margin: 0;
+}
+
+.investment-fact {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.625rem 1.25rem;
-  border-bottom: 1px solid var(--color-border-secondary);
+  padding: 0.5rem 0;
 }
 
-.investments-section-header h2 {
+.investment-fact + .investment-fact {
+  border-top: 1px solid var(--color-border);
+}
+
+.investment-fact dt {
+  color: var(--color-text-secondary);
+  font-size: var(--fs-small);
+}
+
+.investment-fact dd {
   margin: 0;
-  color: var(--color-text-primary);
-  font-size: 0.9375rem;
-  font-weight: 600;
-}
-
-.investments-section-header small {
-  color: var(--color-text-secondary);
-  font-size: 0.8125rem;
-  white-space: nowrap;
-}
-
-.investments-section-loading {
-  padding: 1rem 1.25rem;
-}
-
-.investments-section-rows {
-  display: flex;
-  flex-direction: column;
-}
-
-.investment-row {
-  display: grid;
-  grid-template-columns: 1fr;
-  justify-items: start;
-  width: 100%;
-  gap: 0.5rem;
-  padding: 0.75rem 1.25rem;
-  border: 0;
-  border-bottom: 1px solid var(--color-border-secondary);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.investments-section-rows > .investment-row:last-child {
-  border-bottom: 0;
-}
-
-.investment-row:hover {
-  background: rgba(23, 43, 77, 0.035);
-}
-
-.investment-row:focus-visible {
-  outline: 3px solid var(--color-warning);
-  outline-offset: -3px;
-}
-
-.investment-row-identity {
-  display: grid;
-  gap: 0.125rem;
-  min-width: 0;
-}
-
-.investment-row-name {
-  overflow: hidden;
-  color: var(--color-text-primary);
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.investment-row-meta {
-  overflow: hidden;
-  color: var(--color-text-secondary);
-  font-size: 0.8125rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.investment-row-figures {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  width: 100%;
-  gap: 0.375rem 1.25rem;
-}
-
-.investment-row-figure {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.125rem;
-  min-width: 0;
-}
-
-.investment-row-figure-label {
-  color: var(--color-text-secondary);
-  font-size: 0.75rem;
-  white-space: nowrap;
-}
-
-.investment-row-figure-value {
-  color: var(--color-text-primary);
-  font-size: 0.9375rem;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-@media (min-width: 48rem) {
-  .investment-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 0.75rem;
-  }
-
-  .investment-row-figures {
-    justify-content: flex-end;
-    width: auto;
-  }
-
-  .investment-row-figure {
-    align-items: flex-end;
-  }
-}
-
-/* ---- Rendimento: R$ with its % under it (beside it in a figures row). The
-   +/− sign carries the direction; colour only reinforces it. ------------- */
-
-.investment-yield {
-  display: inline-flex;
-  flex-direction: column;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.investment-yield-percent {
-  font-size: 0.75rem;
+  color: var(--color-text);
+  font-size: var(--fs-row);
   font-weight: 500;
-}
-
-.investment-yield.is-positive {
-  color: var(--color-success);
-}
-
-.investment-yield.is-negative {
-  color: var(--color-error);
-}
-
-.investment-yield.is-zero {
-  color: var(--color-text-secondary);
-}
-
-.investment-figure-value .investment-yield,
-.investments-summary-figure-value .investment-yield {
-  flex-direction: row;
-  align-items: baseline;
-  gap: 0.375rem;
-}
-
-.investments-note {
-  margin: 0 0 1rem;
-  color: var(--color-text-secondary);
-  font-size: 0.8125rem;
+  text-align: right;
 }

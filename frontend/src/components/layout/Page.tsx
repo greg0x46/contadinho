@@ -7,18 +7,18 @@ import { useCompactScreen } from "../shared/useCompactScreen";
 
 interface PageProps {
   title: string;
-  /** A link back to where this page was reached from, e.g. a detail page's
-   *  way back to its list. Rendered right under the title, not as a page
-   *  action — it navigates away rather than acting on this page. */
-  back?: ReactNode;
   /**
-   * Same destination as `back`, as a route: when `compactMobileHeader`
-   * collapses the header, this turns the collapsed title itself into the
-   * back control (a real link, with a leading chevron) instead of dropping
-   * navigation entirely. Without it, the collapsed title stays static text.
+   * Where this page was reached from, e.g. a detail page's list: renders a
+   * chevron link before the title, at every width. It navigates away rather
+   * than acting on this page, so it is not a page action.
    */
   backTo?: string;
-  /** One line under the title; the only explanatory text a page header carries. */
+  /** The chevron link's accessible name ("Voltar para contas e cartões"). */
+  backLabel?: string;
+  /**
+   * One line under the title on wide screens. On a phone it is dropped when
+   * `compactMobileHeader` is set, so pages must not rely on it for meaning.
+   */
   description?: string;
   /**
    * Page context: a control that changes the whole page at once (the period
@@ -26,24 +26,28 @@ interface PageProps {
    * filter of any one list, so it lives in the header, not in a toolbar.
    */
   context?: ReactNode;
-  /** Page actions: creation and other page-wide commands ("Novo lançamento"). */
+  /**
+   * Page actions: creation and other page-wide commands. They sit on the
+   * title row's right edge at every width — build the primary one with
+   * `PageAction` (or `CreateActionMenu`) so it turns compact on a phone.
+   */
   actions?: ReactNode;
   /** Top-level views of the page, rendered right under the header. */
   tabs?: ReactNode;
   /**
-   * On a phone, drop the hero header — description, back link and actions —
-   * for a single quiet title line, so the list starts almost immediately.
-   * `context` survives the collapse (it's page-wide state, not chrome, so a
-   * page that has one still needs it reachable). From `md` up this is
-   * ignored and the header renders as usual; a page opting in still owns
-   * getting its actions in front of the user some other way (see
-   * BottomActionBar).
+   * How wide the page may grow on a big screen. `full` (default) caps at
+   * 1440px, for dashboards and wide tables; `narrow` caps at 1120px, for
+   * lists and settings, where a line of 1700px is unreadable. Both centre
+   * beyond the cap; the header follows the same width as the content.
    */
+  width?: "full" | "narrow";
+  /** On a phone, drop the description for a single title line. */
   compactMobileHeader?: boolean;
   /**
-   * Set when a BottomActionBar is mounted on a phone, so the page reserves
-   * room at the bottom of its scroll area for it (shared rule in layout.css)
-   * instead of every page copying its own padding-bottom hack.
+   * Set when a BottomActionBar is mounted on a phone — a task flow's
+   * confirmation, not a list page's create action. The page then reserves
+   * room at the bottom of its scroll area for the bar (shared rule in
+   * layout.css) and does not repeat `actions` in the title row.
    */
   hasBottomActionBar?: boolean;
   className?: string;
@@ -51,69 +55,71 @@ interface PageProps {
 }
 
 /**
- * The shell every screen composes: title + description on the left, page
- * context and page actions on the right, optional tabs, then the content.
- * Collection controls (search, filters, grouping, sorting) never go here —
- * they belong to a ListToolbar sitting right above the list they change.
+ * The shell every screen composes: one title row — optional back chevron,
+ * the h1, then page context and page actions at the right edge — with an
+ * optional description line under it, optional tabs, then the content. The
+ * title is the same size and colour at every width, and its left edge lines
+ * up with the content gutter. Collection controls (search, filters,
+ * grouping, sorting) never go here — they belong to a ListToolbar sitting
+ * right above the list they change.
  *
- * On a phone the header stacks: title, then the context on a full-width
- * touch target, then the actions at full width — unless `compactMobileHeader`
- * collapses it instead.
+ * On a phone the actions stay in the title row (compact), and the context
+ * drops to its own full-width row under it.
  */
 export function Page({
   title,
-  back,
   backTo,
+  backLabel = "Voltar",
   description,
   context,
   actions,
   tabs,
   compactMobileHeader,
   hasBottomActionBar,
+  width = "full",
   className,
   children,
 }: PageProps) {
   const compact = useCompactScreen();
-  const collapsed = compactMobileHeader === true && compact;
+  const bottomBar = compact && hasBottomActionBar === true;
+  const hideDescription = compactMobileHeader === true && compact;
   const hasContext = context !== undefined;
-  const hasVisibleActions = !collapsed && actions !== undefined;
+  const hasVisibleActions = actions !== undefined && !bottomBar;
 
   return (
     <PageContainer
-      // PageHeader wraps its title in a span; the page's name is the one
-      // heading assistive tech should land on, so it is a real h1 either way.
-      title={
-        <div className={["page-heading", collapsed ? "page-heading-collapsed" : ""].filter(Boolean).join(" ")}>
-          <h1 className={["page-title", collapsed ? "page-title-collapsed" : ""].filter(Boolean).join(" ")}>
-            {collapsed && backTo !== undefined ? (
-              <Link to={backTo} className="page-title-collapsed-link">
+      // The page's name is the one heading assistive tech should land on, so
+      // the header is rendered by hand: a real h1 inside a real <header>.
+      pageHeaderRender={() => (
+        <header className="page-header">
+          <div className="page-heading">
+            {backTo !== undefined && (
+              <Link to={backTo} className="page-back-link" aria-label={backLabel}>
                 <LeftOutlined aria-hidden="true" />
-                {title}
               </Link>
-            ) : (
-              title
             )}
-          </h1>
-          {!collapsed && back !== undefined && <div className="page-back">{back}</div>}
-        </div>
-      }
-      subTitle={collapsed ? undefined : description}
+            {/* On a phone a long name is clamped to two lines; `title` keeps the whole of it. */}
+            <h1 className="page-title" title={title}>
+              {title}
+            </h1>
+          </div>
+          {(hasContext || hasVisibleActions) && (
+            <div className="page-header-slots">
+              {hasContext && <div className="page-context">{context}</div>}
+              {hasVisibleActions && <div className="page-actions">{actions}</div>}
+            </div>
+          )}
+          {description !== undefined && !hideDescription && <p className="page-description">{description}</p>}
+        </header>
+      )}
       className={[
         "app-page",
-        collapsed ? "app-page-collapsed-header" : "",
-        compact && hasBottomActionBar ? "app-page-has-bottom-bar" : "",
+        width === "narrow" ? "app-page-narrow" : "",
+        bottomBar ? "app-page-has-bottom-bar" : "",
         className,
       ]
         .filter(Boolean)
         .join(" ")}
-      extra={
-        hasContext || hasVisibleActions ? (
-          <div className="page-header-slots">
-            {hasContext && <div className="page-context">{context}</div>}
-            {hasVisibleActions && <div className="page-actions">{actions}</div>}
-          </div>
-        ) : undefined
-      }
     >
       {tabs !== undefined && <div className="page-tabs">{tabs}</div>}
       {children}

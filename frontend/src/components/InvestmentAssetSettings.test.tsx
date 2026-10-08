@@ -31,8 +31,7 @@ describe("financial asset creation", () => {
     ["Criptoativos", "ETF de criptoativos", "HASH11", "crypto", "b3"],
     ["Renda fixa", "ETF de renda fixa", "LFTB11", "fixed_income", "b3"],
   ])("routes %s / %s without a provider selector", async (label, type, ticker, assetClass, market) => {
-    render(<InvestmentAssetSettings />);
-    await userEvent.click(screen.getByRole("button", { name: "Novo ativo" }));
+    render(<InvestmentAssetSettings creating onCreatingClose={vi.fn()} />);
     await choose("Classe", label);
     await choose("Tipo", type);
     fireEvent.change(screen.getByRole("textbox", { name: "Nome" }), { target: { value: "Ativo de teste" } });
@@ -46,8 +45,7 @@ describe("financial asset creation", () => {
   });
 
   it("saves fixed income without automatic prices and filters instrument types by class", async () => {
-    render(<InvestmentAssetSettings />);
-    await userEvent.click(screen.getByRole("button", { name: "Novo ativo" }));
+    render(<InvestmentAssetSettings creating onCreatingClose={vi.fn()} />);
     await choose("Classe", "Renda fixa");
     await choose("Tipo", "CDB");
     fireEvent.change(screen.getByRole("textbox", { name: "Nome" }), { target: { value: "CDB Banco 2028" } });

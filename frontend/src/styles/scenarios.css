@@ -1,16 +1,108 @@
-/* Expanded body of a scenario row — see StandaloneScenarioCard.tsx. */
+/* Scenario body — the expanded table row on a wide screen and the body of
+   the scenario sheet on a phone (see StandaloneScenarioCard.tsx). */
 
 .scenario-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
   padding: 0.75rem;
 }
 
-.scenario-panel-counts {
+.scenario-sheet .scenario-panel {
+  padding: 0;
+}
+
+.scenario-panel-counts,
+.scenario-panel-empty {
   margin: 0;
   color: var(--color-text-secondary);
-  font-size: 0.8125rem;
+  font-size: var(--fs-small);
   font-variant-numeric: tabular-nums;
 }
 
-.scenario-panel-new-transaction {
-  margin-top: 0.75rem;
+/* The type filter says what it filters, with a visible label. */
+.scenario-kind-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.scenario-kind-filter-label {
+  color: var(--color-text-secondary);
+  font-size: var(--fs-small);
+}
+
+/* On a phone the toolbar is one row (see ListToolbar): the select keeps the
+   room, and "Todos os tipos" says what it filters on its own. */
+@media (max-width: 47.99rem) {
+  .scenario-kind-filter-label {
+    display: none;
+  }
+}
+
+/* One field per line on a phone; from `md` up the fields share rows. */
+.scenario-new-transaction {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.scenario-new-transaction-fields {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+@media (min-width: 48rem) {
+  .scenario-new-transaction-fields {
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  }
+}
+
+/* Hypothetical transactions on a phone: description and date, the figure,
+   then the row's `···`. */
+.scenario-tx-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 56px;
+  padding-block: 0.5rem;
+}
+
+.scenario-tx-row .list-row-text {
+  flex: 1 1 auto;
+}
+
+/* The sheet's header: the record's `···` beside the close button. */
+.scenario-sheet-actions {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* The scenario sheet (phone). */
+.scenario-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.scenario-sheet-meta {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--fs-small);
+}
+
+.scenario-sheet-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.scenario-sheet-switch > span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
 }

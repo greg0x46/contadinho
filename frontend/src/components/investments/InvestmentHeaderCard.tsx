@@ -1,15 +1,23 @@
-import { Card, Tag, Tooltip, Typography } from "antd";
+import type { ReactNode } from "react";
 
 import type { Investment, InvestmentTransaction } from "../../api/contracts";
-import { formatOptionalDate } from "../../presentation/dates";
+import { formatOptionalDay } from "../../presentation/dates";
 import {
+  formatDecimal,
   investmentTypeLabel,
   investmentYield,
   netContributed,
   yieldUnavailable,
 } from "../../presentation/investmentLabels";
-import { formatBRL } from "../../presentation/money";
+import { Section, SummaryStrip } from "../layout";
+import { Money } from "../shared/Money";
 
+/**
+ * The investment's summary: its saldo as the hero, rendimento / aportes
+ * líquidos / atualização beside it, and everything else the institution tells
+ * us as a plain list of facts under it. Where the rendimento comes from (or
+ * why there is none) is a line of text, not a hover-only tooltip.
+ */
 export function InvestmentHeaderCard({
   investment,
   transactions,
@@ -20,7 +28,7 @@ export function InvestmentHeaderCard({
   const yieldEstimate = investmentYield(investment);
   const unavailable = yieldUnavailable(investment);
   // A history the backend judged too partial to net is too partial to show a
-  // total for either. Without this the card contradicts itself: "Rendimento:
+  // total for either. Without this the page contradicts itself: "Rendimento:
   // Histórico incompleto" directly above a confident "Aportes líquidos"
   // netted from the very history that was just rejected. The backend owns
   // that judgement — it has the quantity evidence (cotas sold against cotas
@@ -29,104 +37,76 @@ export function InvestmentHeaderCard({
   const contributed =
     transactions.length > 0 && historyIsTrustworthy ? netContributed(transactions) : null;
 
-  return (
-    <Card className="debt-header-card dashboard-widget">
-      <div className="debt-header-identity">
-        <Typography.Title level={3} className="debt-header-name">
-          {investment.name ?? "Sem nome"}
-        </Typography.Title>
-        <Tag>{investmentTypeLabel(investment.investment_type)}</Tag>
-        {investment.source_display_name !== null && (
-          <Typography.Text type="secondary">{investment.source_display_name}</Typography.Text>
-        )}
-      </div>
+  const yieldNote =
+    yieldEstimate === null
+      ? unavailable.hint === ""
+        ? undefined
+        : unavailable.hint
+      : yieldEstimate.source === "informado"
+        ? "Rendimento informado pela instituição."
+        : "Rendimento calculado a partir do histórico de aplicações e resgates.";
 
-      <div className="debt-header-figure">
-        <p className="dashboard-hero-figure">
-          {investment.balance !== null ? formatBRL(investment.balance) : "—"} de saldo
-        </p>
-        <ul className="debt-header-legend-inline">
-          <li>
-            <span>Rendimento</span>
-            <Tooltip
-              title={
-                yieldEstimate === null
-                  ? unavailable.hint === ""
-                    ? undefined
-                    : unavailable.hint
-                  : yieldEstimate.source === "informado"
-                    ? "Informado pela instituição"
-                    : "Calculado a partir do histórico de aplicações e resgates"
-              }
-            >
-              <strong>
-                {yieldEstimate !== null ? formatBRL(yieldEstimate.value) : unavailable.label}
-              </strong>
-            </Tooltip>
-          </li>
-          {contributed !== null && (
-            <li>
-              <span>Aportes líquidos</span>
-              <strong>{formatBRL(contributed)}</strong>
-            </li>
-          )}
-          {investment.amount_original !== null && (
-            <li>
-              <span>Valor aplicado</span>
-              <strong>{formatBRL(investment.amount_original)}</strong>
-            </li>
-          )}
-          {investment.taxes !== null && (
-            <li>
-              <span>IR retido</span>
-              <strong>{formatBRL(investment.taxes)}</strong>
-            </li>
-          )}
-          {investment.taxes2 !== null && (
-            <li>
-              <span>IOF retido</span>
-              <strong>{formatBRL(investment.taxes2)}</strong>
-            </li>
-          )}
-          {investment.annual_rate !== null && (
-            <li>
-              <span>Taxa anual</span>
-              <strong>{investment.annual_rate}%</strong>
-            </li>
-          )}
-          {investment.last_twelve_months_rate !== null && (
-            <li>
-              <span>Rentabilidade 12 meses</span>
-              <strong>{investment.last_twelve_months_rate}%</strong>
-            </li>
-          )}
-          {investment.rate !== null && (
-            <li>
-              <span>Taxa contratada</span>
-              <strong>
-                {investment.rate}
-                {investment.rate_type !== null ? ` ${investment.rate_type}` : ""}
-              </strong>
-            </li>
-          )}
-          {investment.issuer !== null && (
-            <li>
-              <span>Emissor</span>
-              <strong>{investment.issuer}</strong>
-            </li>
-          )}
-          {investment.due_date !== null && (
-            <li>
-              <span>Vencimento</span>
-              <strong>{formatOptionalDate(investment.due_date)}</strong>
-            </li>
-          )}
-          <li>
-            <span>Atualizado em</span>
-            <strong>{formatOptionalDate(investment.as_of_date)}</strong>
-          </li>
-        </ul>
-      </div>
-    </Card>
+  const facts: { label: string; value: ReactNode }[] = [
+    { label: "Tipo", value: investmentTypeLabel(investment.investment_type) },
+    ...(investment.source_display_name !== null
+      ? [{ label: "Instituição", value: investment.source_display_name }]
+      : []),
+    ...(investment.amount_original !== null
+      ? [{ label: "Valor aplicado", value: <Money value={investment.amount_original} tone="neutral" /> }]
+      : []),
+    ...(investment.taxes !== null
+      ? [{ label: "IR retido", value: <Money value={investment.taxes} tone="neutral" /> }]
+      : []),
+    ...(investment.taxes2 !== null
+      ? [{ label: "IOF retido", value: <Money value={investment.taxes2} tone="neutral" /> }]
+      : []),
+    ...(investment.annual_rate !== null ? [{ label: "Taxa anual", value: `${formatDecimal(investment.annual_rate)}%` }] : []),
+    ...(investment.last_twelve_months_rate !== null
+      ? [{ label: "Rentabilidade 12 meses", value: `${formatDecimal(investment.last_twelve_months_rate)}%` }]
+      : []),
+    ...(investment.rate !== null
+      ? [
+          {
+            label: "Taxa contratada",
+            value: `${formatDecimal(investment.rate)}${investment.rate_type !== null ? ` ${investment.rate_type}` : ""}`,
+          },
+        ]
+      : []),
+    ...(investment.issuer !== null ? [{ label: "Emissor", value: investment.issuer }] : []),
+    ...(investment.due_date !== null
+      ? [{ label: "Vencimento", value: formatOptionalDay(investment.due_date) }]
+      : []),
+  ];
+
+  return (
+    <>
+      <SummaryStrip
+        label="Saldo"
+        value={
+          investment.balance !== null ? <Money value={investment.balance} tone="balance" size="hero" /> : "—"
+        }
+        items={[
+          {
+            label: "Rendimento",
+            value: yieldEstimate !== null ? <Money value={yieldEstimate.value} tone="result" /> : unavailable.label,
+          },
+          ...(contributed !== null
+            ? [{ label: "Aportes líquidos", value: <Money value={contributed} tone="neutral" /> }]
+            : []),
+          { label: "Atualizado em", value: formatOptionalDay(investment.as_of_date) },
+        ]}
+        note={yieldNote}
+      />
+      <Section title="Dados do investimento">
+        <dl className="investment-facts">
+          {facts.map((fact) => (
+            <div key={fact.label} className="investment-fact">
+              <dt>{fact.label}</dt>
+              <dd>{fact.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </Section>
+    </>
   );
 }

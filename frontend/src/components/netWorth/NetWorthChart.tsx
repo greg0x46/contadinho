@@ -1,9 +1,13 @@
+import type { ReactNode } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import type { NetWorthSnapshot } from "../../api/contracts";
+import { formatAxisMoney } from "../../presentation/chartAxis";
+import { yAxisWidth } from "../../presentation/chartAxisWidth";
+import { balanceChartColor } from "../../presentation/chartColors";
 import { formatBRL } from "../../presentation/money";
-import { monthlyEvolutionColor } from "../../presentation/chartColors";
-import { colors } from "../../theme/tokens";
+import { Section } from "../layout";
+import { useCompactScreen } from "../shared/useCompactScreen";
 
 type ChartPoint = { date: string; netWorth: number };
 
@@ -27,34 +31,54 @@ function TooltipContent({ active, payload, label }: { active?: boolean; payload?
   );
 }
 
-// A single series never needs a legend (see the dataviz skill) — the chart
-// title alone names what the line is. The color reuses
-// monthlyEvolutionColor.result (already validated for CVD/contrast) since
-// "net worth" is the same semantic role as "result" in the monthly
-// evolution chart: a signed, netted-out figure.
-export function NetWorthChart({ snapshots }: { snapshots: NetWorthSnapshot[] }) {
+// A single series never needs a legend (see the dataviz skill) — the section
+// title names what the line is. It is drawn in ink, like the "realized" line
+// of the balance chart on Início: a net worth that was captured is a fact,
+// not a forecast. The Y axis is there because a bare line with no scale says
+// "it went up" but never by how much; its ticks are rounded like Início's.
+// `footnote` is the one place for what the series does not cover.
+export function NetWorthChart({ snapshots, footnote }: { snapshots: NetWorthSnapshot[]; footnote?: ReactNode }) {
+  const compact = useCompactScreen();
   const data = toChartData(snapshots);
+  const axisWidth = yAxisWidth(data.map((point) => point.netWorth));
+  const first = data[0]?.date ?? "";
+  const last = data[data.length - 1]?.date ?? "";
   return (
-    <div className="net-worth-chart-card">
-      <h2 className="net-worth-chart-title">Evolução do patrimônio líquido</h2>
-      <div className="timeline-chart" aria-label="Evolução do patrimônio líquido">
-        <ResponsiveContainer width="100%" height={320}>
-          <LineChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="date" tickLine={false} axisLine={{ stroke: colors.border }} />
-            <YAxis tickLine={false} axisLine={false} width={0} />
+    <Section title="Evolução do patrimônio líquido">
+      <div className="timeline-chart" role="img" aria-label={`Evolução do patrimônio líquido, de ${first} a ${last}`}>
+        <ResponsiveContainer width="100%" height={compact ? 240 : 320}>
+          <LineChart data={data} margin={{ top: 12, right: 16, left: 0, bottom: 4 }}>
+            <CartesianGrid stroke={balanceChartColor.grid} vertical={false} />
+            <XAxis
+              dataKey="date"
+              interval="preserveStartEnd"
+              minTickGap={compact ? 28 : 40}
+              tickMargin={8}
+              tickLine={false}
+              axisLine={{ stroke: balanceChartColor.grid }}
+              tick={{ fontSize: 12, fill: balanceChartColor.axis }}
+            />
+            <YAxis
+              tickFormatter={formatAxisMoney}
+              tickLine={false}
+              axisLine={false}
+              width={axisWidth}
+              tick={{ fontSize: 12, fill: balanceChartColor.axis }}
+            />
             <Tooltip content={<TooltipContent />} />
             <Line
               type="monotone"
               dataKey="netWorth"
               name="Patrimônio líquido"
-              stroke={monthlyEvolutionColor.result}
+              stroke={balanceChartColor.realized}
               strokeWidth={2}
-              dot={{ r: 4 }}
+              dot={false}
+              activeDot={{ r: 4 }}
             />
           </LineChart>
         </ResponsiveContainer>
       </div>
-    </div>
+      {footnote !== undefined && <p className="net-worth-footnote">{footnote}</p>}
+    </Section>
   );
 }

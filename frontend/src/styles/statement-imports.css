@@ -1,7 +1,6 @@
-/* Importar extrato: the file and account steps as bounded panels, the review
-   as a DataCard with a row list, then the recent imports — the same "card
-   outside, hairline rows inside" language as accounts.css and
-   transactions.css. Written mobile-first. */
+/* Importar extrato: every step is a flat Section (white surface, hairline
+   title), the review and the recent imports run edge to edge inside theirs
+   — the same language as every other page. Written mobile-first. */
 
 .statement-import-sections {
   display: flex;
@@ -9,18 +8,24 @@
   gap: 1rem;
 }
 
+/* A phone's bottom action bar (Importar N transações) must not cover the last
+   rows or the pagination: the page's shared bar rule reserves its own height,
+   this adds the breathing room the long preview list needs. */
+.app-page-has-bottom-bar .statement-import-sections {
+  padding-bottom: 1rem;
+}
+
 /* Clears the fixed app bar when the outcome scrolls into view. */
 .statement-import-result {
   scroll-margin-top: 5rem;
 }
 
-/* ---- Steps 1 and 2: forms on a plain panel ------------------------------ */
+/* ---- Steps 1 and 2: the form inside its Section ------------------------- */
 
-.statement-import-panel .ant-card-body {
+.statement-import-panel {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  padding: 0.75rem;
 }
 
 .statement-import-panel .ant-typography {
@@ -34,7 +39,7 @@
   gap: 0.75rem;
   min-height: 44px;
   padding: 1rem;
-  border: 1px dashed var(--color-border-secondary);
+  border: 1px dashed var(--color-border);
   border-radius: 8px;
   overflow-wrap: anywhere;
   cursor: pointer;
@@ -49,8 +54,8 @@
 
 /* The input is visually hidden, so the ring goes on the whole picker. */
 .statement-file-picker:has(input:focus-visible) {
-  outline: 3px solid var(--color-warning);
-  outline-offset: 3px;
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 .statement-file-picker .anticon {
@@ -103,26 +108,26 @@
 
 .statement-import-counts dt {
   color: var(--color-text-secondary);
-  font-size: 0.75rem;
+  font-size: var(--fs-caption);
 }
 
 .statement-import-counts dd {
   margin: 0;
-  color: var(--color-text-primary);
-  font-size: 1.0625rem;
+  color: var(--color-text);
+  font-size: var(--fs-row);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
 .statement-import-counts .is-invalid dd {
-  color: var(--color-error);
+  color: var(--color-danger);
 }
 
 .statement-import-facts {
   display: flex;
   flex-direction: column;
   gap: 0.125rem;
-  font-size: 0.8125rem;
+  font-size: var(--fs-small);
 }
 
 .statement-import-facts > div {
@@ -138,7 +143,7 @@
 
 .statement-import-facts dd {
   margin: 0;
-  color: var(--color-text-primary);
+  color: var(--color-text);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -149,8 +154,8 @@
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  padding: 0.75rem;
-  border-bottom: 1px solid var(--color-border-secondary);
+  padding: 0.75rem var(--page-gutter);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .statement-import-review-notes:empty {
@@ -166,13 +171,6 @@
   list-style: none;
 }
 
-.statement-rows-empty {
-  margin: 0;
-  padding: 2rem 1rem;
-  color: var(--color-text-secondary);
-  text-align: center;
-}
-
 /* Mobile first: description and amount, then where and when, then status
    and notes underneath. */
 .statement-row {
@@ -183,8 +181,8 @@
     "review review";
   column-gap: 0.75rem;
   row-gap: 0.375rem;
-  padding: 0.625rem 0.75rem;
-  border-bottom: 1px solid var(--color-border-secondary);
+  padding: 0.625rem var(--page-gutter);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .statement-row:last-child {
@@ -193,7 +191,7 @@
 
 /* Invalid lines stand out in a long list, as the selected transaction does. */
 .statement-row.is-invalid {
-  box-shadow: inset 3px 0 0 var(--color-error);
+  box-shadow: inset 3px 0 0 var(--color-danger);
 }
 
 .statement-row-identity {
@@ -204,8 +202,9 @@
 }
 
 .statement-row-description {
-  color: var(--color-text-primary);
-  font-weight: 600;
+  color: var(--color-text);
+  font-size: var(--fs-row);
+  font-weight: 500;
   line-height: 1.3;
 }
 
@@ -214,7 +213,7 @@
   flex-wrap: wrap;
   column-gap: 0.35rem;
   color: var(--color-text-secondary);
-  font-size: 0.78rem;
+  font-size: var(--fs-small);
   line-height: 1.35;
 }
 
@@ -234,13 +233,14 @@
 }
 
 .statement-row-amount {
-  color: var(--color-text-primary);
+  color: var(--color-text);
+  font-size: var(--fs-row);
   font-weight: 600;
 }
 
 .statement-row-balance {
   color: var(--color-text-secondary);
-  font-size: 0.78rem;
+  font-size: var(--fs-small);
 }
 
 .statement-row-review {
@@ -252,10 +252,6 @@
   min-width: 0;
 }
 
-.statement-row-review .ant-tag {
-  margin: 0;
-}
-
 .statement-row-notes {
   display: flex;
   flex-direction: column;
@@ -264,21 +260,21 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 0.8125rem;
+  font-size: var(--fs-small);
 }
 
 .statement-row-error {
-  color: var(--color-error);
+  color: var(--color-danger);
 }
 
 .statement-import-pagination {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  padding: 0.75rem;
-  border-top: 1px solid var(--color-border-secondary);
+  padding: 0.75rem var(--page-gutter);
+  border-top: 1px solid var(--color-border);
   color: var(--color-text-secondary);
-  font-size: 0.875rem;
+  font-size: var(--fs-body);
 }
 
 /* Narrowest phones: the page number takes its own row above the buttons. */
@@ -291,7 +287,7 @@
 .statement-import-pagination nav span {
   grid-column: 1 / -1;
   grid-row: 1;
-  color: var(--color-text-primary);
+  color: var(--color-text);
   text-align: center;
   white-space: nowrap;
 }
@@ -302,18 +298,11 @@
 
 /* ---- Recent imports ------------------------------------------------------ */
 
-.statement-history-summary-count {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-
 .statement-history-row {
   display: grid;
   gap: 0.375rem;
-  padding: 0.625rem 0.75rem;
-  border-bottom: 1px solid var(--color-border-secondary);
+  padding: 0.625rem var(--page-gutter);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .statement-history-row:last-child {
@@ -327,14 +316,24 @@
 }
 
 .statement-history-account {
-  color: var(--color-text-primary);
-  font-weight: 600;
+  color: var(--color-text);
+  font-size: var(--fs-row);
+  font-weight: 500;
 }
 
 .statement-history-meta,
 .statement-history-counts {
   color: var(--color-text-secondary);
-  font-size: 0.8125rem;
+  font-size: var(--fs-small);
+}
+
+/* The filename is the long one: two lines at most, then cut. */
+.statement-history-meta {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .statement-history-link {
@@ -355,10 +354,6 @@
 @media (min-width: 48rem) {
   .statement-import-sections {
     gap: 1.25rem;
-  }
-
-  .statement-import-panel .ant-card-body {
-    padding: 1.25rem;
   }
 
   .statement-file-picker {
@@ -402,17 +397,13 @@
     gap: 0.0625rem;
   }
 
-  .statement-import-review-notes {
-    padding: 0.75rem 1.25rem;
-  }
-
   /* One dense line per row: identity, figures, then status and notes. */
   .statement-row {
     grid-template-columns: minmax(0, 1.4fr) 11rem minmax(12rem, 1fr);
     grid-template-areas: "identity figures review";
     align-items: center;
     column-gap: 1.5rem;
-    padding: 0.5rem 1.25rem;
+    padding: 0.5rem var(--page-gutter);
   }
 
   .statement-row-review {
@@ -423,7 +414,7 @@
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
-    padding-inline: 1.25rem;
+    padding-inline: var(--page-gutter);
   }
 
   .statement-import-pagination nav {
@@ -434,7 +425,7 @@
     grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) auto;
     align-items: center;
     column-gap: 1.5rem;
-    padding: 0.5rem 1.25rem;
+    padding: 0.5rem var(--page-gutter);
   }
 
   .statement-history-link {
