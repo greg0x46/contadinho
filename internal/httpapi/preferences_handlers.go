@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 
-	"contadinho-go/internal/settings"
+	"github.com/greg0x46/julius/internal/settings"
 )
 
 type preferencesDTO struct {

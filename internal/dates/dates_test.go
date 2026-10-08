@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"contadinho-go/internal/dates"
+	"github.com/greg0x46/julius/internal/dates"
 )
 
 // TestDaySameWallClockDateInDifferentZonesCompareEqual is the whole reason

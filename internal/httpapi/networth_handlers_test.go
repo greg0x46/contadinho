@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/db"
 )
 
 func TestGetNetWorthComputesBreakdownFromLiveData(t *testing.T) {

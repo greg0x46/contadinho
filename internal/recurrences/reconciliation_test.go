@@ -4,10 +4,10 @@ import (
 	"testing"
 	"time"
 
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/recurrences"
-	"contadinho-go/internal/rules"
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/recurrences"
+	"github.com/greg0x46/julius/internal/rules"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 // categorizedItem is itemAt plus the category/account a commitment's

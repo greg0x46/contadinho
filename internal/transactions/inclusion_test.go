@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 func TestSetInclusionTogglesAndRecordsRevisions(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"contadinho-go/internal/statementimport"
+	"github.com/greg0x46/julius/internal/statementimport"
 )
 
 // handleStatementTemplate serves the example CSV for a statement format so the

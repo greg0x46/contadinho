@@ -1,6 +1,6 @@
 package payables
 
-import "contadinho-go/internal/money"
+import "github.com/greg0x46/julius/internal/money"
 
 // LinkIneligibilityReason mirrors LinkIneligibilityReason.
 type LinkIneligibilityReason string

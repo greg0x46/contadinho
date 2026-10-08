@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"contadinho-go/internal/investments"
+	"github.com/greg0x46/julius/internal/investments"
 )
 
 func (f *ledgerFixture) assetCount() int {

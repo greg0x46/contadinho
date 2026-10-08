@@ -8,11 +8,11 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/dates"
-	"contadinho-go/internal/investments"
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/projections"
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/dates"
+	"github.com/greg0x46/julius/internal/investments"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/projections"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 // Querier is satisfied by both *sql.DB and *sql.Tx — identical in shape to

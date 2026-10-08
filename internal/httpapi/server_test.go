@@ -15,10 +15,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"contadinho-go/internal/auth"
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/httpapi"
-	"contadinho-go/internal/settings"
+	"github.com/greg0x46/julius/internal/auth"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/httpapi"
+	"github.com/greg0x46/julius/internal/settings"
 	"net/url"
 	"sync"
 )
@@ -123,9 +123,9 @@ func doJSON(t *testing.T, method, url string, body any) *http.Response {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", testOrigin)
-	req.Header.Set("X-Contadinho-Request", "1")
+	req.Header.Set("X-Julius-Request", "1")
 	if token, ok := fixtureTokens.Load(req.URL.Host); ok {
-		req.AddCookie(&http.Cookie{Name: "contadinho_session", Value: token.(string)})
+		req.AddCookie(&http.Cookie{Name: "julius_session", Value: token.(string)})
 	}
 
 	resp, err := http.DefaultClient.Do(req)

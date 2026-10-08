@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"contadinho-go/internal/scenarios"
+	"github.com/greg0x46/julius/internal/scenarios"
 )
 
 func TestReadjustReduceTermRecomputesCountFromReferenceAmount(t *testing.T) {

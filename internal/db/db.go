@@ -2,7 +2,7 @@
 // embedded into the binary, so a single executable needs no external schema
 // or migration files at runtime. SQLite is the zero-config default; a
 // "postgres://" or "postgresql://" DSN opts into Postgres instead, for
-// deployments that run several contadinho instances against one shared
+// deployments that run several julius instances against one shared
 // database — see README "Rodando com Postgres".
 package db
 
@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/pressly/goose/v3"
@@ -24,6 +25,22 @@ var sqliteMigrationsFS embed.FS
 
 //go:embed migrations/postgres/*.sql
 var postgresMigrationsFS embed.FS
+
+// DefaultPath returns the configured database path, falling back to an
+// existing Contadinho database for installations upgrading to Julius.
+// New installations use julius.db.
+func DefaultPath() string {
+	if configured := os.Getenv("JULIUS_DB"); configured != "" {
+		return configured
+	}
+	if _, err := os.Stat("julius.db"); err == nil || !os.IsNotExist(err) {
+		return "julius.db"
+	}
+	if _, err := os.Stat("contadinho.db"); err == nil {
+		return "contadinho.db"
+	}
+	return "julius.db"
+}
 
 // Open opens the application database at dsn (a plain filesystem path, or
 // ":memory:", selects SQLite; a "postgres://"/"postgresql://" URL selects
@@ -72,7 +89,7 @@ func openSQLite(path string) (*sql.DB, error) {
 // openPostgres opens conn through the qmark-rewriting connector in
 // postgres.go, so callers keep writing the same `?` placeholders they use
 // for SQLite. Unlike SQLite, Postgres has a real concurrent-writer story —
-// exactly what lets several contadinho instances share one database — so
+// exactly what lets several julius instances share one database — so
 // the pool isn't pinned to a single connection.
 func openPostgres(dsn string) (*sql.DB, error) {
 	connector, err := newPGConnector(dsn)

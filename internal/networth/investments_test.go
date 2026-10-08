@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/investments"
-	"contadinho-go/internal/networth"
-	"contadinho-go/internal/timeline"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/investments"
+	"github.com/greg0x46/julius/internal/networth"
+	"github.com/greg0x46/julius/internal/timeline"
 	"github.com/shopspring/decimal"
 )
 

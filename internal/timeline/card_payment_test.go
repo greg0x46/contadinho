@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"contadinho-go/internal/timeline"
+	"github.com/greg0x46/julius/internal/timeline"
 )
 
 // balanceOn returns the Balance of the DayPoint dated day, failing the test

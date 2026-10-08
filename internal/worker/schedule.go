@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"contadinho-go/internal/datasources"
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/syncsvc"
+	"github.com/greg0x46/julius/internal/datasources"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/syncsvc"
 )
 
 // Schedule is a daily wall-clock time at which every active connection is
@@ -23,7 +23,7 @@ type Schedule struct {
 	Location     *time.Location
 }
 
-// ParseSchedule reads CONTADINHO_SYNC_SCHEDULE: "HH:MM" in the process's
+// ParseSchedule reads JULIUS_SYNC_SCHEDULE: "HH:MM" in the process's
 // local time, optionally followed by an IANA zone ("06:00 America/Sao_Paulo").
 // An empty value disables the schedule.
 func ParseSchedule(value string) (Schedule, bool, error) {
@@ -32,16 +32,16 @@ func ParseSchedule(value string) (Schedule, bool, error) {
 		return Schedule{}, false, nil
 	}
 	if len(fields) > 2 {
-		return Schedule{}, false, fmt.Errorf("CONTADINHO_SYNC_SCHEDULE deve ser \"HH:MM\" ou \"HH:MM Zona/IANA\"")
+		return Schedule{}, false, fmt.Errorf("JULIUS_SYNC_SCHEDULE deve ser \"HH:MM\" ou \"HH:MM Zona/IANA\"")
 	}
 	clock, err := time.Parse("15:04", fields[0])
 	if err != nil {
-		return Schedule{}, false, fmt.Errorf("CONTADINHO_SYNC_SCHEDULE: horário inválido %q (use HH:MM)", fields[0])
+		return Schedule{}, false, fmt.Errorf("JULIUS_SYNC_SCHEDULE: horário inválido %q (use HH:MM)", fields[0])
 	}
 	s := Schedule{Hour: clock.Hour(), Minute: clock.Minute(), Location: time.Local}
 	if len(fields) == 2 {
 		if s.Location, err = time.LoadLocation(fields[1]); err != nil {
-			return Schedule{}, false, fmt.Errorf("CONTADINHO_SYNC_SCHEDULE: fuso inválido %q", fields[1])
+			return Schedule{}, false, fmt.Errorf("JULIUS_SYNC_SCHEDULE: fuso inválido %q", fields[1])
 		}
 	}
 	return s, true, nil

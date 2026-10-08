@@ -17,7 +17,7 @@
 // same condition applies unchanged across every occurrence.
 package automation
 
-import "contadinho-go/internal/rules"
+import "github.com/greg0x46/julius/internal/rules"
 
 type ConditionField = rules.ConditionField
 

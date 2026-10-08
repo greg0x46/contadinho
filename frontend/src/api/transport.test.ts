@@ -8,7 +8,7 @@ it("includes cookies and CSRF header and respects caller cancellation", async ()
   await apiFetch("/api/preferences", { method: "PUT", signal: controller.signal });
   const init = mock.mock.calls[0][1] as RequestInit;
   expect(init.credentials).toBe("same-origin");
-  expect(new Headers(init.headers).get("X-Contadinho-Request")).toBe("1");
+  expect(new Headers(init.headers).get("X-Julius-Request")).toBe("1");
   controller.abort(); expect(init.signal?.aborted).toBe(true);
 });
 it("rejects a late response after logout even when fetch ignores cancellation", async () => {

@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"contadinho-go/internal/automation"
-	"contadinho-go/internal/recurrences"
-	"contadinho-go/internal/timeline"
+	"github.com/greg0x46/julius/internal/automation"
+	"github.com/greg0x46/julius/internal/recurrences"
+	"github.com/greg0x46/julius/internal/timeline"
 )
 
 // reconcilableCommitment builds the pairing the reconciliation tests need: a

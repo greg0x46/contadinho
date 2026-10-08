@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 func TestProjectedEntryDateByBillID(t *testing.T) {

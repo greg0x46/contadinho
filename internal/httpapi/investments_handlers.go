@@ -11,9 +11,9 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/investments"
-	"contadinho-go/internal/money"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/investments"
+	"github.com/greg0x46/julius/internal/money"
 )
 
 type investmentDTO struct {

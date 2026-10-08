@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/worker"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/worker"
 )
 
 func TestParseSchedule(t *testing.T) {

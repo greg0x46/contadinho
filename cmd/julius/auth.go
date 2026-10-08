@@ -8,24 +8,21 @@ import (
 	"os"
 	"strings"
 
-	"contadinho-go/internal/auth"
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/auth"
+	"github.com/greg0x46/julius/internal/db"
 	"golang.org/x/term"
 )
 
 func authCommand(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("uso: contadinho auth init|migrate|reset-password [-db caminho ou DSN]")
+		return fmt.Errorf("uso: julius auth init|migrate|reset-password [-db caminho ou DSN]")
 	}
 	command := args[0]
 	if command != "init" && command != "migrate" && command != "reset-password" {
 		return fmt.Errorf("comando auth desconhecido")
 	}
 	flags := flag.NewFlagSet("auth "+command, flag.ContinueOnError)
-	defaultDB := os.Getenv("CONTADINHO_DB")
-	if defaultDB == "" {
-		defaultDB = "contadinho.db"
-	}
+	defaultDB := db.DefaultPath()
 	path := flags.String("db", defaultDB, "arquivo SQLite ou DSN Postgres")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err

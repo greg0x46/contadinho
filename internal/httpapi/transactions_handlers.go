@@ -11,11 +11,11 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/ledger"
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/scenarios"
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/ledger"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/scenarios"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 // --- request DTOs, matching frontend/src/api/contracts.ts's TransactionQuery ---

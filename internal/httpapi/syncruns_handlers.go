@@ -10,9 +10,9 @@ import (
 	"net/http"
 	"time"
 
-	"contadinho-go/internal/datasources"
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/syncsvc"
+	"github.com/greg0x46/julius/internal/datasources"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/syncsvc"
 )
 
 var resultMessages = map[string]string{

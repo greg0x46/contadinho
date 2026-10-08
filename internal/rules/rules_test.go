@@ -5,7 +5,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/rules"
+	"github.com/greg0x46/julius/internal/rules"
 )
 
 func strp(s string) *string { return &s }

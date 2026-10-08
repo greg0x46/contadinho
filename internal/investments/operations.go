@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/money"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/money"
 )
 
 // ErrOperationHasReconciliations refuses to drop an operation a bank line is

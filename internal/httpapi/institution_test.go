@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/db"
 )
 
 // insertAccountWithInstitution mirrors insertAccount but lets a test pin the

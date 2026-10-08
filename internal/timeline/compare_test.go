@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"contadinho-go/internal/scenarios"
-	"contadinho-go/internal/timeline"
+	"github.com/greg0x46/julius/internal/scenarios"
+	"github.com/greg0x46/julius/internal/timeline"
 )
 
 func TestBuildSeriesScenarioEntriesOnlySelectedIDs(t *testing.T) {

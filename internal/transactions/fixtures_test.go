@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/db"
 )
 
 // fixture wires up the minimal sync-schema chain (data_sources -> sync_runs

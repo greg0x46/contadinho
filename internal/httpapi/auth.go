@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"contadinho-go/internal/auth"
-	"contadinho-go/internal/settings"
+	"github.com/greg0x46/julius/internal/auth"
+	"github.com/greg0x46/julius/internal/settings"
 )
 
 type identityKey struct{}
@@ -53,9 +53,9 @@ func (a *authAPI) limited(email string) bool {
 }
 func (a *authAPI) cookieName() string {
 	if a.config.Secure() {
-		return "__Host-contadinho_session"
+		return "__Host-julius_session"
 	}
-	return "contadinho_session"
+	return "julius_session"
 }
 func (a *authAPI) setCookie(w http.ResponseWriter, token string) {
 	age := int(auth.Lifetime / time.Second)
@@ -87,7 +87,7 @@ func (a *authAPI) gate(next http.Handler) http.Handler {
 			return
 		}
 		if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" {
-			if r.Header.Get("Origin") != a.config.PublicURL || r.Header.Get("X-Contadinho-Request") != "1" {
+			if r.Header.Get("Origin") != a.config.PublicURL || r.Header.Get("X-Julius-Request") != "1" {
 				writeProblem(w, 403, "invalid-origin", "Origem da solicitação inválida", "")
 				return
 			}

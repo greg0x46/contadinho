@@ -5,7 +5,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/dates"
+	"github.com/greg0x46/julius/internal/dates"
 )
 
 // Occurrence is one expected instance of a recurring schedule on the

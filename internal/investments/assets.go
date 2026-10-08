@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/db"
 )
 
 func assetCanonicalKey(name string, ticker *string, assetType string) string {

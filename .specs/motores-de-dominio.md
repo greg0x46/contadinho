@@ -1,7 +1,7 @@
 # Motores de domínio (Domain Engines)
 
 > Doc-guarda-chuva de arquitetura (não de feature): registra os motores de
-> domínio reutilizáveis que o Contadinho já usa como base para múltiplas
+> domínio reutilizáveis que o Julius já usa como base para múltiplas
 > funcionalidades, e os princípios que os conectam. Fruto de uma conversa
 > (ago/2026) sobre como documentar isso como direcionamento. Descreve o
 > domínio no nível ideal, não necessariamente o estado literal do código
@@ -11,7 +11,7 @@
 
 ## Por que este doc existe
 
-O Contadinho cresceu por spec de feature, e cada spec documenta bem a
+O Julius cresceu por spec de feature, e cada spec documenta bem a
 própria feature. O que não estava registrado em nenhum lugar único é a
 camada **abaixo** das features: um punhado de motores de domínio genéricos
 que várias telas/endpoints reaproveitam. Sem esse mapa, é fácil (a)

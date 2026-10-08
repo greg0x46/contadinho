@@ -18,9 +18,9 @@ import (
 // 00011_payables, and asserts every row survived into
 // payables/payable_transaction_links with ids, amounts, and FKs intact.
 func TestPostgresPayablesMigrationPreservesData(t *testing.T) {
-	dsn := os.Getenv("CONTADINHO_TEST_POSTGRES_DSN")
+	dsn := os.Getenv("JULIUS_TEST_POSTGRES_DSN")
 	if dsn == "" {
-		t.Skip("CONTADINHO_TEST_POSTGRES_DSN not set; skipping Postgres integration test")
+		t.Skip("JULIUS_TEST_POSTGRES_DSN not set; skipping Postgres integration test")
 	}
 
 	raw, err := sql.Open("pgx", dsn)
@@ -172,9 +172,9 @@ func TestPostgresConnectionsMigrationCarriesTheConfiguredItem(t *testing.T) {
 // version, skipping the test when no Postgres is configured.
 func postgresMigrationProviderAt(t *testing.T, version int64) (*sql.DB, *goose.Provider) {
 	t.Helper()
-	dsn := os.Getenv("CONTADINHO_TEST_POSTGRES_DSN")
+	dsn := os.Getenv("JULIUS_TEST_POSTGRES_DSN")
 	if dsn == "" {
-		t.Skip("CONTADINHO_TEST_POSTGRES_DSN not set; skipping Postgres integration test")
+		t.Skip("JULIUS_TEST_POSTGRES_DSN not set; skipping Postgres integration test")
 	}
 
 	raw, err := sql.Open("pgx", dsn)

@@ -3,7 +3,7 @@ package automation_test
 import (
 	"testing"
 
-	"contadinho-go/internal/automation"
+	"github.com/greg0x46/julius/internal/automation"
 )
 
 func strp(s string) *string { return &s }

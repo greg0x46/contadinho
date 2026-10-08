@@ -1,5 +1,5 @@
 // Command migrate-to-postgres is a one-shot data copier: it reads every row
-// out of a SQLite contadinho database and re-inserts it into a Postgres
+// out of a SQLite julius database and re-inserts it into a Postgres
 // database (already schema-migrated via internal/db, same as the server
 // does on startup). Table order is derived from PRAGMA foreign_key_list so
 // FK-referenced rows always land before the rows that reference them. Not
@@ -13,11 +13,11 @@ import (
 	"log"
 	"strings"
 
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/db"
 )
 
 func main() {
-	sqlitePath := flag.String("sqlite", "contadinho.db", "path to the source SQLite database")
+	sqlitePath := flag.String("sqlite", db.DefaultPath(), "path to the source SQLite database")
 	pgDSN := flag.String("postgres", "", "postgres://... DSN of the (schema-migrated) target database")
 	flag.Parse()
 

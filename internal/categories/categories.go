@@ -12,8 +12,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/money"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/money"
 )
 
 // ErrNotFound is returned when a category id has no matching row.

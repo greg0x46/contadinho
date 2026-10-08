@@ -7,9 +7,9 @@ package ledger
 import (
 	"context"
 
-	"contadinho-go/internal/automation"
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/automation"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 // ApplyNewTransactionDecisions runs the category passes for a freshly inserted

@@ -2,11 +2,39 @@ package db_test
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/db"
 )
+
+func TestDefaultPath(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv("JULIUS_DB", "")
+	t.Setenv("CONTADINHO_DB", "ignored-old-setting.db")
+
+	if got := db.DefaultPath(); got != "julius.db" {
+		t.Fatalf("fresh install path = %q, want julius.db", got)
+	}
+	if err := os.WriteFile("contadinho.db", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := db.DefaultPath(); got != "contadinho.db" {
+		t.Fatalf("legacy install path = %q, want contadinho.db", got)
+	}
+	if err := os.WriteFile("julius.db", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := db.DefaultPath(); got != "julius.db" {
+		t.Fatalf("when both databases exist path = %q, want julius.db", got)
+	}
+	t.Setenv("JULIUS_DB", "configured.db")
+	if got := db.DefaultPath(); got != "configured.db" {
+		t.Fatalf("configured path = %q, want configured.db", got)
+	}
+}
 
 func openTest(t *testing.T) *sql.DB {
 	t.Helper()

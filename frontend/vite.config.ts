@@ -1,7 +1,7 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
-const apiProxyTarget = process.env.CONTADINHO_DEV_API_URL ?? "http://localhost:8000";
+const apiProxyTarget = process.env.JULIUS_DEV_API_URL ?? "http://localhost:8000";
 
 export default defineConfig({
   cacheDir: ".vite-cache",
@@ -13,8 +13,8 @@ export default defineConfig({
     },
     // Only set when the dev server is reached through a hostname Vite
     // wouldn't otherwise trust.
-    allowedHosts: process.env.CONTADINHO_DEV_ALLOWED_HOST
-      ? [process.env.CONTADINHO_DEV_ALLOWED_HOST]
+    allowedHosts: process.env.JULIUS_DEV_ALLOWED_HOST
+      ? [process.env.JULIUS_DEV_ALLOWED_HOST]
       : undefined,
   },
   test: {

@@ -7,11 +7,11 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/networth"
-	"contadinho-go/internal/payables"
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/networth"
+	"github.com/greg0x46/julius/internal/payables"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 func (f *fixture) setIgnored(transactionID string) {

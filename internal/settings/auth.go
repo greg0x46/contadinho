@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/db"
 )
 
 // verifierPlaintext is encrypted under the derived key and stored in

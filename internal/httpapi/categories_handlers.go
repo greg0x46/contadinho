@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/money"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/money"
 )
 
 type categoryDTO struct {

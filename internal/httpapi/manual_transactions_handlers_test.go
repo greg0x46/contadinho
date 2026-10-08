@@ -7,9 +7,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"contadinho-go/internal/automation"
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/money"
+	"github.com/greg0x46/julius/internal/automation"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/money"
 )
 
 // A rule whose target category was later deactivated is a server-side problem:

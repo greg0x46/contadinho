@@ -9,10 +9,10 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/dates"
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/projections"
-	"contadinho-go/internal/scenarios"
+	"github.com/greg0x46/julius/internal/dates"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/projections"
+	"github.com/greg0x46/julius/internal/scenarios"
 )
 
 type plannedTransactionDTO struct {

@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/db"
 )
 
 // Enqueue inserts a new in_progress run for sourceID for the worker to pick

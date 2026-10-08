@@ -11,9 +11,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/money"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/money"
 )
 
 const seededExpenseCategory = "000433b6-3094-5a9c-87df-465b70574a4b" // Supermercado

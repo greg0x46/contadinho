@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"fmt"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/investments"
-	"contadinho-go/internal/pluggy"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/investments"
+	"github.com/greg0x46/julius/internal/pluggy"
 )
 
 // HoldingFromSnapshot is the provider holding as investments needs it to

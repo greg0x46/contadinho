@@ -178,9 +178,9 @@ func TestInvestmentManagementMigrationGroupsProviderHoldings(t *testing.T) {
 // assertion on the other dialect, where the equivalent migration is 00036 and
 // is_active is a BOOLEAN rather than an INTEGER CHECK.
 func TestPostgresInvestmentManagementMigrationGroupsProviderHoldings(t *testing.T) {
-	dsn := os.Getenv("CONTADINHO_TEST_POSTGRES_DSN")
+	dsn := os.Getenv("JULIUS_TEST_POSTGRES_DSN")
 	if dsn == "" {
-		t.Skip("CONTADINHO_TEST_POSTGRES_DSN not set; skipping Postgres integration test")
+		t.Skip("JULIUS_TEST_POSTGRES_DSN not set; skipping Postgres integration test")
 	}
 
 	raw, err := sql.Open("pgx", dsn)

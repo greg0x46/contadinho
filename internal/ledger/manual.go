@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"errors"
 
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 // ErrItemUnavailable is returned when a committed lançamento cannot be read back.

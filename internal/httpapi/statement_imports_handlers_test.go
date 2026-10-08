@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/db"
 )
 
 const validFlash = "\ufeffData,Hora,Movimentação,Valor,Meio de Pagamento,Saldo\n09/09/2026,12:00,Café,\"-R$ 10,00\",Cartão,\"R$ 90,00\"\n08/09/2026,12:00,Depósito,\"R$ 100,00\",Depósito,\"R$ 100,00\"\n"

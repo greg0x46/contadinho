@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/investments"
+	"github.com/greg0x46/julius/internal/investments"
 )
 
 // insertSyncedEquity turns a row made by insertInvestment into a listed share

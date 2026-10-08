@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/settings"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/settings"
 )
 
 func newTestDB(t *testing.T) *sql.DB {

@@ -8,7 +8,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/recurrences"
+	"github.com/greg0x46/julius/internal/recurrences"
 )
 
 type recurringCommitmentDTO struct {

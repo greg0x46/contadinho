@@ -1,7 +1,7 @@
 import type { ThemeConfig } from "antd";
 
 /**
- * Design tokens for Contadinho.
+ * Design tokens for Julius.
  *
  * These formalize the palette that had already emerged organically across
  * the app's CSS files (navy text, slate-gray secondary text, green primary,

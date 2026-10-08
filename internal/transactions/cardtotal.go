@@ -10,10 +10,10 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/dates"
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/money"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/dates"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/money"
 )
 
 // CreditCardTransactionTotal calculates the card amount from eligible

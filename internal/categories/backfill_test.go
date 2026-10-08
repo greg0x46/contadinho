@@ -6,8 +6,8 @@ import (
 	"errors"
 	"testing"
 
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/money"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/money"
 )
 
 const seededTransferCategory = "533d9187-99b6-542b-a2f3-6eb9cbb299ce" // Transferência entre Contas Próprias

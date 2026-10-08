@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/db"
 )
 
 // RecoverStaleRuns mirrors recover_stale_runs, simplified for this app's

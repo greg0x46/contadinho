@@ -16,21 +16,21 @@ jobs:
   backend:
     name: Backend (Go)
     runs-on: ubuntu-24.04
-    # The Postgres tests skip themselves without CONTADINHO_TEST_POSTGRES_DSN;
+    # The Postgres tests skip themselves without JULIUS_TEST_POSTGRES_DSN;
     # the service makes them run alongside the SQLite ones.
     services:
       postgres:
         image: postgres:17
         env:
-          POSTGRES_USER: contadinho_test
+          POSTGRES_USER: julius_test
           POSTGRES_PASSWORD: synthetic-test-password
-          POSTGRES_DB: contadinho_test
+          POSTGRES_DB: julius_test
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U contadinho_test -d contadinho_test"
+          --health-cmd "pg_isready -U julius_test -d julius_test"
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      CONTADINHO_TEST_POSTGRES_DSN: postgres://contadinho_test:synthetic-test-password@127.0.0.1:5432/contadinho_test?sslmode=disable
+      JULIUS_TEST_POSTGRES_DSN: postgres://julius_test:synthetic-test-password@127.0.0.1:5432/julius_test?sslmode=disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -70,7 +70,7 @@ jobs:
       - name: Build with the embedded frontend
         run: |
           cp -r dist ../internal/webui/dist
-          cd .. && go build -tags embedded_frontend -o /dev/null ./cmd/contadinho
+          cd .. && go build -tags embedded_frontend -o /dev/null ./cmd/julius
 
   release:
     name: Release (linux/amd64)
@@ -115,15 +115,15 @@ jobs:
         if: steps.version.outputs.tag != ''
         run: |
           ./build.sh
-          mv contadinho contadinho-linux-amd64
-          sha256sum contadinho-linux-amd64 > SHA256SUMS
+          mv julius julius-linux-amd64
+          sha256sum julius-linux-amd64 > SHA256SUMS
 
       - name: Attest provenance
         id: attest
         if: steps.version.outputs.tag != ''
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: contadinho-linux-amd64
+          subject-path: julius-linux-amd64
 
       - name: Publish release
         if: steps.version.outputs.tag != ''
@@ -132,13 +132,13 @@ jobs:
           BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
-          cp "$BUNDLE_PATH" contadinho-linux-amd64.sigstore.json
+          cp "$BUNDLE_PATH" julius-linux-amd64.sigstore.json
           { scripts/next-version.sh --notes; printf '\n%s\n' "$GITHUB_SHA"; } > notes.md
           gh release create "$TAG" \
             --target "$GITHUB_SHA" \
             --title "$TAG" \
             --notes-file notes.md \
             --latest \
-            contadinho-linux-amd64 \
-            contadinho-linux-amd64.sigstore.json \
+            julius-linux-amd64 \
+            julius-linux-amd64.sigstore.json \
             SHA256SUMS

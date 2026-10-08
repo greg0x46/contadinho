@@ -5,8 +5,8 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/rules"
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/rules"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 func matchCandidateFor(item transactions.Item) (rules.MatchCandidate, bool) {

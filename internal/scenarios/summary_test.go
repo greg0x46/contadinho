@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"contadinho-go/internal/scenarios"
+	"github.com/greg0x46/julius/internal/scenarios"
 )
 
 // TestSignedAmountFollowsPlanDirection pins what lets the timeline project a

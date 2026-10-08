@@ -300,7 +300,7 @@ func TestParseProviders(t *testing.T) {
 	}
 
 	_, err := ParseProviders("yahoo,alphavantage")
-	if err == nil || err.Error() != `CONTADINHO_QUOTES_PROVIDERS: fonte desconhecida "alphavantage" (use yahoo, brapi, coingecko)` {
+	if err == nil || err.Error() != `JULIUS_QUOTES_PROVIDERS: fonte desconhecida "alphavantage" (use yahoo, brapi, coingecko)` {
 		t.Errorf("unknown provider error = %v", err)
 	}
 	if _, err := ParseProviders("yahoo,brapi,Yahoo"); err == nil || !strings.Contains(err.Error(), "repetida") {

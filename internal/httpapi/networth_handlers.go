@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/networth"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/networth"
 )
 
 type netWorthBreakdownDTO struct {

@@ -11,12 +11,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/investments"
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/pluggy"
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/investments"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/pluggy"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 // safeMessages mirrors SAFE_MESSAGES: user-facing text never leaks raw

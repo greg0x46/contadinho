@@ -7,11 +7,11 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"contadinho-go/internal/automation"
-	"contadinho-go/internal/projections"
-	"contadinho-go/internal/recurrences"
-	"contadinho-go/internal/rules"
-	"contadinho-go/internal/scenarios"
+	"github.com/greg0x46/julius/internal/automation"
+	"github.com/greg0x46/julius/internal/projections"
+	"github.com/greg0x46/julius/internal/recurrences"
+	"github.com/greg0x46/julius/internal/rules"
+	"github.com/greg0x46/julius/internal/scenarios"
 )
 
 // countingQuerier counts every round trip List makes, so the test can assert

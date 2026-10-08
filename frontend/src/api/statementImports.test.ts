@@ -28,7 +28,7 @@ it("accepts omitted fields on an invalid row and sends the preview identity on c
   expect(body.get("expected_format_version")).toBe("1");
   expect(body.get("new_account_name")).toBe("Flash");
   expect(body.get("allow_partial")).toBe("true");
-  expect(new Headers(init.headers).get("X-Contadinho-Request")).toBe("1");
+  expect(new Headers(init.headers).get("X-Julius-Request")).toBe("1");
   expect(new Headers(init.headers).has("content-type")).toBe(false);
 });
 

@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/db"
 )
 
 // Origin distinguishes a category decision the user made explicitly from one

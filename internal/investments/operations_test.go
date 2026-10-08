@@ -12,8 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/investments"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/investments"
 )
 
 // ledgerFixture is a migrated database with one bank account and one manual
@@ -518,9 +518,9 @@ func TestIntegratedOperationsDoNotChangeProviderAssets(t *testing.T) {
 }
 
 func TestPostgresInvestmentLedger(t *testing.T) {
-	dsn := os.Getenv("CONTADINHO_TEST_POSTGRES_DSN")
+	dsn := os.Getenv("JULIUS_TEST_POSTGRES_DSN")
 	if dsn == "" {
-		t.Skip("CONTADINHO_TEST_POSTGRES_DSN not set")
+		t.Skip("JULIUS_TEST_POSTGRES_DSN not set")
 	}
 	conn, err := db.Open(dsn)
 	if err != nil {

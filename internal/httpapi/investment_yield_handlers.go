@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"contadinho-go/internal/investments"
-	"contadinho-go/internal/money"
+	"github.com/greg0x46/julius/internal/investments"
+	"github.com/greg0x46/julius/internal/money"
 )
 
 type investmentDayYieldDTO struct {

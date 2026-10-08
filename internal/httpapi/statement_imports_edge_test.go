@@ -14,8 +14,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/statementimport"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/statementimport"
 )
 
 // Synthetic Flash rows (invented data). Every helper below builds on them.

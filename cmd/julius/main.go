@@ -1,4 +1,4 @@
-// Command contadinho is the single-binary server: it opens (and migrates)
+// Command julius is the single-binary server: it opens (and migrates)
 // the database — SQLite by default, or Postgres via -db's DSN — wires the
 // HTTP API, runs the background sync worker, and serves the embedded
 // frontend build, with no external runtime or deployment step required for
@@ -12,21 +12,21 @@ import (
 	"net/http"
 	"os"
 	"time"
-	_ "time/tzdata" // static binaries have no system zoneinfo for CONTADINHO_SYNC_SCHEDULE zones
+	_ "time/tzdata" // static binaries have no system zoneinfo for JULIUS_SYNC_SCHEDULE zones
 
-	"contadinho-go/internal/auth"
-	"contadinho-go/internal/automation"
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/httpapi"
-	"contadinho-go/internal/marketdata"
-	"contadinho-go/internal/payables"
-	"contadinho-go/internal/pluggy"
-	"contadinho-go/internal/quotes"
-	"contadinho-go/internal/settings"
-	"contadinho-go/internal/syncsvc"
-	"contadinho-go/internal/webui"
-	"contadinho-go/internal/worker"
+	"github.com/greg0x46/julius/internal/auth"
+	"github.com/greg0x46/julius/internal/automation"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/httpapi"
+	"github.com/greg0x46/julius/internal/marketdata"
+	"github.com/greg0x46/julius/internal/payables"
+	"github.com/greg0x46/julius/internal/pluggy"
+	"github.com/greg0x46/julius/internal/quotes"
+	"github.com/greg0x46/julius/internal/settings"
+	"github.com/greg0x46/julius/internal/syncsvc"
+	"github.com/greg0x46/julius/internal/webui"
+	"github.com/greg0x46/julius/internal/worker"
 )
 
 func main() {
@@ -43,15 +43,12 @@ func main() {
 		return
 	}
 
-	defaultDB := "contadinho.db"
-	if envDB := os.Getenv("CONTADINHO_DB"); envDB != "" {
-		defaultDB = envDB
-	}
-	dbPath := flag.String("db", defaultDB, "path to the SQLite database file, or a postgres://... / postgresql://... DSN to use Postgres instead (defaults to $CONTADINHO_DB if set)")
+	defaultDB := db.DefaultPath()
+	dbPath := flag.String("db", defaultDB, "path to the SQLite database file, or a postgres://... / postgresql://... DSN to use Postgres instead (defaults to $JULIUS_DB if set)")
 	addr := flag.String("addr", "localhost:4200", "address to listen on")
 	flag.Parse()
 
-	config := auth.Config{PublicURL: os.Getenv("CONTADINHO_PUBLIC_URL")}
+	config := auth.Config{PublicURL: os.Getenv("JULIUS_PUBLIC_URL")}
 	if err := config.Validate(); err != nil {
 		log.Fatal(err)
 	}
@@ -59,17 +56,17 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	schedule, scheduled, err := worker.ParseSchedule(os.Getenv("CONTADINHO_SYNC_SCHEDULE"))
+	schedule, scheduled, err := worker.ParseSchedule(os.Getenv("JULIUS_SYNC_SCHEDULE"))
 	if err != nil {
 		log.Fatal(err)
 	}
 	// Opt-in and independent of the sync schedule above: unset means no
 	// automatic quoting, so a fresh install never starts market requests.
-	quotesSchedule, quotesScheduled, err := quotes.ParseSchedule(os.Getenv("CONTADINHO_QUOTES_SCHEDULE"))
+	quotesSchedule, quotesScheduled, err := quotes.ParseSchedule(os.Getenv("JULIUS_QUOTES_SCHEDULE"))
 	if err != nil {
 		log.Fatal(err)
 	}
-	quoteProviders, err := marketdata.ParseProviders(os.Getenv("CONTADINHO_QUOTES_PROVIDERS"))
+	quoteProviders, err := marketdata.ParseProviders(os.Getenv("JULIUS_QUOTES_PROVIDERS"))
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -5,7 +5,7 @@ import { periodNavigation } from "../components/filters/periodNavigation";
 /** A window, in the same shape the transactions filter uses: nulls mean "all of it". */
 export type Period = { from: string; to: string } | { from: null; to: null };
 
-const storageKey = "contadinho.periodo";
+const storageKey = "julius.periodo";
 const defaultPreset = "this-month";
 
 export function toPeriod(from: string | null, to: string | null): Period {

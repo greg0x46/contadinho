@@ -8,9 +8,9 @@ import (
 	"sort"
 	"time"
 
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/dates"
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/dates"
+	"github.com/greg0x46/julius/internal/db"
 )
 
 // CardDueDates indexes financial_bills so a credit card transaction can be

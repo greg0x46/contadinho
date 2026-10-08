@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"contadinho-go/internal/datasources"
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/datasources"
+	"github.com/greg0x46/julius/internal/db"
 )
 
 func newConn(t *testing.T) *sql.DB {

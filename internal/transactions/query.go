@@ -11,11 +11,11 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/investments"
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/settings"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/investments"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/settings"
 )
 
 // row is one joined financial_transactions/financial_accounts/

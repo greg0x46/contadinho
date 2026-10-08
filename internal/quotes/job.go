@@ -8,8 +8,8 @@ import (
 	"log"
 	"time"
 
-	"contadinho-go/internal/investments"
-	"contadinho-go/internal/marketdata"
+	"github.com/greg0x46/julius/internal/investments"
+	"github.com/greg0x46/julius/internal/marketdata"
 )
 
 // Summary totals one RefreshAll run, logged as a single line so a stalled

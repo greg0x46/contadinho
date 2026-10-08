@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/recurrences"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/recurrences"
 )
 
 // seedTransaction inserts the minimum chain of rows a

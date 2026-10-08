@@ -12,10 +12,10 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/investments"
-	"contadinho-go/internal/marketdata"
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/quotes"
+	"github.com/greg0x46/julius/internal/investments"
+	"github.com/greg0x46/julius/internal/marketdata"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/quotes"
 )
 
 // This file is the HTTP face of internal/investments: the custody accounts,

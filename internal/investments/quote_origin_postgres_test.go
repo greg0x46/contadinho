@@ -13,20 +13,20 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/investments"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/investments"
 )
 
 // newPostgresLedgerFixture is a ledgerFixture on a freshly migrated, private
-// schema of the Postgres at CONTADINHO_TEST_POSTGRES_DSN, so the quote
+// schema of the Postgres at JULIUS_TEST_POSTGRES_DSN, so the quote
 // precedence SQL (ON CONFLICT ... DO UPDATE ... WHERE origin = ..., DO NOTHING)
 // is exercised on the production dialect. It skips without that variable. The
 // schema is dropped when the test ends, leaving the other tests' tables alone.
 func newPostgresLedgerFixture(t *testing.T) *ledgerFixture {
 	t.Helper()
-	base := os.Getenv("CONTADINHO_TEST_POSTGRES_DSN")
+	base := os.Getenv("JULIUS_TEST_POSTGRES_DSN")
 	if base == "" {
-		t.Skip("CONTADINHO_TEST_POSTGRES_DSN not set")
+		t.Skip("JULIUS_TEST_POSTGRES_DSN not set")
 	}
 	raw, err := sql.Open("pgx", base)
 	if err != nil {

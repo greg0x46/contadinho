@@ -8,11 +8,11 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/automation"
-	"contadinho-go/internal/dates"
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/recurrences"
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/automation"
+	"github.com/greg0x46/julius/internal/dates"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/recurrences"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 // transactionOptionMonths is how far either side of a transaction's own

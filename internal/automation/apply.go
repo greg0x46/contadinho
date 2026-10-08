@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 // extractCardNumber pulls the card number out of a financial_transactions

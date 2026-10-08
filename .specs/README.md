@@ -5,7 +5,7 @@ contexto e precisa entender o domínio antes de mexer em código.
 
 ## Ordem de leitura sugerida
 
-1. **`/README.md`** (raiz) — o que é o Contadinho, como rodar, stack.
+1. **`/README.md`** (raiz) — o que é o Julius, como rodar, stack.
 2. **Este arquivo** — o mapa do que tem aqui dentro.
 3. **`motores-de-dominio.md`** — as abstrações de domínio reutilizáveis
    (nível ideal/arquitetura), e os princípios que as conectam.

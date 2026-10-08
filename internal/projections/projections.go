@@ -14,14 +14,14 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/automation"
-	"contadinho-go/internal/dates"
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/recurrences"
-	"contadinho-go/internal/scenarios"
-	"contadinho-go/internal/timeline/types"
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/automation"
+	"github.com/greg0x46/julius/internal/dates"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/recurrences"
+	"github.com/greg0x46/julius/internal/scenarios"
+	"github.com/greg0x46/julius/internal/timeline/types"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 // SelectionMode makes the difference between the normal Timeline and an
