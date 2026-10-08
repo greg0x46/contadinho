@@ -18,9 +18,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/automation"
-	"contadinho-go/internal/categories"
 	"contadinho-go/internal/db"
+	"contadinho-go/internal/ledger"
 	"contadinho-go/internal/statementimport"
 )
 
@@ -439,11 +438,7 @@ func handleStatementConfirm(conn *sql.DB) http.HandlerFunc {
 				importFailure(w, e)
 				return
 			}
-			if _, e = categories.ApplyLearned(r.Context(), tx, id); e != nil {
-				importFailure(w, e)
-				return
-			}
-			if e = automation.ApplyToNewTransactionWithQuerier(r.Context(), tx, id, onIgnoredHook); e != nil {
+			if e = ledger.ApplyNewTransactionDecisions(r.Context(), tx, id, nil, onIgnoredHook); e != nil {
 				importFailure(w, e)
 				return
 			}

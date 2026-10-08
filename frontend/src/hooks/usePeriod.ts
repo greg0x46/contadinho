@@ -42,7 +42,7 @@ export function isValidPeriod(period: Period): boolean {
  * year in January, not the year it was picked.
  */
 export function storedPeriod(): Period {
-  let raw: string | null = null;
+  let raw: string | null;
   try {
     raw = window.localStorage.getItem(storageKey);
   } catch {
