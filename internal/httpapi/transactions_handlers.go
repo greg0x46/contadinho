@@ -11,8 +11,8 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/automation"
 	"contadinho-go/internal/categories"
+	"contadinho-go/internal/ledger"
 	"contadinho-go/internal/money"
 	"contadinho-go/internal/scenarios"
 	"contadinho-go/internal/transactions"
@@ -723,16 +723,41 @@ func manualTransactionUnavailableProblem(w http.ResponseWriter) {
 		"Lançamento manual temporariamente indisponível", "Tente novamente em instantes.")
 }
 
-// handleCreateManualTransaction inserts a lançamento the user authors by
-// hand, on an account that already exists (see
-// .specs/lancamentos-manuais.md). It runs the exact same automation pass a
-// sync would (automation.ApplyToNewTransaction), so an existing rule
-// categorizes or ignores a manual entry exactly like it would a synced one —
-// the Lançamentos engine does not care which door a row came in through.
-// An explicit category_id is applied last, so the user's own choice always
-// wins over whatever automation guessed (same precedence PUT
-// .../category already gives a manual decision over a rule's).
-func handleCreateManualTransaction(db *sql.DB) http.HandlerFunc {
+func invalidCategoryProblem(w http.ResponseWriter) {
+	writeProblem(w, 422, "invalid-category", "Categoria inválida", "A categoria informada não existe ou está inativa.")
+}
+
+func transactionNotFoundProblem(w http.ResponseWriter) {
+	writeProblem(w, 404, "transaction-not-found", "Transação não encontrada", "")
+}
+
+// writeManualTransactionError maps the errors ledger.Service can return for a
+// create or edit to their Problem responses. notManualDetail and
+// investmentLinkedDetail differ between edit and delete, so callers pass them.
+// An invalid category is the client's fault only when the request named one:
+// otherwise it comes from an automation rule pointing at a missing or inactive
+// category, which is a server-side 503, not a 422 about input the client never sent.
+func writeManualTransactionError(w http.ResponseWriter, err error, explicitCategory bool, investmentLinkedDetail, notManualDetail string) {
+	switch {
+	case errors.Is(err, transactions.ErrInvestmentLinked):
+		writeProblem(w, 409, "investment-linked-transaction", "Lançamento vinculado a investimento", investmentLinkedDetail)
+	case errors.Is(err, transactions.ErrTransactionNotFound):
+		transactionNotFoundProblem(w)
+	case errors.Is(err, transactions.ErrNotManual):
+		writeProblem(w, 409, "transaction-not-manual", "Transação não é manual", notManualDetail)
+	case errors.Is(err, transactions.ErrAccountNotFound):
+		accountNotFoundProblem(w)
+	case explicitCategory && errors.Is(err, categories.ErrCategoryInvalid):
+		invalidCategoryProblem(w)
+	default:
+		manualTransactionUnavailableProblem(w)
+	}
+}
+
+// handleCreateManualTransaction creates a lançamento the user authors by hand,
+// on an account that already exists (see .specs/lancamentos-manuais.md). The
+// category and automation ordering lives in ledger.Service.
+func handleCreateManualTransaction(svc *ledger.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req manualTransactionRequest
 		if err := decodeStrict(r, &req); err != nil {
@@ -744,56 +769,9 @@ func handleCreateManualTransaction(db *sql.DB) http.HandlerFunc {
 			invalidManualTransactionProblem(w)
 			return
 		}
-
-		tx, err := db.BeginTx(r.Context(), nil)
+		item, err := svc.CreateManual(r.Context(), input, req.CategoryID)
 		if err != nil {
-			manualTransactionUnavailableProblem(w)
-			return
-		}
-		defer tx.Rollback()
-
-		id, err := transactions.CreateManual(r.Context(), tx, input)
-		if errors.Is(err, transactions.ErrAccountNotFound) {
-			accountNotFoundProblem(w)
-			return
-		}
-		if err != nil {
-			manualTransactionUnavailableProblem(w)
-			return
-		}
-
-		// Same precedence as the sync path (syncsvc.upsertTransaction):
-		// a learned category from a past manual decision goes first so a
-		// matching rule can still override it; an explicit category_id in
-		// the request is a manual decision and overrides both.
-		if req.CategoryID == nil {
-			if _, err := categories.ApplyLearned(r.Context(), tx, id); err != nil {
-				manualTransactionUnavailableProblem(w)
-				return
-			}
-		}
-		if err := automation.ApplyToNewTransactionWithQuerier(r.Context(), tx, id, onIgnoredHook); err != nil {
-			manualTransactionUnavailableProblem(w)
-			return
-		}
-		if req.CategoryID != nil {
-			if _, err := categories.AssignManualWithQuerier(r.Context(), tx, id, *req.CategoryID); err != nil {
-				if errors.Is(err, categories.ErrCategoryInvalid) {
-					writeProblem(w, 422, "invalid-category", "Categoria inválida", "A categoria informada não existe ou está inativa.")
-					return
-				}
-				manualTransactionUnavailableProblem(w)
-				return
-			}
-		}
-		if err := tx.Commit(); err != nil {
-			manualTransactionUnavailableProblem(w)
-			return
-		}
-
-		item, found, err := transactions.GetItem(r.Context(), db, id)
-		if err != nil || !found {
-			manualTransactionUnavailableProblem(w)
+			writeManualTransactionError(w, err, req.CategoryID != nil, "", "")
 			return
 		}
 		writeJSON(w, http.StatusCreated, toItemDTO(item))
@@ -801,8 +779,8 @@ func handleCreateManualTransaction(db *sql.DB) http.HandlerFunc {
 }
 
 // handleUpdateManualTransaction edits a lançamento manual's core fields and,
-// when supplied, its category in the same database transaction.
-func handleUpdateManualTransaction(db *sql.DB) http.HandlerFunc {
+// when supplied, its category.
+func handleUpdateManualTransaction(svc *ledger.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		var req manualTransactionRequest
@@ -815,53 +793,11 @@ func handleUpdateManualTransaction(db *sql.DB) http.HandlerFunc {
 			invalidManualTransactionProblem(w)
 			return
 		}
-
-		tx, err := db.BeginTx(r.Context(), nil)
+		item, err := svc.UpdateManual(r.Context(), id, input, req.CategoryID)
 		if err != nil {
-			manualTransactionUnavailableProblem(w)
-			return
-		}
-		defer tx.Rollback()
-
-		err = transactions.UpdateManual(r.Context(), tx, id, input)
-		if errors.Is(err, transactions.ErrInvestmentLinked) {
-			writeProblem(w, 409, "investment-linked-transaction", "Lançamento vinculado a investimento", "Desfaça os vínculos de investimento antes de editar o lançamento.")
-			return
-		}
-		if errors.Is(err, transactions.ErrTransactionNotFound) {
-			writeProblem(w, 404, "transaction-not-found", "Transação não encontrada", "")
-			return
-		}
-		if errors.Is(err, transactions.ErrNotManual) {
-			writeProblem(w, 409, "transaction-not-manual", "Transação não é manual", "Só lançamentos manuais podem ser editados.")
-			return
-		}
-		if errors.Is(err, transactions.ErrAccountNotFound) {
-			accountNotFoundProblem(w)
-			return
-		}
-		if err != nil {
-			manualTransactionUnavailableProblem(w)
-			return
-		}
-		if req.CategoryID != nil {
-			if _, err := categories.AssignManualWithQuerier(r.Context(), tx, id, *req.CategoryID); err != nil {
-				if errors.Is(err, categories.ErrCategoryInvalid) {
-					writeProblem(w, 422, "invalid-category", "Categoria inválida", "A categoria informada não existe ou está inativa.")
-					return
-				}
-				manualTransactionUnavailableProblem(w)
-				return
-			}
-		}
-		if err := tx.Commit(); err != nil {
-			manualTransactionUnavailableProblem(w)
-			return
-		}
-
-		item, found, err := transactions.GetItem(r.Context(), db, id)
-		if err != nil || !found {
-			manualTransactionUnavailableProblem(w)
+			writeManualTransactionError(w, err, req.CategoryID != nil,
+				"Desfaça os vínculos de investimento antes de editar o lançamento.",
+				"Só lançamentos manuais podem ser editados.")
 			return
 		}
 		writeJSON(w, http.StatusOK, toItemDTO(item))
@@ -871,24 +807,13 @@ func handleUpdateManualTransaction(db *sql.DB) http.HandlerFunc {
 // handleDeleteManualTransaction removes a lançamento manual entirely —
 // unlike a synced row, there is no upstream fetch for the ledger to
 // preserve, so deleting means the row is gone, not ignored.
-func handleDeleteManualTransaction(db *sql.DB) http.HandlerFunc {
+func handleDeleteManualTransaction(svc *ledger.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
-		err := transactions.DeleteManual(r.Context(), db, id, onIgnoredHook)
-		if errors.Is(err, transactions.ErrInvestmentLinked) {
-			writeProblem(w, 409, "investment-linked-transaction", "Lançamento vinculado a investimento", "Desfaça os vínculos de investimento antes de excluir o lançamento.")
-			return
-		}
-		if errors.Is(err, transactions.ErrTransactionNotFound) {
-			writeProblem(w, 404, "transaction-not-found", "Transação não encontrada", "")
-			return
-		}
-		if errors.Is(err, transactions.ErrNotManual) {
-			writeProblem(w, 409, "transaction-not-manual", "Transação não é manual", "Só lançamentos manuais podem ser excluídos.")
-			return
-		}
+		err := svc.DeleteManual(r.Context(), r.PathValue("id"))
 		if err != nil {
-			manualTransactionUnavailableProblem(w)
+			writeManualTransactionError(w, err, false,
+				"Desfaça os vínculos de investimento antes de excluir o lançamento.",
+				"Só lançamentos manuais podem ser excluídos.")
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

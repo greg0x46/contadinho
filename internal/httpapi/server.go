@@ -11,6 +11,7 @@ import (
 
 	"contadinho-go/internal/auth"
 	"contadinho-go/internal/investments"
+	"contadinho-go/internal/ledger"
 	"contadinho-go/internal/payables"
 	"contadinho-go/internal/recurrences"
 	"contadinho-go/internal/settings"
@@ -67,9 +68,10 @@ func NewServer(db *sql.DB, frontend fs.FS, secrets *settings.Secrets, config aut
 	mux.HandleFunc("POST /api/transactions/query", handleQueryTransactions(db))
 	mux.HandleFunc("GET /api/transactions/spending-by-category", handleSpendingByCategory(db))
 	mux.HandleFunc("GET /api/transactions/category-breakdown", handleCategoryBreakdown(db))
-	mux.HandleFunc("POST /api/transactions", handleCreateManualTransaction(db))
-	mux.HandleFunc("PUT /api/transactions/{id}", handleUpdateManualTransaction(db))
-	mux.HandleFunc("DELETE /api/transactions/{id}", handleDeleteManualTransaction(db))
+	manual := &ledger.Service{DB: db, OnIgnored: onIgnoredHook}
+	mux.HandleFunc("POST /api/transactions", handleCreateManualTransaction(manual))
+	mux.HandleFunc("PUT /api/transactions/{id}", handleUpdateManualTransaction(manual))
+	mux.HandleFunc("DELETE /api/transactions/{id}", handleDeleteManualTransaction(manual))
 	mux.HandleFunc("PUT /api/transactions/{id}/inclusion", handleSetTransactionInclusion(db))
 	mux.HandleFunc("PUT /api/transactions/{id}/category", handleSetTransactionCategory(db))
 	mux.HandleFunc("GET /api/transactions/{id}/reconciliation", handleGetTransactionReconciliation(db))

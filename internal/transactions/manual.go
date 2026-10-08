@@ -42,7 +42,7 @@ func requireNoInvestmentLinks(ctx context.Context, q Querier, id string) error {
 // Amount is already signed — positive for money coming in (CREDIT),
 // negative for money going out (DEBIT) — mirroring how amount/movement_type
 // already relate for a synced row; callers reject a zero amount before it
-// reaches here (see handleCreateManualTransaction), since money.Eligibility
+// reaches here (the HTTP handlers validate it before calling ledger.Service), since money.Eligibility
 // would just report it as ReasonZeroValue.
 type ManualInput struct {
 	AccountID   string
@@ -57,7 +57,7 @@ type ManualInput struct {
 // NULL — see the CHECK constraint the manual_transactions migration adds).
 // provider_status is hardcoded to POSTED: there is no "pending" for
 // something the user is asserting already happened. Returns the new row's
-// id; the caller (httpapi) is responsible for running automation and any
+// id; the caller (ledger.Service) is responsible for running automation and any
 // explicit category choice afterward, exactly like a sync does for its own
 // insert — this function only owns the base row.
 func CreateManual(ctx context.Context, conn Querier, in ManualInput) (string, error) {
