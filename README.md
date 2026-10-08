@@ -153,8 +153,13 @@ O servidor recusa iniciar sem autenticação preparada ou com chave inválida.
 
 Todo push na `main` que passa na CI publica uma release no GitHub com o
 binário `contadinho-linux-amd64`, o `SHA256SUMS` e a atestação de procedência
-(`contadinho-linux-amd64.sigstore.json`). A versão é o conteúdo de `VERSION`
-mais um contador de patch. Para instalar, baixe o binário da release, confira
+(`contadinho-linux-amd64.sigstore.json`), desde que haja algo a lançar. A versão
+segue SemVer a partir dos [Conventional Commits](https://www.conventionalcommits.org/)
+desde a última tag: `feat` sobe a minor, `fix`/`perf` sobem o patch e uma
+quebra (`feat!:` ou rodapé `BREAKING CHANGE:`) sobe a major (a minor enquanto
+estiver em `0.x`). Outros tipos (`docs`, `chore`, `refactor`…) e commits fora do
+padrão não geram release. Para ver localmente qual seria a próxima versão,
+rode `scripts/next-version.sh` (ou `--notes` para as notas). Para instalar, baixe o binário da release, confira
 o checksum e execute-o com a configuração descrita nas próximas seções; como
 iniciá-lo e mantê-lo no ar (serviço do sistema, contêiner etc.) depende do seu
 ambiente.
