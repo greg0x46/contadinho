@@ -1,168 +1,172 @@
 # Contadinho
 
-Contadinho é um rastreador de finanças pessoais self-hosted, feito para uma
-única pessoa acessar localmente ou em uma instalação online. Ele sincroniza a movimentação da
-sua conta bancária e cartão de crédito através da API de Open Finance da
-[Pluggy](#open-finance--pluggy) — que autoriza você a ler seus próprios
-dados financeiros, não a gerenciar os de outras pessoas — e então permite
-categorizar transações, automatizar a categorização recorrente com regras, e
-acompanhar dívidas (como compras parceladas ou empréstimos) em relação às
-transações que as quitam.
+Contadinho is a self-hosted personal finance tracker, built for a single
+person to use locally or from an online installation. It syncs the activity of
+your bank account and credit card through the
+[Pluggy](#open-finance--pluggy) Open Finance API — which authorizes you to read
+your own financial data, not to manage other people's — and then lets you
+categorize transactions, automate recurring categorization with rules, and
+track debts (such as installment purchases or loans) against the transactions
+that pay them off.
 
-Ele roda como um único binário Go com o frontend React embutido dentro dele
-— sem runtime de frontend em produção. O banco padrão é SQLite, com
-Postgres opcional. Para acesso online, a hospedagem deve fornecer HTTPS.
+It runs as a single Go binary with the React frontend embedded in it — no
+frontend runtime in production. The default database is SQLite, with Postgres
+as an option. For online access, the host must provide HTTPS.
 
-## Documentação de domínio e contribuindo
+## Domain documentation and contributing
 
-Contribuições, features novas e refactors são bem-vindos. Antes de mexer em
-uma área do domínio, veja [`.specs/README.md`](.specs/README.md) — o hub de
-navegação da pasta `.specs/`, com a arquitetura de domínio
-(`motores-de-dominio.md`), o estado atual de cada feature
-(`contextos/<contexto>/reference.md`) e o racional histórico das decisões
-de design. Ao concluir uma feature nova ou alterar uma existente,
-atualize o `reference.md` do contexto correspondente (e esta seção
-"Funcionalidades" abaixo, se for relevante o bastante) no mesmo PR — specs
-desatualizados atrapalham o próximo colaborador tanto quanto código
-desatualizado.
+Contributions, new features and refactors are welcome. Before touching an area
+of the domain, see [`.specs/README.md`](.specs/README.md) — the navigation hub
+of the `.specs/` folder, with the domain architecture
+(`motores-de-dominio.md`), the current state of each feature
+(`contextos/<context>/reference.md`) and the historical rationale behind design
+decisions. When you finish a new feature or change an existing one, update the
+matching context's `reference.md` (and the "Features" section below, if it is
+relevant enough) in the same PR — stale specs hinder the next contributor as
+much as stale code does.
 
-## Por que um binário único
+## Why a single binary
 
-O Contadinho concentra aplicação e frontend em um binário, com configuração
-de autenticação independente da hospedagem:
+Contadinho packs the application and the frontend into one binary, with
+authentication configuration that does not depend on the host:
 
-- **Um único arquivo para rodar.** `go build` gera um único executável com
-  o frontend já embutido. Sem Docker, sem proxy reverso, sem precisar do
-  runtime do Node em produção (o Node só é necessário uma vez, para
-  compilar o frontend).
-- **Um único arquivo como banco de dados (por padrão).** Com SQLite —
-  o padrão —, os dados e sessões ficam no arquivo `contadinho.db`.
-  Preserve também a chave externa de criptografia ao mover ou restaurar
-  a instalação. Sem servidor de banco de dados para instalar ou manter
-  rodando. Para rodar várias instâncias do Contadinho compartilhando um
-  banco na nuvem, Postgres é uma opção — veja
-  [Rodando com Postgres](#rodando-com-postgres).
-- **Configuração independente de hospedagem.** A conta é criada pelo terminal;
-  a origem pública e a chave de criptografia são fornecidas por configuração.
-  O app não depende de SDKs de nuvem ou serviços externos de autenticação.
+- **One file to run.** `go build` produces a single executable with the
+  frontend already embedded. No Docker, no reverse proxy, no Node runtime in
+  production (Node is only needed once, to build the frontend).
+- **One file as the database (by default).** With SQLite — the default — data
+  and sessions live in the `contadinho.db` file. Also keep the external
+  encryption key when moving or restoring the installation. No database server
+  to install or keep running. To run several Contadinho instances sharing a
+  database in the cloud, Postgres is an option — see
+  [Running with Postgres](#running-with-postgres).
+- **Host-independent configuration.** The account is created from the
+  terminal; the public origin and the encryption key come from configuration.
+  The app does not depend on cloud SDKs or external authentication services.
 
-## Funcionalidades
+## Features
 
-- **Sincronização Open Banking** — um worker em segundo plano consulta a
-  Pluggy periodicamente em busca de novas transações e dados de conta,
-  registrados como execuções de sincronização auditáveis (histórico,
-  métricas, falhas) em vez de uma importação caixa-preta.
-- **Importação de extratos** — envie um CSV Flash, confira a prévia por linha
-  e importe para uma conta de arquivo. Reenvios e períodos sobrepostos são
-  reconhecidos, com histórico de importações e avisos para dados inconsistentes.
-- **Transações** — lista de transações pesquisável/filtrável, inclusão/
-  exclusão manual (ex.: ignorar um estorno ou uma duplicata) e
-  categorização. Lançamentos também podem ser criados à mão numa conta já
-  existente — mesmas regras de categorização e automação de um lançamento
-  sincronizado, com edição e exclusão restritas a esses lançamentos
-  manuais.
-- **Regras de automação** — regras baseadas em condições que categorizam
-  novas transações automaticamente e podem ser aplicadas retroativamente às
-  já existentes.
-- **Pendências (dívidas e recebíveis)** — acompanhe um total real (dívida,
-  compra parcelada, recebível) e vincule as transações que o quitam, com
-  regras de elegibilidade para quais transações podem ser vinculadas.
-- **Categorias** — um catálogo de categorias definido pelo usuário, com
-  histórico de categorização.
-- **Recorrências** — cadastre compromissos de fluxo de caixa conhecidos de
-  antemão (salário, aluguel, assinaturas), reconciliados contra as
-  transações reais que os quitam via regra de automação.
-- **Cenários** — projeções hipotéticas autoradas pelo usuário ("e se eu
-  viajar", "e se eu trocar de emprego"), ou o plano de parcelas de uma
-  dívida/recebível — nunca contaminam totais reais a menos que
-  explicitamente incluídos numa consulta.
-- **Relatório financeiro** — navegação temporal única (Realizado → Hoje →
-  Projeção Base → Simulação): quanto você terá numa data futura, qual seu
-  menor saldo até lá, e como cenários hipotéticos mudam essa resposta.
-- **Patrimônio líquido** — snapshots e histórico de patrimônio (ativos −
-  passivos) ao longo do tempo.
-- **Investimentos** — contas de investimento integradas e manuais, carteiras
-  por objetivo, operações por ativo, avaliações manuais e cotação automática
-  opcional (B3 e criptomoedas). Aportes e resgates conciliados com o extrato
-  aparecem separados dos gastos, preservando seu efeito no caixa e evitando
-  duplicação no patrimônio.
-- **Autenticação por navegador** — login com e-mail e senha para a conta
-  proprietária, sessões persistidas, saída e troca de senha. Sem cadastro público.
-- **Segredos criptografados em repouso** — credenciais Pluggy protegidas com
-  AES-256-GCM por uma chave independente da senha, fornecida pelo ambiente ou
-  por arquivo. O worker funciona após reinícios sem exigir login.
+- **Open Banking sync** — a background worker polls Pluggy periodically for
+  new transactions and account data, recorded as auditable sync runs (history,
+  metrics, failures) instead of a black-box import.
+- **Statement import** — upload a Flash CSV, review the per-row preview and
+  import it into a file-based account. Re-uploads and overlapping periods are
+  recognized, with an import history and warnings for inconsistent data.
+- **Transactions** — searchable/filterable transaction list, manual
+  inclusion/exclusion (e.g. ignoring a chargeback or a duplicate) and
+  categorization. Entries can also be created by hand in an existing account —
+  same categorization and automation rules as a synced entry, with editing and
+  deletion limited to these manual entries.
+- **Automation rules** — condition-based rules that categorize new
+  transactions automatically and can be applied retroactively to existing ones.
+- **Payables (debts and receivables)** — track a real total (debt, installment
+  purchase, receivable) and link the transactions that settle it, with
+  eligibility rules for which transactions can be linked.
+- **Categories** — a user-defined category catalog, with categorization
+  history.
+- **Recurrences** — register cash-flow commitments known in advance (salary,
+  rent, subscriptions), reconciled against the real transactions that settle
+  them via an automation rule.
+- **Scenarios** — user-authored hypothetical projections ("what if I travel",
+  "what if I change jobs"), or the installment plan of a debt/receivable —
+  they never affect real totals unless explicitly included in a query.
+- **Financial report** — a single time navigation (Actual → Today → Base
+  Projection → Simulation): how much you will have on a future date, your
+  lowest balance until then, and how hypothetical scenarios change that answer.
+- **Net worth** — net worth snapshots and history (assets − liabilities) over
+  time.
+- **Investments** — integrated and manual investment accounts, goal-based
+  portfolios, per-asset operations, manual valuations and optional automatic
+  quotes (B3 and crypto). Contributions and withdrawals reconciled with the
+  statement show up apart from spending, keeping their cash effect and avoiding
+  double counting in net worth.
+- **Browser authentication** — email and password login for the owner account,
+  persisted sessions, logout and password change. No public sign-up.
+- **Secrets encrypted at rest** — Pluggy credentials protected with
+  AES-256-GCM by a key independent of the password, supplied by the environment
+  or a file. The worker keeps running after restarts without requiring a login.
 
-## Investimentos por conta e objetivo
+## Investments by account and goal
 
-Em **Investimentos**, cadastre uma conta de custódia manual ou use o agrupamento
-criado para uma conexão. Crie posições vazias para novas compras; informe saldo
-inicial apenas para patrimônio que já existia. Compras aceitam quantidade,
-preço, taxas e impostos. A opção de entrada junto com a compra permite registrar
-um aporte ou reinvestir um rendimento em uma única ação.
+In **Investimentos**, register a manual custody account or use the grouping
+created for a connection. Create empty positions for new purchases; enter an
+opening balance only for holdings that already existed. Purchases accept
+quantity, price, fees and taxes. The "deposit along with the purchase" option
+records a contribution or reinvests income in a single action.
 
-No extrato, abra o lançamento e escolha **Vincular a investimento**. Confirme o
-destino e a parcela; o restante continua disponível para outra movimentação.
-É possível associar também o movimento importado do ativo. O botão
-**Revisar lançamentos antigos** abre o histórico sem limite de período, sem
-reclassificá-lo automaticamente.
+In the statement, open the entry and choose **Vincular a investimento** (link
+to investment). Confirm the destination and the portion; the rest stays
+available for another movement. The imported asset movement can be linked as
+well. The **Revisar lançamentos antigos** (review older entries) button opens
+the history with no period limit, without reclassifying it automatically.
 
-Contas integradas mantêm seus saldos informados pela instituição. Use
-**Vincular caixa da corretora** quando a conta financeira importada já representa
-o mesmo caixa. Objetivos agrupam posições de qualquer instituição sem alterar
-seu valor. Cotações manuais têm data; correções de operações recalculam os
-custos subsequentes e são recusadas se produzirem caixa ou posição negativos.
+Integrated accounts keep the balances reported by the institution. Use
+**Vincular caixa da corretora** (link brokerage cash) when the imported
+financial account already represents the same cash. Goals group positions from
+any institution without changing their value. Manual quotes are dated;
+corrections to operations recompute subsequent costs and are rejected if they
+would produce negative cash or a negative position.
 
-Os contratos e limites estão na [referência de investimentos](.specs/contextos/investimentos/reference.md).
+Contracts and limits are in the
+[investments reference](.specs/contextos/investimentos/reference.md).
 
-## Stack técnica
+## Tech stack
 
-- **Backend**: Go, `net/http` (roteamento da stdlib, sem framework), SQLite
-  via [`modernc.org/sqlite`](https://gitlab.com/cznic/sqlite) (sem cgo) como
-  padrão, com Postgres opcional via [`pgx`](https://github.com/jackc/pgx) —
-  veja [Rodando com Postgres](#rodando-com-postgres) — e migrações via
-  [`goose`](https://github.com/pressly/goose) para os dois dialetos.
+- **Backend**: Go, `net/http` (stdlib routing, no framework), SQLite via
+  [`modernc.org/sqlite`](https://gitlab.com/cznic/sqlite) (no cgo) by default,
+  with optional Postgres via [`pgx`](https://github.com/jackc/pgx) — see
+  [Running with Postgres](#running-with-postgres) — and migrations via
+  [`goose`](https://github.com/pressly/goose) for both dialects.
 - **Frontend**: React 19, TypeScript, [Ant Design](https://ant.design/) /
   Pro Components, [TanStack Query](https://tanstack.com/query), Vite.
-- **Testes**: pacote `testing` padrão do Go, [Vitest](https://vitest.dev/) +
-  Testing Library para componentes, [Playwright](https://playwright.dev/)
-  para end-to-end.
+- **Tests**: Go's standard `testing` package, [Vitest](https://vitest.dev/) +
+  Testing Library for components, [Playwright](https://playwright.dev/) for
+  end-to-end.
 
-## Como começar
+## Getting started
 
-### Pré-requisitos
+### Prerequisites
 
 - Go 1.26+
 - Node.js 24+
-- Uma conta na [Pluggy](https://pluggy.ai) com um client ID/secret e ao menos
-  um `item_id` da conta que você quer sincronizar — veja o guia da Pluggy
-  [Get your API keys](https://docs.pluggy.ai/docs/get-your-api-keys), e a
-  seção [Open Finance & Pluggy](#open-finance--pluggy) abaixo. Bancos
-  adicionais são cadastrados depois, em `/open-banking`, colando o `item_id`
-  de cada um — o client ID/secret é o mesmo para todos.
+- A [Pluggy](https://pluggy.ai) account with a client ID/secret and at least
+  one `item_id` for the account you want to sync — see Pluggy's
+  [Get your API keys](https://docs.pluggy.ai/docs/get-your-api-keys) guide, and
+  the [Open Finance & Pluggy](#open-finance--pluggy) section below. Additional
+  banks are registered later, in `/open-banking`, by pasting each one's
+  `item_id` — the client ID/secret is the same for all of them.
 
-### Rodar a build de produção (binário único)
+### Run the production build (single binary)
 
 ```sh
 ./build.sh
 ```
 
-Antes de iniciar, configure a chave de criptografia e crie ou migre a conta.
-O servidor recusa iniciar sem autenticação preparada ou com chave inválida.
+Before starting, configure the encryption key and create or migrate the
+account. The server refuses to start without prepared authentication or with
+an invalid key.
 
-### Publicar e instalar uma versão
+### Publish and install a version
 
-Todo push na `main` que passa na CI publica uma release no GitHub com o
-binário `contadinho-linux-amd64`, o `SHA256SUMS` e a atestação de procedência
-(`contadinho-linux-amd64.sigstore.json`). A versão é o conteúdo de `VERSION`
-mais um contador de patch. Para instalar, baixe o binário da release, confira
-o checksum e execute-o com a configuração descrita nas próximas seções; como
-iniciá-lo e mantê-lo no ar (serviço do sistema, contêiner etc.) depende do seu
-ambiente.
+Every push to `main` that passes CI publishes a GitHub release with the
+`contadinho-linux-amd64` binary, `SHA256SUMS` and the provenance attestation
+(`contadinho-linux-amd64.sigstore.json`), as long as there is something to
+release. The version follows SemVer from the
+[Conventional Commits](https://www.conventionalcommits.org/) since the last
+tag: `feat` bumps the minor, `fix`/`perf` bump the patch, and a breaking change
+(`feat!:` or a `BREAKING CHANGE:` footer) bumps the major (the minor while on
+`0.x`). Other types (`docs`, `chore`, `refactor`…) and non-conventional commits
+do not create a release. To see locally what the next version would be, run
+`scripts/next-version.sh` (or `--notes` for the release notes) after
+`git fetch --tags`.
 
-### Autenticação e chave de criptografia
+To install, download the binary from the release, verify the checksum and run
+it with the configuration described in the next sections; how to start it and
+keep it running (system service, container, etc.) depends on your environment.
 
-Gere **uma única vez** uma chave de 32 bytes em Base64, em arquivo fora do
-repositório. O exemplo recusa sobrescrever um arquivo existente:
+### Authentication and encryption key
+
+Generate a 32-byte Base64 key **once**, in a file outside the repository. The
+example refuses to overwrite an existing file:
 
 ```sh
 mkdir -p "$HOME/.config/contadinho"
@@ -171,193 +175,197 @@ export CONTADINHO_MASTER_KEY_FILE="$HOME/.config/contadinho/master.key"
 export CONTADINHO_PUBLIC_URL="http://localhost:4200"
 ```
 
-Alternativamente, forneça o Base64 em `CONTADINHO_MASTER_KEY` pelo mecanismo
-de segredos da hospedagem. Defina exatamente uma das duas fontes. Não inclua
-valores no repositório, argumentos, logs ou variáveis `VITE_*`.
+Alternatively, provide the Base64 value in `CONTADINHO_MASTER_KEY` through your
+host's secrets mechanism. Set exactly one of the two sources. Do not put the
+value in the repository, arguments, logs or `VITE_*` variables.
 
-`CONTADINHO_PUBLIC_URL` é a origem vista pelo navegador, sem caminho ou barra
-final. Para uso online, use `https://seu-hostname`; HTTP é permitido somente
-em `localhost`, `127.0.0.1` ou `::1`, para desenvolvimento. O HTTPS pode ser
-terminado externamente; a aplicação não confia em headers de proxy para
-escolher a política do cookie ou a origem permitida.
+`CONTADINHO_PUBLIC_URL` is the origin as seen by the browser, without a path or
+trailing slash. For online use, use `https://your-hostname`; HTTP is only
+allowed on `localhost`, `127.0.0.1` or `::1`, for development. HTTPS may be
+terminated externally; the application does not trust proxy headers to choose
+the cookie policy or the allowed origin.
 
-Para banco novo:
+For a new database:
 
 ```sh
 ./contadinho auth init -db ./contadinho.db
 ./contadinho -db ./contadinho.db
 ```
 
-O comando solicita e-mail e uma senha não vazia em terminal interativo, sem
-eco da senha. Não há regras de tamanho ou composição: a escolha é do usuário.
-Entre no navegador e configure as credenciais da Pluggy em
-**Configurações**; o Item ID opcional cadastra uma nova conexão. Conexões
-adicionais continuam disponíveis em **Open Banking**.
+The command asks for an email and a non-empty password in an interactive
+terminal, without echoing the password. There are no length or composition
+rules: the choice is up to the user. Sign in from the browser and configure the
+Pluggy credentials under **Configurações** (settings); the optional Item ID
+registers a new connection. Additional connections remain available under
+**Open Banking**.
 
-Para migrar seu banco existente:
+To migrate your existing database:
 
-1. Pare a versão antiga e faça backup consistente do banco.
-2. Configure e preserve a nova chave.
-3. Execute `./contadinho auth migrate -db ./contadinho.db`.
-4. Informe a senha antiga de desbloqueio, seu e-mail e a nova senha de login.
-5. Inicie o aplicativo com a mesma chave configurada.
+1. Stop the old version and take a consistent backup of the database.
+2. Configure and keep the new key.
+3. Run `./contadinho auth migrate -db ./contadinho.db`.
+4. Enter the old unlock password, your email and the new login password.
+5. Start the application with the same key configured.
 
-A migração recriptografa todos os segredos e cria a conta numa transação;
-falhas não deixam conversão parcial. O verificador antigo é removido e uma
-segunda migração é recusada. Guarde o backup anterior para retorno à versão
-antiga: após a migração, o binário antigo não consegue ler os segredos novos.
-Não execute a migração com o aplicativo em funcionamento.
+The migration re-encrypts every secret and creates the account in a single
+transaction; failures never leave a partial conversion. The old verifier is
+removed and a second migration is refused. Keep the earlier backup to roll back
+to the old version: after the migration, the old binary cannot read the new
+secrets. Do not run the migration while the application is running.
 
-Preserve uma cópia segura da chave separada do backup do banco. A recuperação
-da senha **não** recupera uma chave perdida. Trocar o arquivo por outra chave
-não é rotação: o servidor recusará iniciar. Rotação de chave não faz parte
-desta versão.
+Keep a safe copy of the key separate from the database backup. Password
+recovery does **not** recover a lost key. Replacing the file with another key
+is not rotation: the server will refuse to start. Key rotation is not part of
+this version.
 
-Para recuperar acesso pelo terminal, mantendo a criptografia:
+To regain access from the terminal while keeping encryption:
 
 ```sh
 ./contadinho auth reset-password -db ./contadinho.db
 ```
 
-Esse comando dispensa a chave, exige uma nova senha e revoga todas as sessões.
-A troca em **Configurações** exige a senha atual e também encerra todas as
-sessões. **Sair** encerra apenas a sessão do navegador atual.
+This command does not need the key, requires a new password and revokes every
+session. Changing the password under **Configurações** requires the current
+password and also ends every session. **Sair** (log out) ends only the current
+browser session.
 
-Sessões duram no máximo sete dias, com expiração após 24 horas sem uso, e
-sobrevivem a reinícios. Todos os acessos privados são verificados no backend.
-Login aceita até cinco tentativas por minuto por e-mail e trinta por minuto
-no processo; o limite reinicia junto com o processo. Escritas HTTP exigem
-`Origin` igual à origem configurada e `X-Contadinho-Request: 1`.
+Sessions last at most seven days, expire after 24 hours of inactivity, and
+survive restarts. Every private access is checked in the backend. Login accepts
+up to five attempts per minute per email and thirty per minute per process; the
+limit resets with the process. HTTP writes require an `Origin` equal to the
+configured origin and `X-Contadinho-Request: 1`.
 
-Em **Configurações > Acesso**, o proprietário pode desativar a autenticação.
-Desativá-la exige uma sessão válida; depois disso, qualquer pessoa que alcance
-a instância pode consultar e alterar todos os dados sem login. Religá-la é
-permitido a partir do modo aberto e faz as requisições seguintes voltarem a
-exigir sessão imediatamente. As verificações de origem para escritas continuam
-ativas nos dois modos. A preferência fica no banco; se não existir, o modo
-protegido é usado, e se ela não puder ser lida a API fica indisponível — nunca
-é aberta por falha de configuração.
+Under **Configurações > Acesso**, the owner can disable authentication.
+Disabling it requires a valid session; after that, anyone who can reach the
+instance can read and change all data without logging in. Re-enabling it is
+allowed from open mode and makes subsequent requests require a session
+immediately. Origin checks for writes stay active in both modes. The preference
+is stored in the database; if it does not exist, protected mode is used, and if
+it cannot be read the API becomes unavailable — it never opens because of a
+configuration failure.
 
-### Rodando com Postgres
+### Running with Postgres
 
-SQLite continua sendo o padrão para uso local. Para rodar contra um Postgres
-compartilhado — por exemplo, múltiplas instâncias do Contadinho apontando
-para o mesmo banco na nuvem —, passe uma DSN `postgres://` (ou
-`postgresql://`) na flag `-db` em vez de um caminho de arquivo:
+SQLite remains the default for local use. To run against a shared Postgres —
+for example, several Contadinho instances pointing at the same cloud database —
+pass a `postgres://` (or `postgresql://`) DSN to the `-db` flag instead of a
+file path:
 
 ```sh
-./contadinho -db "postgres://usuario:senha@host:5432/contadinho?sslmode=require"
+./contadinho -db "postgres://user:password@host:5432/contadinho?sslmode=require"
 ```
 
-O driver é detectado automaticamente pelo prefixo da DSN. As migrações do
-schema Postgres são aplicadas automaticamente, do mesmo jeito que as do
-SQLite. Os comandos `auth init`, `auth migrate` e `auth reset-password`
-aceitam a mesma DSN na flag `-db` ou em `CONTADINHO_DB`. Sessões e conta ficam
-no banco; a chave de criptografia permanece externa a ele.
+The driver is detected automatically from the DSN prefix. Postgres schema
+migrations are applied automatically, just like the SQLite ones. The
+`auth init`, `auth migrate` and `auth reset-password` commands accept the same
+DSN in the `-db` flag or in `CONTADINHO_DB`. Sessions and the account live in
+the database; the encryption key stays outside it.
 
-O worker de sincronização em segundo plano assume que só uma instância o
-executa por vez — hoje ele não coordena a reivindicação de execuções de
-sincronização entre múltiplos processos/instâncias.
+The background sync worker assumes only one instance runs it at a time — it
+does not currently coordinate claiming sync runs across multiple
+processes/instances.
 
-#### Documentar o schema com SchemaSpy
+#### Documenting the schema with SchemaSpy
 
-`docker-compose.schemaspy.yml` roda o [SchemaSpy](https://schemaspy.org/)
-contra um Postgres de desenvolvimento acessível na máquina (`host.docker.internal`)
-e grava o HTML em `schemaspy/output/` (diretório ignorado pelo git). Não é o
-compose da aplicação. A senha é obrigatória; usuário, banco e porta têm
-padrão `admin`, `contadinho` e `5432`:
+`docker-compose.schemaspy.yml` runs [SchemaSpy](https://schemaspy.org/) against
+a development Postgres reachable from the machine (`host.docker.internal`) and
+writes the HTML to `schemaspy/output/` (a git-ignored directory). It is not the
+application's compose file. The password is required; user, database and port
+default to `admin`, `contadinho` and `5432`:
 
 ```sh
 SCHEMASPY_DB_PASSWORD=... docker compose -f docker-compose.schemaspy.yml up
-# opcionais: SCHEMASPY_DB_USER, SCHEMASPY_DB_NAME, SCHEMASPY_DB_PORT
+# optional: SCHEMASPY_DB_USER, SCHEMASPY_DB_NAME, SCHEMASPY_DB_PORT
 ```
 
-Depois abra `schemaspy/output/index.html`.
+Then open `schemaspy/output/index.html`.
 
-### Sincronização agendada
+### Scheduled sync
 
-Como as rotas da API exigem sessão do navegador, um cron externo não consegue
-mais disparar `POST /api/sync-runs`. Em vez disso, defina
-`CONTADINHO_SYNC_SCHEDULE` para que o próprio processo enfileire, uma vez por
-dia, uma sincronização de cada conexão ativa:
+Since the API routes require a browser session, an external cron can no longer
+trigger `POST /api/sync-runs`. Instead, set `CONTADINHO_SYNC_SCHEDULE` so the
+process itself queues a sync of every active connection once a day:
 
 ```sh
-export CONTADINHO_SYNC_SCHEDULE="06:00"                  # horário local do processo
-export CONTADINHO_SYNC_SCHEDULE="06:00 America/Sao_Paulo" # ou com fuso IANA explícito
+export CONTADINHO_SYNC_SCHEDULE="06:00"                  # process local time
+export CONTADINHO_SYNC_SCHEDULE="06:00 America/Sao_Paulo" # or with an explicit IANA time zone
 ```
 
-Se o processo estiver parado no horário, a sincronização pendente é
-enfileirada assim que ele subir; uma conexão que já sincronizou (inclusive
-manualmente) depois do horário do dia não é repetida. Vazio desabilita.
+If the process is down at that time, the pending sync is queued as soon as it
+starts; a connection that already synced (including manually) after that day's
+time is not repeated. Empty disables it.
 
-### Cotações automáticas
+### Automatic quotes
 
-Ativos de investimento com cotação automática habilitada têm o preço
-das posições manuais buscado automaticamente e guardado na série de preços do
-ativo. O valor da posição é calculado a cada leitura (quantidade × último
-preço); uma avaliação manual de data igual ou posterior ao último preço vale
-mais que ele. A busca é opt-in: defina
-`CONTADINHO_QUOTES_SCHEDULE` (mesmo formato da sincronização) para rodar uma vez
-por dia e na subida do processo. Os provedores são tentados em ordem, com
-fallback automático; `CONTADINHO_QUOTES_PROVIDERS` define a ordem (separada por
-vírgula; provedor omitido fica desligado; nome desconhecido impede a subida):
+Investment assets with automatic quotes enabled have the price of their manual
+positions fetched automatically and stored in the asset's price series. The
+position value is computed on every read (quantity × latest price); a manual
+valuation dated on or after the latest price takes precedence over it. Fetching
+is opt-in: set `CONTADINHO_QUOTES_SCHEDULE` (same format as the sync schedule)
+to run once a day and when the process starts. Providers are tried in order,
+with automatic fallback; `CONTADINHO_QUOTES_PROVIDERS` sets the order
+(comma-separated; an omitted provider is disabled; an unknown name prevents
+startup):
 
 ```sh
 export CONTADINHO_QUOTES_SCHEDULE="19:00 America/Sao_Paulo"
-export CONTADINHO_QUOTES_PROVIDERS="yahoo,brapi,coingecko" # padrão
+export CONTADINHO_QUOTES_PROVIDERS="yahoo,brapi,coingecko" # default
 ```
 
-Por padrão o Yahoo Finance é a fonte principal dos dois mercados; a brapi é o
-fallback da B3 e a CoinGecko, o de criptomoedas. O token da brapi, opcional, é
-configurado na interface. Detalhes na
-[referência de investimentos](.specs/contextos/investimentos/reference.md#cotação-automática).
+By default Yahoo Finance is the primary source for both markets; brapi is the
+B3 fallback and CoinGecko the crypto one. The optional brapi token is
+configured in the UI. Details in the
+[investments reference](.specs/contextos/investimentos/reference.md#cotação-automática).
 
-O cadastro usa classe financeira (renda fixa, renda variável, multimercado,
-cambial, criptoativos ou outros) e tipo de instrumento. O mercado da cotação é
-derivado do tipo; ETFs de renda fixa e de criptoativos podem usar preços da B3.
+Assets are registered with a financial class (fixed income, variable income,
+multi-market, currency, crypto assets or other) and an instrument type. The
+quote market is derived from the type; fixed-income and crypto ETFs can use B3
+prices.
 
-Para carregar um catálogo inicial opcional com 27 ativos conhecidos:
+To load an optional starter catalog with 27 well-known assets:
 
 ```sh
 go run ./cmd/contadinho seed investment-assets
 ```
 
-O comando usa `CONTADINHO_DB` ou aceita `-db caminho-ou-DSN`. Pode ser repetido
-sem duplicar ou sobrescrever cadastros e não cria posições ou saldos.
+The command uses `CONTADINHO_DB` or accepts `-db path-or-DSN`. It can be run
+again without duplicating or overwriting entries, and it does not create
+positions or balances.
 
-### Rodar para desenvolvimento local
+### Run for local development
 
-Depois de configurar a chave e preparar a conta com `go run ./cmd/contadinho auth init`
-(ou `auth migrate` para banco antigo), o script abaixo inicia backend e Vite juntos. O frontend fica com hot
-reload e as requisições de `/api` são encaminhadas automaticamente para o
-backend:
+After configuring the key and preparing the account with
+`go run ./cmd/contadinho auth init` (or `auth migrate` for an old database),
+the script below starts the backend and Vite together. The frontend gets hot
+reload and `/api` requests are forwarded to the backend automatically:
 
 ```sh
 ./dev.sh
 ```
 
-Abra a URL impressa pelo script na linha `Frontend:` (`http://127.0.0.1:5173`
-por padrão). O script usa exatamente essa origem como padrão de
-`CONTADINHO_PUBLIC_URL`, e o backend compara o header `Origin` do navegador
-com ela de forma estrita: abrir por `http://localhost:5173`, ou já ter
-exportado outro valor em `CONTADINHO_PUBLIC_URL`, resulta em 403
-`invalid-origin` no login e em todo POST/PUT/DELETE. Se preferir outro host,
-altere `VITE_DEV_HOST` (o script deriva a origem dele) em vez de exportar a
-URL à mão. `Ctrl-C` encerra os dois processos. Para sobrescrever host e portas:
+Open the URL the script prints on the `Frontend:` line (`http://127.0.0.1:5173`
+by default). The script uses exactly that origin as the default
+`CONTADINHO_PUBLIC_URL`, and the backend strictly compares the browser's
+`Origin` header against it: opening `http://localhost:5173` instead, or having
+already exported another value in `CONTADINHO_PUBLIC_URL`, results in a 403
+`invalid-origin` on login and on every POST/PUT/DELETE. If you prefer another
+host, change `VITE_DEV_HOST` (the script derives the origin from it) instead of
+exporting the URL by hand. `Ctrl-C` stops both processes. To override host and
+ports:
 
 ```sh
 CONTADINHO_DEV_ADDR=localhost:8100 VITE_DEV_HOST=localhost VITE_DEV_PORT=5174 ./dev.sh
 ```
 
-Para configuração fixa da sua máquina, crie um `.env.local` na raiz do repositório
-(ignorado pelo git) com linhas `CHAVE=valor`; o `dev.sh` carrega esse arquivo antes
-de iniciar. Ex.: `CONTADINHO_DB`, `CONTADINHO_MASTER_KEY_FILE`, portas e, para acessar
-o Vite por outro domínio, `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=<host>`.
+For machine-specific configuration, create a `.env.local` at the repository
+root (ignored by git) with `KEY=value` lines; `dev.sh` loads that file before
+starting. E.g. `CONTADINHO_DB`, `CONTADINHO_MASTER_KEY_FILE`, ports and, to
+reach Vite through another domain, `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=<host>`.
 
-Se as dependências ainda não estiverem instaladas, execute `cd frontend &&
-npm install` uma vez antes de iniciar o script.
+If the dependencies are not installed yet, run `cd frontend && npm install`
+once before starting the script.
 
-### Testes e verificações
+### Tests and checks
 
 ```sh
 # backend
@@ -372,55 +380,58 @@ npm run typecheck
 npm test
 ```
 
-`npm run test:e2e` (Playwright) está declarado no `package.json` mas ainda
-não tem `playwright.config.*` nem testes — scaffolded, não implementado.
+The Postgres integration tests are skipped unless
+`CONTADINHO_TEST_POSTGRES_DSN` points at a disposable database. They reset its
+`public` schema, so run them with `go test -p 1 ./...`, as CI does.
+
+`npm run test:e2e` (Playwright) is declared in `package.json` but has no
+`playwright.config.*` or tests yet — scaffolded, not implemented.
 
 ## Open Finance & Pluggy
 
-Este projeto só existe por causa da regulamentação de Open Finance no
-Brasil e da [Pluggy](https://pluggy.ai), a provedora de infraestrutura de
-Open Finance cuja API o Contadinho integra. A Pluggy se conecta a mais de
-130 instituições financeiras brasileiras e, como Iniciadora de Transação de
-Pagamento (ITP) regulada pelo Banco Central, oferece a aplicações como esta
-uma forma padronizada e autorizada de ler saldos de conta, transações e
-dados de investimento em nome do usuário — transformando o "meus dados são
-meus" de slogan em algo que um desenvolvedor independente consegue de fato
-usar como base, sem precisar de uma integração sob medida com cada
-instituição.
+This project only exists thanks to Open Finance regulation in Brazil and to
+[Pluggy](https://pluggy.ai), the Open Finance infrastructure provider whose API
+Contadinho integrates with. Pluggy connects to more than 130 Brazilian
+financial institutions and, as a Payment Initiation Service Provider (ITP)
+regulated by the Central Bank, offers applications like this one a
+standardized, authorized way to read account balances, transactions and
+investment data on the user's behalf — turning "my data is mine" from a slogan
+into something an independent developer can actually build on, without a
+bespoke integration with each institution.
 
-Todo o crédito à equipe da Pluggy por essa infraestrutura e por viabilizar
-o acesso a Open Finance para projetos pequenos/independentes. Veja
-[pluggy.ai](https://pluggy.ai) para saber mais sobre a plataforma, e
-[Get your API keys](https://docs.pluggy.ai/docs/get-your-api-keys) para o
-passo a passo de como obter o client ID/secret que este projeto pede
-durante a configuração.
+All credit to the Pluggy team for this infrastructure and for making Open
+Finance access viable for small/independent projects. See
+[pluggy.ai](https://pluggy.ai) to learn more about the platform, and
+[Get your API keys](https://docs.pluggy.ai/docs/get-your-api-keys) for a
+step-by-step guide to obtaining the client ID/secret this project asks for
+during setup.
 
-## Estrutura do projeto
+## Project structure
 
 ```
-cmd/contadinho/     ponto de entrada: conecta DB, servidor HTTP e worker em segundo plano
+cmd/contadinho/     entry point: wires the DB, HTTP server and background worker
 internal/
-  db/                conexão SQLite/Postgres e migrações
-  pluggy/             cliente da API da Pluggy e mapeamento de dados
-  syncsvc/             orquestração das execuções de sincronização
-  worker/              loop de polling de sincronização em segundo plano
-  money/                primitivas de domínio compartilhadas (classificação, valor efetivo)
-  transactions/           consulta de transações e estado de inclusão
-  categories/              catálogo de categorias e categorização
-  rules/                     núcleo de matching combinável (condições/operadores)
-  automation/                 motor de regras de automação, sobre internal/rules
-  recurrences/                   compromissos recorrentes, reconciliados via automation
-  payables/                        dívidas/recebíveis e vínculo de transações que os quitam
-  scenarios/                         projeções hipotéticas e planos de pagamento
-  timeline/                            funde lançamentos + recorrências + cenários numa série única
-  networth/                              snapshots de patrimônio líquido
-  auth/                                    conta proprietária, senhas e sessões por navegador
-  settings/                                configurações criptografadas e migração dos segredos legados
-  httpapi/                                   handlers HTTP e roteamento
-  webui/                                       embute o frontend compilado
-frontend/            SPA React/TypeScript (Vite)
+  db/                SQLite/Postgres connection and migrations
+  pluggy/             Pluggy API client and data mapping
+  syncsvc/             sync run orchestration
+  worker/              background sync polling loop
+  money/                shared domain primitives (classification, effective amount)
+  transactions/           transaction queries and inclusion state
+  categories/              category catalog and categorization
+  rules/                     composable matching core (conditions/operators)
+  automation/                 automation rule engine, built on internal/rules
+  recurrences/                   recurring commitments, reconciled via automation
+  payables/                        debts/receivables and links to the transactions that settle them
+  scenarios/                         hypothetical projections and payment plans
+  timeline/                            merges entries + recurrences + scenarios into a single series
+  networth/                              net worth snapshots
+  auth/                                    owner account, passwords and browser sessions
+  settings/                                encrypted settings and migration of legacy secrets
+  httpapi/                                   HTTP handlers and routing
+  webui/                                       embeds the built frontend
+frontend/            React/TypeScript SPA (Vite)
 ```
 
-Para o que cada um faz hoje (rotas, páginas, estado de implementação), ver
-[`.specs/README.md`](.specs/README.md) e os `reference.md` de cada
-contexto em `.specs/contextos/`.
+For what each one does today (routes, pages, implementation status), see
+[`.specs/README.md`](.specs/README.md) and each context's `reference.md` under
+`.specs/contextos/`.
