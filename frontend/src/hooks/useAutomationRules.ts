@@ -9,11 +9,10 @@ import {
   updateAutomationRule,
 } from "../api/automationRules";
 import type { AutomationRuleWrite, AutomationRuleWriteResult } from "../api/contracts";
+import { invalidateAfterAutomationRuleChange, invalidateAutomationRules, queryKeys } from "../api/queryKeys";
 
-export const automationRulesQueryKey = ["automationRules"] as const;
-export const automationRuleConditionOptionsQueryKey = [
-  "automationRuleConditionOptions",
-] as const;
+export const automationRulesQueryKey = queryKeys.automationRules;
+export const automationRuleConditionOptionsQueryKey = queryKeys.automationRuleConditionOptions;
 
 export function useAutomationRules() {
   const queryClient = useQueryClient();
@@ -27,10 +26,9 @@ export function useAutomationRules() {
   });
 
   const afterWrite = async (result: AutomationRuleWriteResult) => {
-    await queryClient.invalidateQueries({ queryKey: automationRulesQueryKey });
-    if (result.retroactive_apply !== null) {
-      await queryClient.invalidateQueries({ queryKey: ["transactions"] });
-    }
+    await invalidateAfterAutomationRuleChange(queryClient, {
+      transactionsChanged: result.retroactive_apply !== null,
+    });
   };
 
   const createMutation = useMutation({
@@ -47,12 +45,12 @@ export function useAutomationRules() {
   const toggleMutation = useMutation({
     mutationFn: ({ ruleId, isActive }: { ruleId: string; isActive: boolean }) =>
       setAutomationRuleActive(ruleId, isActive),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: automationRulesQueryKey }),
+    onSuccess: () => invalidateAutomationRules(queryClient),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (ruleId: string) => deleteAutomationRule(ruleId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: automationRulesQueryKey }),
+    onSuccess: () => invalidateAutomationRules(queryClient),
   });
 
   return {

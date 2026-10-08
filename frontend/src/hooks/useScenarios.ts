@@ -12,9 +12,10 @@ import {
   updateScenarioTransaction,
 } from "../api/scenarios";
 import type { ScenarioCreate, ScenarioKind, ScenarioTransactionWrite } from "../api/contracts";
+import { invalidateAfterScenarioChange, queryKeys } from "../api/queryKeys";
 
-export const standaloneScenariosQueryKey = ["scenarios", "standalone"] as const;
-export const allScenariosQueryKey = ["scenarios", "all"] as const;
+export const standaloneScenariosQueryKey = queryKeys.scenariosStandalone;
+export const allScenariosQueryKey = queryKeys.scenariosAll;
 
 // useScenarios is the plural counterpart to usePayablePlan (which assumes
 // "the one plan of a payable"): it lists every Scenario of a given kind —
@@ -42,12 +43,10 @@ export function useScenarios({ kind }: { kind?: ScenarioKind } = {}) {
   });
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["scenarios"] });
     // Every mutation here — activating a scenario, editing its transactions
     // — changes what the unified projector includes, so any cached balance
     // curve or period total is now stale.
-    queryClient.invalidateQueries({ queryKey: ["timeline"] });
-    queryClient.invalidateQueries({ queryKey: ["timeline-data-range"] });
+    void invalidateAfterScenarioChange(queryClient);
   };
 
   const createMutation = useMutation({

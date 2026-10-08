@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import type { SyncRun } from "../api/contracts";
 import { listSyncRuns } from "../api/syncRuns";
+import { queryKeys } from "../api/queryKeys";
 
 export type SyncRunListState =
   | { kind: "loading" }
@@ -11,7 +12,7 @@ export type SyncRunListState =
 
 export function useSyncRunList() {
   const query = useQuery({
-    queryKey: ["sync-runs", "list"],
+    queryKey: queryKeys.syncRunsList,
     queryFn: ({ signal }) => listSyncRuns(signal),
   });
   const state: SyncRunListState = query.isPending

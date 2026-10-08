@@ -16,9 +16,9 @@ import type {
   RealizationWrite,
   ScenarioDetail,
 } from "../api/contracts";
+import { invalidateAfterPayablePlanChange, queryKeys } from "../api/queryKeys";
 
-export const payableScenariosQueryKey = (payableId: string) =>
-  ["payables", payableId, "scenarios"] as const;
+export const payableScenariosQueryKey = queryKeys.payableScenarios;
 
 // usePayablePlan surfaces the accounting Scenario for a payable. Simulation
 // scenarios may share the payable, so position in the API array is not a
@@ -40,12 +40,10 @@ export function usePayablePlan(payableId: string) {
   });
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: payableScenariosQueryKey(payableId) });
     // Installments generated/allocated/readjusted here are exactly what the
     // unified projector reads, so any cached balance curve or period total
     // is now stale.
-    queryClient.invalidateQueries({ queryKey: ["timeline"] });
-    queryClient.invalidateQueries({ queryKey: ["timeline-data-range"] });
+    void invalidateAfterPayablePlanChange(queryClient, payableId);
   };
 
   const createMutation = useMutation({

@@ -19,6 +19,7 @@ import { StatusTag } from "../shared/StatusTag";
 import { useCompactScreen } from "../shared/useCompactScreen";
 import { useConfirm } from "../shared/useConfirm";
 import { useFeedback } from "../shared/useFeedback";
+import { queryKeys } from "../../api/queryKeys";
 
 const dateFormat = "YYYY-MM-DD";
 
@@ -184,11 +185,11 @@ function ScenarioTransactionsPanel({
   const feedback = useFeedback();
   const confirm = useConfirm();
   const detailQuery = useQuery({
-    queryKey: ["scenarios", scenario.id, "detail"],
+    queryKey: queryKeys.scenarioDetail(scenario.id),
     queryFn: ({ signal }) => getScenario(scenario.id, signal),
   });
   const plannedQuery = useQuery({
-    queryKey: ["scenarios", scenario.id, "planned-transactions"],
+    queryKey: queryKeys.scenarioPlannedTransactions(scenario.id),
     queryFn: async ({ signal }) =>
       (await listScenarioPlannedTransactions(scenario.id, undefined, undefined, signal)) ?? [],
   });

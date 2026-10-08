@@ -9,8 +9,8 @@ import {
 import { queryTransactions } from "../api/transactions";
 import { ApiError } from "../api/problems";
 import type { Account, TransactionItem, TransactionQuery } from "../api/contracts";
-import { accountsQueryKey } from "./useAccounts";
 import { browserTimezone, transactionQueryKey } from "./useTransactions";
+import { invalidateAfterAccountClosingDayChange, queryKeys } from "../api/queryKeys";
 
 const RECENT_TRANSACTIONS_LIMIT = 10;
 
@@ -51,7 +51,7 @@ const noTransactions: TransactionItem[] = [];
 
 export function useAccountDetail(accountId: string) {
   const detailQuery = useQuery({
-    queryKey: [...accountsQueryKey, accountId],
+    queryKey: queryKeys.accountDetail(accountId),
     queryFn: ({ signal }) => getAccount(accountId, signal),
   });
   const snapshot = detailQuery.data ?? null;
@@ -72,12 +72,12 @@ export function useAccountDetail(accountId: string) {
   };
 
   const cardsQuery = useQuery({
-    queryKey: [...accountsQueryKey, accountId, "cards"],
+    queryKey: queryKeys.accountCards(accountId),
     queryFn: ({ signal }) => listAccountCards(accountId, signal),
   });
 
   const billsQuery = useQuery({
-    queryKey: [...accountsQueryKey, accountId, "bills"],
+    queryKey: queryKeys.accountBills(accountId),
     queryFn: ({ signal }) => listAccountBills(accountId, signal),
   });
 
@@ -89,17 +89,13 @@ export function useAccountDetail(accountId: string) {
       // closing day — so both go stale, exactly. A prefix invalidation would
       // also drop this account's cards, bills and recent transactions, none
       // of which a closing day can affect.
-      void queryClient.invalidateQueries({ queryKey: accountsQueryKey, exact: true });
-      void queryClient.invalidateQueries({
-        queryKey: [...accountsQueryKey, accountId],
-        exact: true,
-      });
+      void invalidateAfterAccountClosingDayChange(queryClient, accountId);
     },
   });
 
   const timezone = browserTimezone();
   // Keyed like every other transactions query (transactionQueryKey), not
-  // nested under accountsQueryKey: useTransactionInclusion/useTransactionCategory/
+  // nested under queryKeys.accounts: useTransactionInclusion/useTransactionCategory/
   // useManualTransaction all invalidate the ["transactions", ...] prefix, and
   // this list needs to pick up those edits too — the panel this page opens
   // writes through the same hooks.

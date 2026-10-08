@@ -6,6 +6,7 @@ import type {
   TransactionGrouping,
   TransactionQuery,
 } from "../api/contracts";
+import { queryKeys } from "../api/queryKeys";
 
 export const DEFAULT_PAGE_SIZE = 50;
 
@@ -40,7 +41,7 @@ export function browserTimezone(): string | null {
 }
 
 export function transactionQueryKey(query: TransactionQuery) {
-  return ["transactions", query] as const;
+  return queryKeys.transactionsFor(query);
 }
 
 export function useTransactions(
@@ -55,7 +56,7 @@ export function useTransactions(
       ? null
       : { timezone, group_by: groupBy, page, page_size: pageSize, filters };
   const result = useQuery({
-    queryKey: query === null ? ["transactions", "invalid-timezone"] : transactionQueryKey(query),
+    queryKey: query === null ? queryKeys.transactionsInvalidTimezone : transactionQueryKey(query),
     queryFn: ({ signal }) => queryTransactions(query!, signal),
     enabled: query !== null,
     retry: false,

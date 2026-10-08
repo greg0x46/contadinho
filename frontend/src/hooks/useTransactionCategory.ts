@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 
 import type { TransactionCategoryResult } from "../api/contracts";
 import { setTransactionCategory } from "../api/transactions";
+import { markTransactionsStale, queryKeys } from "../api/queryKeys";
 
 export interface CategoryTarget {
   transactionId: string;
@@ -33,7 +34,7 @@ export function useTransactionCategory({ onSaved, onFailed }: TransactionWriteCa
     setRefreshError(null);
     try {
       await queryClient.refetchQueries(
-        { queryKey: ["transactions"], type: "active" },
+        { queryKey: queryKeys.transactions, type: "active" },
         { throwOnError: true },
       );
       setAnnouncement("Categoria atualizada. Totais atualizados.");
@@ -52,11 +53,11 @@ export function useTransactionCategory({ onSaved, onFailed }: TransactionWriteCa
       setWriteError(null);
       setRefreshError(null);
       setAnnouncement("Salvando categoria da transação…");
-      await queryClient.cancelQueries({ queryKey: ["transactions"] });
+      await queryClient.cancelQueries({ queryKey: queryKeys.transactions });
     },
     onSuccess: async (result, target) => {
       onSaved?.(target, result);
-      await queryClient.invalidateQueries({ queryKey: ["transactions"], refetchType: "none" });
+      await markTransactionsStale(queryClient);
       await refresh();
     },
     onError: (error, target) => {

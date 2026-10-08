@@ -10,7 +10,6 @@ import type {
   TransactionItem,
 } from "../../api/contracts";
 import { useRecurringCommitments } from "../../hooks/useRecurringCommitments";
-import { transactionReconciliationQueryKey } from "../../hooks/useTransactionReconciliation";
 import { recurringCommitmentPrefill } from "../../presentation/transactionDetail";
 import { InvestmentLinkNewOperationScreen, InvestmentLinkScreen } from "../investments/InvestmentLinkScreen";
 import { RecurringCommitmentFields } from "../recurringCommitments/RecurringCommitmentForm";
@@ -31,6 +30,7 @@ import { TransactionDetailsScreen, TransactionTechnicalScreen } from "./Transact
 import { TransactionOverviewScreen } from "./TransactionOverviewScreen";
 import { TransactionReconcileScreen } from "./TransactionReconcileScreen";
 import type { WriteIssue } from "./useTransactionPanelWrites";
+import { invalidateTransactionReconciliation } from "../../api/queryKeys";
 
 /**
  * Every place the panel can show. Each is a whole screen that replaces the
@@ -222,7 +222,7 @@ function CreateRecurrenceScreen({
       await commitments.createCommitment(write);
       // The new commitment may have an occurrence near this line, so the
       // "Conciliar" row must see it.
-      await queryClient.invalidateQueries({ queryKey: transactionReconciliationQueryKey(item.id) });
+      await invalidateTransactionReconciliation(queryClient, item.id);
       onDone();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Não foi possível salvar a recorrência.");

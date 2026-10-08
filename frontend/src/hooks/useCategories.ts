@@ -2,8 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { createCategory, listCategories, updateCategory } from "../api/categories";
 import type { CategoryCreate, CategoryUpdate } from "../api/contracts";
+import { invalidateCategories, queryKeys } from "../api/queryKeys";
 
-export const categoriesQueryKey = ["categories"] as const;
+export const categoriesQueryKey = queryKeys.categories;
 
 export function useCategories() {
   const queryClient = useQueryClient();
@@ -12,7 +13,7 @@ export function useCategories() {
     queryFn: ({ signal }) => listCategories(signal),
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: categoriesQueryKey });
+  const invalidate = () => invalidateCategories(queryClient);
 
   const createMutation = useMutation({
     mutationFn: (write: CategoryCreate) => createCategory(write),

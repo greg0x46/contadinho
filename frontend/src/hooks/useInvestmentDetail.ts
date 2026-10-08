@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getInvestment, listInvestmentTransactions } from "../api/investments";
 import { ApiError } from "../api/problems";
 import type { Investment } from "../api/contracts";
-import { investmentsQueryKey } from "./useInvestments";
+import { queryKeys } from "../api/queryKeys";
 
 export type InvestmentDetailState = {
   investmentId: string;
@@ -14,7 +14,7 @@ export type InvestmentDetailState = {
 
 export function useInvestmentDetail(investmentId: string) {
   const detailQuery = useQuery({
-    queryKey: [...investmentsQueryKey, investmentId],
+    queryKey: queryKeys.investmentDetail(investmentId),
     queryFn: ({ signal }) => getInvestment(investmentId, signal),
   });
   const snapshot = detailQuery.data ?? null;
@@ -36,7 +36,7 @@ export function useInvestmentDetail(investmentId: string) {
   const retry = () => void detailQuery.refetch({ cancelRefetch: true });
 
   const transactionsQuery = useQuery({
-    queryKey: [...investmentsQueryKey, investmentId, "transactions"],
+    queryKey: queryKeys.investmentDetailTransactions(investmentId),
     queryFn: ({ signal }) => listInvestmentTransactions(investmentId, signal),
   });
 

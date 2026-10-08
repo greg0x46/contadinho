@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import type { TransactionInclusionResult, TransactionInclusionState } from "../api/contracts";
 import { setTransactionInclusion } from "../api/transactions";
 import type { TransactionWriteCallbacks } from "./useTransactionCategory";
+import { markTransactionsStale, queryKeys } from "../api/queryKeys";
 
 export interface InclusionTarget {
   transactionId: string;
@@ -28,7 +29,7 @@ export function useTransactionInclusion({ onSaved, onFailed }: TransactionWriteC
     try {
       await queryClient.refetchQueries(
         {
-          queryKey: ["transactions"],
+          queryKey: queryKeys.transactions,
           type: "active",
         },
         { throwOnError: true },
@@ -55,14 +56,11 @@ export function useTransactionInclusion({ onSaved, onFailed }: TransactionWriteC
       setWriteError(null);
       setRefreshError(null);
       setAnnouncement("Salvando decisão da transação…");
-      await queryClient.cancelQueries({ queryKey: ["transactions"] });
+      await queryClient.cancelQueries({ queryKey: queryKeys.transactions });
     },
     onSuccess: async (confirmation, target) => {
       onSaved?.(target, confirmation);
-      await queryClient.invalidateQueries({
-        queryKey: ["transactions"],
-        refetchType: "none",
-      });
+      await markTransactionsStale(queryClient);
       await refresh(confirmation.state);
     },
     onError: (error, target) => {

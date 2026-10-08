@@ -22,6 +22,7 @@ import { detailValue } from "../../presentation/transactionDetail";
 import { PanelDisclosure, PanelFooter, PanelSection } from "../shared/PanelStack";
 import { TransactionPicker, type PickerTransaction } from "../shared/TransactionPicker";
 import { InvestmentOperationFields } from "./InvestmentOperationForm";
+import { queryKeys } from "../../api/queryKeys";
 
 function absolute(value: string): string {
   return value.replace(/^-/, "");
@@ -110,7 +111,7 @@ export function InvestmentLinkScreen({
   );
   const importedQueries = useQueries({
     queries: syncedPositions.map((position) => ({
-      queryKey: ["investmentTransactions", position.id],
+      queryKey: queryKeys.investmentTransactionsOf(position.id),
       queryFn: ({ signal }: { signal?: AbortSignal }) => listInvestmentTransactions(position.id, signal),
     })),
   });

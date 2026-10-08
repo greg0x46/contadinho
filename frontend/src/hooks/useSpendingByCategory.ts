@@ -2,9 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 
 import { getSpendingByCategory } from "../api/transactions";
 import { browserTimezone } from "./useTransactions";
+import { queryKeys } from "../api/queryKeys";
 
-export const spendingByCategoryQueryKey = (timezone: string | null) =>
-  ["transactions", "spending-by-category", timezone] as const;
+export const spendingByCategoryQueryKey = queryKeys.spendingByCategory;
 
 export function useSpendingByCategory() {
   const timezone = browserTimezone();
