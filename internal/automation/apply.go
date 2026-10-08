@@ -138,12 +138,12 @@ func ApplyToNewTransactionWithQuerier(
 	return nil
 }
 
-// NewTransactionHook adapts ApplyToNewTransaction to
+// NewTransactionHook adapts ApplyToNewTransactionWithQuerier to
 // transactions.UpsertedHook, closing over onIgnored (the payable-unlink
 // hook from package payables; nil is a valid no-op).
 func NewTransactionHook(onIgnored transactions.OnIgnoredHook) transactions.UpsertedHook {
-	return func(ctx context.Context, conn *sql.DB, transactionID, _ string) error {
-		return ApplyToNewTransaction(ctx, conn, transactionID, onIgnored)
+	return func(ctx context.Context, q transactions.Querier, transactionID, _ string) error {
+		return ApplyToNewTransactionWithQuerier(ctx, q, transactionID, onIgnored)
 	}
 }
 

@@ -29,6 +29,13 @@ aplicação Pluggy — e cada sync run pertence a exatamente uma conexão.
 - `internal/syncsvc` — `Service.Execute` orquestra uma execução de sync
   contra um `Provider` (o adapter Pluggy): processa contas, investimentos,
   faturas, registra imports brutos e falhas/rejeições.
+  Cada lançamento usa uma transação de banco que inclui o upsert, o hash,
+  as categorias, o hook de automação, os eventos de auditoria e os contadores.
+  Se qualquer etapa falhar, todo o registro é revertido e a rejeição é
+  registrada separadamente; os demais registros da página continuam.
+  Uma nova sync com o mesmo payload tenta novamente a inserção/atualização,
+  pois a falha não confirmou o novo hash. Registros concluídos com hash
+  igual continuam `unchanged`, sem reaplicar categorias ou automação.
 - `internal/worker` — loop de polling em background (`ClaimNextRun`,
   `ProcessClaim`, `Run`). O item consultado vem do `source_id` da execução,
   não de configuração global. Assume uma única instância do worker rodando
