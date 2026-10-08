@@ -26,21 +26,33 @@ import (
 // a timeout or a 5xx that outlasted the retries wraps ErrUnavailable; a 429
 // that outlasted them is a *RateLimitedError; any other 4xx is an
 // *httpStatusError the provider inspects itself, because only it knows
-// whether its 404 means "no such instrument".
+// whether its 404 means "no such instrument". A response bigger than
+// maxResponseBytes is an outage of the provider too, and is not retried.
 type httpClient struct {
 	client      *http.Client
 	maxAttempts int
 	backoff     time.Duration
+	maxBytes    int64
 	sleep       func(time.Duration)
 	limiter     *Limiter
 	provider    string
 }
+
+// maxResponseBytes caps what getJSON reads from one response, so a
+// misbehaving or hijacked endpoint cannot make the process buffer an
+// unbounded body. The largest answers are full daily histories: fifty years
+// of trading days (about 12,600 bars) is roughly 1.4 MB from Yahoo, 1.3 MB
+// from CoinGecko and 2.2 MB from brapi, whose rows are the widest. 8 MiB is
+// about four times the biggest of those; and with the limiters allowing one
+// request at a time per provider, the buffer it costs is small.
+const maxResponseBytes = 8 << 20
 
 func newHTTPClient(provider string, limiter *Limiter) *httpClient {
 	return &httpClient{
 		client:      &http.Client{Timeout: 10 * time.Second},
 		maxAttempts: 3,
 		backoff:     500 * time.Millisecond,
+		maxBytes:    maxResponseBytes,
 		sleep:       time.Sleep,
 		limiter:     limiter,
 		provider:    provider,
@@ -72,7 +84,9 @@ func statusCode(err error) int {
 // getJSON issues a GET, retrying on 429/5xx with linear backoff, and decodes
 // the response body into out with UseNumber() so a caller can turn a price
 // into decimal.Decimal without ever passing it through float64 (out is a
-// *map[string]any, or a struct whose price fields are json.Number).
+// *map[string]any, or a struct whose price fields are json.Number). A body
+// over maxBytes fails with ErrUnavailable and is not retried: asking again
+// would only download the same oversized answer.
 func (c *httpClient) getJSON(ctx context.Context, url string, headers map[string]string, out any) error {
 	var lastErr error
 	for attempt := 1; attempt <= c.maxAttempts; attempt++ {
@@ -105,12 +119,17 @@ func (c *httpClient) getJSON(ctx context.Context, url string, headers map[string
 			return fmt.Errorf("%w: request failed: %w", ErrUnavailable, err)
 		}
 
-		content, readErr := io.ReadAll(resp.Body)
+		// One byte past the cap tells a body that fits exactly from one that
+		// does not.
+		content, readErr := io.ReadAll(io.LimitReader(resp.Body, c.maxBytes+1))
 		resp.Body.Close()
 		release()
 		c.limiter.Observe(resp.StatusCode, resp.Header)
 		if readErr != nil {
 			return fmt.Errorf("%w: read response: %w", ErrUnavailable, readErr)
+		}
+		if int64(len(content)) > c.maxBytes {
+			return fmt.Errorf("%w: response larger than %d bytes", ErrUnavailable, c.maxBytes)
 		}
 
 		if resp.StatusCode == http.StatusTooManyRequests {
