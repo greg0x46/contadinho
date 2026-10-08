@@ -1,5 +1,5 @@
--- Which days of an asset's price series have already been asked of a quote
--- connector. Without it a gap in investment_asset_quotes is ambiguous: a
+-- Which days of an asset's price series have already been asked of a market data
+-- provider. Without it a gap in investment_asset_quotes is ambiguous: a
 -- weekend or a holiday has no price, and so does a day nobody ever asked
 -- about, and the two need opposite handling (leave it alone vs. fetch it).
 --

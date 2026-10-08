@@ -1,9 +1,10 @@
 -- Manual positions (assets no Open Banking connection ever reports, such as
 -- Bitcoin, or B3 tickers held outside a synced connection) have no provider
 -- quote to fall back on. quote_source/quote_symbol optionally point a manual
--- asset at a pluggable quote connector (see internal/quotes) that a
--- scheduled job uses to price it automatically; both stay NULL for an asset
--- priced only through manual valuations, which remains fully supported.
+-- asset at a market (b3, crypto) and the symbol it trades under there, so a
+-- scheduled job (internal/quotes, through internal/marketdata) can price it
+-- automatically; both stay NULL for an asset priced only through manual
+-- valuations, which remains fully supported.
 --
 -- No CHECK pairing the two columns: SQLite cannot cheaply ALTER-add a
 -- multi-column CHECK without rebuilding the table, disproportionate for two

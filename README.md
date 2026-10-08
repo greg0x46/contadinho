@@ -149,25 +149,15 @@ Os contratos e limites estão na [referência de investimentos](.specs/contextos
 Antes de iniciar, configure a chave de criptografia e crie ou migre a conta.
 O servidor recusa iniciar sem autenticação preparada ou com chave inválida.
 
-### Deploy no homelab
+### Publicar e instalar uma versão
 
-Com a configuração persistente já instalada em
-`/home/greg0x46/contadinho`, publique a versão atual com:
-
-```sh
-./deploy.sh
-```
-
-O script instala as dependências exatas do frontend, compila o binário para
-Linux/amd64, envia-o por SSH para `greg0x46@192.168.0.196`, reinicia a unidade
-`contadinho.service` e valida o endpoint `/health`. Se a validação falhar, ele
-restaura o binário anterior e reinicia o serviço novamente. O banco, o arquivo
-`contadinho.env` e a chave mestra não são alterados.
-
-Host, diretório, unidade e URL de saúde podem ser sobrescritos por
-`CONTADINHO_DEPLOY_HOST`, `CONTADINHO_DEPLOY_DIR`,
-`CONTADINHO_DEPLOY_SERVICE` e `CONTADINHO_DEPLOY_HEALTH_URL`, respectivamente.
-O reinício usa `sudo` no homelab e pode solicitar a senha do usuário remoto.
+Todo push na `main` que passa na CI publica uma release no GitHub com o
+binário `contadinho-linux-amd64`, o `SHA256SUMS` e a atestação de procedência
+(`contadinho-linux-amd64.sigstore.json`). A versão é o conteúdo de `VERSION`
+mais um contador de patch. Para instalar, baixe o binário da release, confira
+o checksum e execute-o com a configuração descrita nas próximas seções; como
+iniciá-lo e mantê-lo no ar (serviço do sistema, contêiner etc.) depende do seu
+ambiente.
 
 ### Autenticação e chave de criptografia
 
