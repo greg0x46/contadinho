@@ -1,69 +1,89 @@
-import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Skeleton } from "antd";
+import { useParams } from "react-router-dom";
 
-import { isUuid, type ManualTransactionWrite } from "../api/contracts";
+import { isUuid } from "../api/contracts";
 import { AccountBillsTable } from "../components/accounts/AccountBillsTable";
 import { AccountCardsTable } from "../components/accounts/AccountCardsTable";
 import { AccountSummary } from "../components/accounts/AccountSummary";
 import { AccountRecentTransactions } from "../components/accounts/AccountRecentTransactions";
-import { DetailPage, InvalidDetailPage } from "../components/layout";
+import { DetailPage, InvalidDetailPage, Page } from "../components/layout";
 import { TransactionPanel } from "../components/transactions/TransactionPanel";
+import { useRowFocusReturn } from "../components/transactions/useRowFocusReturn";
+import { useSelectedTransaction } from "../components/transactions/useSelectedTransaction";
+import { useTransactionPanelWrites } from "../components/transactions/useTransactionPanelWrites";
 import { useAccountDetail } from "../hooks/useAccountDetail";
-import { useAccounts } from "../hooks/useAccounts";
 import { useCategories } from "../hooks/useCategories";
-import { useManualTransaction } from "../hooks/useManualTransaction";
-import { useTransactionCategory } from "../hooks/useTransactionCategory";
-import { useTransactionInclusion } from "../hooks/useTransactionInclusion";
-import { manualTransactionErrorMessage } from "../presentation/manualTransactionErrors";
+import { accountHeaderTitle } from "../presentation/accountLabels";
 
-const pageTitle = "Detalhes da conta";
-const backLink = <Link to="/contas-e-cartoes">Voltar para contas e cartões</Link>;
+const pageTitle = "Conta";
+const backTo = "/contas-e-cartoes";
+const backLabel = "Voltar para contas e cartões";
+
+/**
+ * The shape of the loaded page — a summary block, then a list — so the
+ * content does not jump when the account arrives.
+ */
+function AccountDetailSkeleton() {
+  return (
+    <div role="status" aria-label="Carregando conta">
+      <Skeleton active title={{ width: "35%" }} paragraph={{ rows: 2 }} />
+      <Skeleton active title={{ width: "25%" }} paragraph={{ rows: 4 }} />
+    </div>
+  );
+}
 
 function ValidAccountDetail({ id }: { id: string }) {
   const account = useAccountDetail(id);
 
   // The recent-transactions panel reuses the exact same interaction the
   // Transações page offers — open a row, change its category/inclusion, edit
-  // or delete a manual entry — through the same shared hooks, so a decision
-  // made here and one made there never disagree.
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const inclusion = useTransactionInclusion();
-  const category = useTransactionCategory();
+  // or delete a manual entry — through the same shared wiring, so a decision
+  // made here and one made there never disagree, and a failed write is shown
+  // the same way (inside the panel, with a retry).
   const categories = useCategories();
-  const accounts = useAccounts();
-  const manualTransaction = useManualTransaction();
-  const [manualDeleteError, setManualDeleteError] = useState<string | null>(null);
-  const selected = account.transactions.find((item) => item.id === selectedId) ?? null;
+  const focusReturn = useRowFocusReturn();
+  const { selected, select, patch } = useSelectedTransaction(account.transactions);
+  const writes = useTransactionPanelWrites({
+    categories: categories.categories,
+    onDeleted: () => select(null),
+    onConfirmed: patch,
+    panelOpen: selected !== null,
+  });
 
   const selectTransaction = (transactionId: string | null) => {
-    setManualDeleteError(null);
-    setSelectedId(transactionId);
+    writes.clearDeleteError();
+    if (transactionId !== null) focusReturn.remember(transactionId);
+    select(transactionId);
   };
-  const updateManualTransaction = async (transactionId: string, write: ManualTransactionWrite) => {
-    try {
-      await manualTransaction.update({ transactionId, write });
-    } catch (error) {
-      throw new Error(manualTransactionErrorMessage(error, "save"));
-    }
+  // Esc / × / ← on the panel: back to the row that opened it.
+  const dismissPanel = () => {
+    selectTransaction(null);
+    focusReturn.restore();
   };
-  const deleteManualTransactionAndClose = async (transactionId: string) => {
-    setManualDeleteError(null);
-    try {
-      await manualTransaction.remove(transactionId);
-      setSelectedId(null);
-    } catch (error) {
-      setManualDeleteError(manualTransactionErrorMessage(error, "delete"));
-    }
-  };
+
+  if (account.state.freshness === "loading") {
+    return (
+      <Page
+        className="accounts-page"
+        title={pageTitle}
+        backTo={backTo}
+        backLabel={backLabel}
+        compactMobileHeader
+      >
+        <AccountDetailSkeleton />
+      </Page>
+    );
+  }
 
   return (
     <DetailPage
       className="accounts-page"
       title={pageTitle}
-      back={backLink}
+      backTo={backTo}
+      backLabel={backLabel}
+      recordTitle={accountHeaderTitle}
       state={account.state}
       retry={account.retry}
-      loadingLabel="Carregando conta…"
       notFoundMessage="Conta não encontrada"
       notFoundDescription="Não existe uma conta com este identificador."
       unavailableMessage="Não foi possível consultar esta conta agora."
@@ -91,35 +111,26 @@ function ValidAccountDetail({ id }: { id: string }) {
             </>
           )}
 
+          {writes.alerts(selected !== null)}
+
           <AccountRecentTransactions
             transactions={account.transactions}
             isLoading={account.transactionsLoading}
             error={account.transactionsError}
             accountId={id}
-            selectedId={selectedId}
+            selectedId={selected?.id ?? null}
             onSelect={selectTransaction}
             onInclusion={(transactionId, target) =>
-              inclusion.setInclusion({ transactionId, state: target })
+              writes.inclusion.setInclusion({ transactionId, state: target })
             }
-            pendingTransactionId={inclusion.pendingTarget?.transactionId}
+            pendingTransactionId={writes.inclusion.pendingTarget?.transactionId}
           />
 
           <TransactionPanel
             item={selected}
             categories={categories.categories}
-            accounts={accounts.accounts}
-            onClose={() => selectTransaction(null)}
-            onInclusion={(transactionId, target) =>
-              inclusion.setInclusion({ transactionId, state: target })
-            }
-            inclusionPending={inclusion.pendingTarget?.transactionId === selected?.id}
-            onCategory={(transactionId, categoryId) => category.setCategory({ transactionId, categoryId })}
-            categoryPending={category.pendingTarget?.transactionId === selected?.id}
-            onSaveManual={updateManualTransaction}
-            saveManualPending={manualTransaction.isUpdating}
-            onDeleteManual={deleteManualTransactionAndClose}
-            deleteManualPending={manualTransaction.isRemoving}
-            deleteManualError={manualDeleteError}
+            onClose={dismissPanel}
+            {...writes.panelProps(selected)}
           />
         </>
       )}
@@ -135,7 +146,8 @@ export function AccountDetailPage() {
     <InvalidDetailPage
       className="accounts-page"
       title={pageTitle}
-      back={backLink}
+      backTo={backTo}
+      backLabel={backLabel}
       invalidTitle="Endereço de conta inválido"
     />
   );

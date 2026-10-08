@@ -1,8 +1,12 @@
-import { Alert, Button, DatePicker, Drawer, Flex, Input, InputNumber } from "antd";
+import { DatePicker, Input } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { useEffect, useState } from "react";
 
 import type { InvestmentPortfolio, InvestmentPortfolioWrite } from "../../api/contracts";
+import { FormDrawer } from "../forms/FormDrawer";
+import { FormField } from "../forms/FormField";
+import { MoneyInput } from "../forms/MoneyInput";
+import { fromMoneyInput, toMoneyInput } from "./moneyDraft";
 
 type Draft = {
   name: string;
@@ -65,68 +69,49 @@ export function InvestmentPortfolioForm({
   };
 
   return (
-    <Drawer
+    <FormDrawer
       title={portfolio ? "Editar objetivo" : "Novo objetivo"}
       open={open}
       onClose={onCancel}
-      width={460}
-      destroyOnHidden
-      footer={
-        <Flex justify="end" gap="small">
-          <Button onClick={onCancel}>Cancelar</Button>
-          <Button type="primary" loading={submitting} onClick={submit}>
-            Salvar
-          </Button>
-        </Flex>
-      }
+      onSubmit={submit}
+      submitting={submitting}
+      error={error ?? submitError}
     >
-      <Flex vertical gap="middle">
-        {(error ?? submitError) && <Alert type="error" showIcon message={error ?? submitError} />}
-        <div className="filter-field">
-          <label htmlFor="investment-portfolio-name">Nome do objetivo</label>
-          <Input
-            id="investment-portfolio-name"
-            value={draft.name}
-            onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-            placeholder="Ex.: Reserva de emergência"
-            autoFocus
-          />
-        </div>
-        <div className="filter-field">
-          <label htmlFor="investment-portfolio-target">Meta em reais (opcional)</label>
-          <InputNumber
-            id="investment-portfolio-target"
-            style={{ width: "100%" }}
-            min="0.01"
-            step="0.01"
-            stringMode
-            decimalSeparator=","
-            value={draft.targetAmount}
-            placeholder="0,00"
-            onChange={(value) => setDraft((current) => ({ ...current, targetAmount: value === null ? null : String(value) }))}
-          />
-        </div>
-        <div className="filter-field">
-          <label htmlFor="investment-portfolio-date">Data-alvo (opcional)</label>
-          <DatePicker
-            id="investment-portfolio-date"
-            style={{ width: "100%" }}
-            format="DD/MM/YYYY"
-            value={draft.targetDate}
-            onChange={(value) => setDraft((current) => ({ ...current, targetDate: value }))}
-          />
-        </div>
-        <div className="filter-field">
-          <label htmlFor="investment-portfolio-notes">Observações (opcional)</label>
-          <Input.TextArea
-            id="investment-portfolio-notes"
-            value={draft.notes}
-            rows={4}
-            onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
-            placeholder="Para que serve este objetivo?"
-          />
-        </div>
-      </Flex>
-    </Drawer>
+      <FormField label="Nome do objetivo" htmlFor="investment-portfolio-name">
+        <Input
+          id="investment-portfolio-name"
+          value={draft.name}
+          onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+          placeholder="Ex.: Reserva de emergência"
+          autoFocus
+        />
+      </FormField>
+      <FormField label="Meta (opcional)" htmlFor="investment-portfolio-target">
+        <MoneyInput
+          id="investment-portfolio-target"
+          min={0.01}
+          value={toMoneyInput(draft.targetAmount)}
+          onChange={(value) => setDraft((current) => ({ ...current, targetAmount: fromMoneyInput(value) }))}
+        />
+      </FormField>
+      <FormField label="Data-alvo (opcional)" htmlFor="investment-portfolio-date">
+        <DatePicker
+          id="investment-portfolio-date"
+          style={{ width: "100%" }}
+          format="DD/MM/YYYY"
+          value={draft.targetDate}
+          onChange={(value) => setDraft((current) => ({ ...current, targetDate: value }))}
+        />
+      </FormField>
+      <FormField label="Observações (opcional)" htmlFor="investment-portfolio-notes">
+        <Input.TextArea
+          id="investment-portfolio-notes"
+          value={draft.notes}
+          rows={4}
+          onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
+          placeholder="Para que serve este objetivo?"
+        />
+      </FormField>
+    </FormDrawer>
   );
 }

@@ -1,58 +1,37 @@
-import { Alert } from "antd";
-
 import type { SyncFailure } from "../api/contracts";
 import { formatDate } from "../presentation/dates";
 import { getFailureStageLabel } from "../presentation/syncStatus";
-import { SectionHeader } from "./layout";
+import { Section } from "./layout";
 
 /**
- * Every failure the run recorded, as one bounded section instead of a
- * page-level heading — each entry keeps its own error Alert (the severity
- * coloring earns its keep here, unlike a plain row) but the related
- * account/transaction ids are now a quiet meta line instead of a nested
- * Descriptions table.
+ * Every failure the run recorded, as flat rows: the failing stage (an error,
+ * so in the error colour), its message, and the when and which account or
+ * transaction as quiet meta lines. No Alert per failure — a list of errors
+ * does not need a list of red boxes.
  */
 export function SyncFailureList({ failures }: { failures: SyncFailure[] }) {
   if (failures.length === 0) {
     return null;
   }
   return (
-    <section className="accounts-section" aria-label="Falhas registradas">
-      <SectionHeader
-        title="Falhas registradas"
-        trailing={
-          <small>
-            {failures.length} {failures.length === 1 ? "falha" : "falhas"}
-          </small>
-        }
-      />
-      <div className="accounts-list sync-failure-list">
+    <Section title="Falhas registradas">
+      <ul className="sync-failure-list" aria-label="Falhas registradas">
         {failures.map((failure, index) => (
-          <div key={`${failure.code}-${failure.occurred_at}-${index}`} className="sync-failure-row">
-            <Alert
-              type="error"
-              showIcon
-              message={getFailureStageLabel(failure.stage)}
-              description={
-                <div className="sync-failure-details">
-                  <span>{failure.message}</span>
-                  <span className="sync-failure-meta">
-                    Ocorrida em <time dateTime={failure.occurred_at}>{formatDate(failure.occurred_at)}</time>
-                  </span>
-                  {failure.external_account_id !== null && (
-                    <span className="sync-failure-meta">Conta relacionada: {failure.external_account_id}</span>
-                  )}
-                  {failure.external_transaction_id !== null && (
-                    <span className="sync-failure-meta">
-                      Transação relacionada: {failure.external_transaction_id}
-                    </span>
-                  )}
-                </div>
-              }
-            />
-          </div>
+          <li key={`${failure.code}-${failure.occurred_at}-${index}`} className="sync-failure-row">
+            <span className="sync-failure-stage">{getFailureStageLabel(failure.stage)}</span>
+            <span>{failure.message}</span>
+            <span className="sync-failure-meta">
+              Ocorrida em <time dateTime={failure.occurred_at}>{formatDate(failure.occurred_at)}</time>
+            </span>
+            {failure.external_account_id !== null && (
+              <span className="sync-failure-meta">Conta relacionada: {failure.external_account_id}</span>
+            )}
+            {failure.external_transaction_id !== null && (
+              <span className="sync-failure-meta">Transação relacionada: {failure.external_transaction_id}</span>
+            )}
+          </li>
         ))}
-      </div>
-    </section>
+      </ul>
+    </Section>
   );
 }

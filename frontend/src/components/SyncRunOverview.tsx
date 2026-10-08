@@ -1,26 +1,20 @@
 import type { SyncRunDetail } from "../api/contracts";
 import { formatDate, formatOptionalDate } from "../presentation/dates";
-import { SectionHeader } from "./layout";
+import { Section } from "./layout";
 import { SyncRunMetrics } from "./SyncRunMetrics";
 import { SyncStatusBadge } from "./SyncStatusBadge";
 
 /**
- * The sync run detail page's opening block — status first, then the run's
- * own identity (when it started/finished, which run this is) as quiet
- * metadata, then the volume it moved. A flat bounded section with a
- * definition list, the same "card outside, hairline rows inside" language
- * as the account detail page, instead of the old Card+Descriptions table.
+ * The sync run detail page's opening block — status first, then when the run
+ * started and finished and the volume it moved, with the run's raw
+ * identifier last as quiet technical metadata. One flat section with
+ * definition lists, not cards.
  */
 export function SyncRunOverview({ run }: { run: SyncRunDetail }) {
   return (
-    <section className="accounts-section" aria-label="Resumo da sincronização">
-      <SectionHeader title="Resumo da sincronização" trailing={<SyncStatusBadge status={run.status} />} />
+    <Section title="Resumo da sincronização" trailing={<SyncStatusBadge status={run.status} />}>
       <div className="sync-run-overview-body">
         <dl className="sync-run-overview-meta">
-          <div>
-            <dt>Identificador</dt>
-            <dd>{run.id}</dd>
-          </div>
           <div>
             <dt>Início</dt>
             <dd>
@@ -39,7 +33,10 @@ export function SyncRunOverview({ run }: { run: SyncRunDetail }) {
           </div>
         </dl>
         <SyncRunMetrics run={run} />
+        <p className="sync-run-identifier">
+          Identificador: <span>{run.id}</span>
+        </p>
       </div>
-    </section>
+    </Section>
   );
 }

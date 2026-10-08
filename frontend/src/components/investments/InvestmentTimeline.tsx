@@ -1,21 +1,18 @@
-import { Card, Flex, Tag, Timeline, Typography } from "antd";
+import { Skeleton } from "antd";
 
 import type { InvestmentTransaction } from "../../api/contracts";
+import { formatCompactDay } from "../../presentation/dates";
+import { movementTypeLabel, quotaCount } from "../../presentation/investmentLabels";
 import { UnavailableState } from "../AsyncState";
-import { formatOptionalDate } from "../../presentation/dates";
-import { movementTypeLabel } from "../../presentation/investmentLabels";
-import { formatBRL } from "../../presentation/money";
+import { EmptyState, ListRow, Section } from "../layout";
+import { Money } from "../shared/Money";
 
-const movementDotColor: Record<string, string> = {
-  BUY: "green",
-  APPLICATION: "green",
-  SELL: "red",
-  REDEMPTION: "red",
-  DIVIDEND: "blue",
-  INTEREST: "blue",
-  INCOME: "blue",
-};
-
+/**
+ * The provider's movements as flat rows: type 500 with the date and cotas as
+ * the one meta line, the amount 600 on the right. The amount is a plain
+ * figure — an aplicação is money leaving the saldo and a resgate money coming
+ * back, so a sign or a colour would read as good or bad news it is not.
+ */
 export function InvestmentTimeline({
   transactions,
   isLoading,
@@ -27,34 +24,39 @@ export function InvestmentTimeline({
   error: unknown;
   onRetry: () => void;
 }) {
+  const failed = error !== null && error !== undefined;
   return (
-    <Card title="Movimentações">
-      {isLoading && <Typography.Text type="secondary">Carregando movimentações…</Typography.Text>}
-      {!isLoading && error !== null && error !== undefined && (
+    <Section title="Movimentações">
+      {isLoading ? (
+        <div role="status" aria-label="Carregando movimentações">
+          <Skeleton active paragraph={{ rows: 3 }} title={false} />
+        </div>
+      ) : failed ? (
         <UnavailableState onRetry={onRetry}>
           Não foi possível carregar as movimentações deste investimento.
         </UnavailableState>
+      ) : transactions.length === 0 ? (
+        <EmptyState title="Nenhuma movimentação sincronizada ainda" />
+      ) : (
+        <ul className="list-rows" aria-label="Movimentações">
+          {transactions.map((transaction) => {
+            const date = transaction.occurred_at ?? transaction.trade_date;
+            return (
+              <ListRow
+                key={transaction.id}
+                title={movementTypeLabel(transaction.movement_type)}
+                meta={[
+                  date !== null ? formatCompactDay(date) : "Sem data",
+                  transaction.quantity !== null ? quotaCount(transaction.quantity) : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+                trailing={transaction.amount !== null ? <Money value={transaction.amount} tone="neutral" /> : "—"}
+              />
+            );
+          })}
+        </ul>
       )}
-      {!isLoading && (error === null || error === undefined) && transactions.length === 0 && (
-        <Typography.Text type="secondary">Nenhuma movimentação sincronizada ainda.</Typography.Text>
-      )}
-      {!isLoading && (error === null || error === undefined) && transactions.length > 0 && (
-        <Timeline
-          items={transactions.map((transaction) => ({
-            color: movementDotColor[transaction.movement_type ?? ""] ?? "gray",
-            children: (
-              <Flex justify="space-between" align="center" wrap gap="small">
-                <span>
-                  <strong>{formatOptionalDate(transaction.occurred_at ?? transaction.trade_date)}</strong> ·{" "}
-                  {transaction.quantity !== null ? `${transaction.quantity} cota(s) · ` : ""}
-                  {transaction.amount !== null ? formatBRL(transaction.amount) : "—"}
-                </span>
-                <Tag>{movementTypeLabel(transaction.movement_type)}</Tag>
-              </Flex>
-            ),
-          }))}
-        />
-      )}
-    </Card>
+    </Section>
   );
 }

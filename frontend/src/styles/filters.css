@@ -9,7 +9,7 @@
 
 .filter-panel .ant-drawer-header {
   padding: 0.5rem 0.75rem 0.5rem 1.25rem;
-  border-bottom: 1px solid var(--color-border-secondary);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .filter-panel .ant-drawer-header-title,
@@ -35,7 +35,7 @@
 
 .filter-panel-title {
   margin: 0;
-  color: var(--color-text-primary);
+  color: var(--color-text);
   font-size: 1rem;
   font-weight: 600;
 }
@@ -67,8 +67,11 @@
   padding: 0;
 }
 
+/* minmax(0, 1fr): a plain grid track grows to its widest child, which is
+   what pushed fields (a four-option Segmented) against the sheet's edge. */
 .filter-panel-body {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.5rem;
   padding: 1.25rem 1.25rem 1.5rem;
 }
@@ -76,8 +79,8 @@
 .filter-panel .ant-drawer-footer {
   padding: 0.75rem 1.25rem;
   padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
-  border-top: 1px solid var(--color-border-secondary);
-  background: var(--color-bg-container);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
 }
 
 .filter-panel-footer {
@@ -97,37 +100,37 @@
 }
 
 .filter-panel-clear.ant-btn:not(:disabled):hover {
-  color: var(--color-text-primary);
+  color: var(--color-text);
 }
 
 /* The bottom sheet: rounded top edge, the sheet's own handle-free look. */
 .filter-panel-compact .ant-drawer-content {
-  border-radius: 16px 16px 0 0;
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
 }
 
 /* ---- Sections and fields ------------------------------------------------ */
 
 .filter-section {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.75rem;
 }
 
 .filter-section + .filter-section {
   padding-top: 1.25rem;
-  border-top: 1px solid var(--color-border-secondary);
+  border-top: 1px solid var(--color-border);
 }
 
 .filter-section-title {
   margin: 0;
-  color: var(--color-text-secondary);
-  font-size: 0.6875rem;
+  color: var(--color-text);
+  font-size: var(--fs-body);
   font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .filter-section-body {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
 }
 
@@ -137,9 +140,11 @@
   gap: 0.375rem;
 }
 
-.filter-field > label {
-  color: var(--color-text-primary);
-  font-size: 0.8125rem;
+/* The one label style of the panel (also the money range's De / Até). */
+.filter-field > label,
+.money-range-label {
+  color: var(--color-text);
+  font-size: var(--fs-small);
   font-weight: 500;
 }
 
@@ -169,14 +174,14 @@
 }
 
 .filter-checks-inline .filter-checkbox.ant-checkbox-wrapper-checked {
-  color: var(--color-text-primary);
+  color: var(--color-text);
 }
 
 .filter-checkbox.ant-checkbox-wrapper {
   min-height: 36px;
   align-items: center;
   margin-inline-start: 0;
-  color: var(--color-text-primary);
+  color: var(--color-text);
 }
 
 .filter-checkbox .ant-checkbox + span {
@@ -186,8 +191,9 @@
 /* ---- SegmentedControl ---------------------------------------------------- */
 
 .segmented-control.ant-segmented {
+  max-width: 100%;
   padding: 3px;
-  background: var(--color-bg-layout);
+  background: var(--color-bg);
   color: var(--color-text-secondary);
 }
 
@@ -198,11 +204,20 @@
   transition: color 0.15s;
 }
 
+/* Labels may shrink to an ellipsis rather than force the control wider
+   than its field. */
+.segmented-control .ant-segmented-item-label {
+  min-width: 0;
+  padding-inline: 0.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .segmented-control .ant-segmented-item-selected,
 .segmented-control .ant-segmented-thumb {
-  color: var(--color-text-primary);
-  background: var(--color-bg-container);
-  box-shadow: 0 0 0 1px var(--color-border-secondary);
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-shadow: 0 0 0 1px var(--color-border);
 }
 
 .segmented-control .ant-segmented-item-selected {
@@ -210,7 +225,7 @@
 }
 
 .segmented-control .ant-segmented-item:not(.ant-segmented-item-selected):hover {
-  color: var(--color-text-primary);
+  color: var(--color-text);
 }
 
 /* ---- FilterCombobox ------------------------------------------------------ */
@@ -225,10 +240,10 @@
   justify-content: space-between;
   gap: 0.5rem;
   padding: 0.375rem 0.75rem;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  color: var(--color-text-primary);
-  background: var(--color-bg-container);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius);
+  color: var(--color-text);
+  background: var(--color-surface);
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -250,7 +265,7 @@
 
 .filter-combobox-trigger:disabled {
   color: var(--color-text-secondary);
-  background: var(--color-bg-layout);
+  background: var(--color-bg);
   cursor: not-allowed;
 }
 
@@ -285,8 +300,8 @@
 
 .filter-combobox-search {
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--color-border-secondary);
-  background: var(--color-bg-container);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
 }
 
 .filter-combobox-scroll {
@@ -304,7 +319,7 @@
   gap: 0.75rem;
   min-height: 40px;
   padding: 0.25rem 0.75rem;
-  border-top: 1px solid var(--color-border-secondary);
+  border-top: 1px solid var(--color-border);
   color: var(--color-text-secondary);
   font-size: 0.8125rem;
 }
@@ -319,15 +334,15 @@
   align-items: center;
   gap: 0.625rem;
   padding: 0.375rem 0.625rem;
-  border-radius: 8px;
-  color: var(--color-text-primary);
+  border-radius: var(--radius);
+  color: var(--color-text);
   cursor: pointer;
   user-select: none;
 }
 
 .filter-combobox-option:hover,
 .filter-combobox-option.is-active {
-  background: var(--color-bg-layout);
+  background: var(--color-bg);
 }
 
 .filter-combobox-option.is-selected {
@@ -363,10 +378,10 @@
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  border: 1.5px solid var(--color-border);
+  border: 1.5px solid var(--color-border-strong);
   border-radius: 4px;
   color: #fff;
-  background: var(--color-bg-container);
+  background: var(--color-surface);
   font-size: 0.6875rem;
   transition: background 0.1s, border-color 0.1s;
 }
@@ -394,7 +409,7 @@
 /* The phone sheet: search fixed under the title, list scrolling, its
    Cancelar / Confirmar fixed at the bottom. */
 .filter-combobox-sheet .ant-drawer-content {
-  border-radius: 16px 16px 0 0;
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
 }
 
 .filter-combobox-sheet .ant-drawer-header {
@@ -444,11 +459,6 @@
   gap: 0.375rem;
 }
 
-.money-range-label {
-  color: var(--color-text-secondary);
-  font-size: 0.8125rem;
-}
-
 .money-range .ant-input-affix-wrapper {
   min-height: 40px;
   font-variant-numeric: tabular-nums;
@@ -456,11 +466,88 @@
 
 .money-range-error {
   margin: 0;
-  color: var(--color-error);
-  font-size: 0.8125rem;
+  color: var(--color-danger);
+  font-size: var(--fs-small);
+}
+
+/* ---- QuickFilters -------------------------------------------------------- */
+
+/* Shortcuts and active-filter chips share one row (ConfigurableFilters):
+   wrapping on a wide screen, one horizontally scrolling line on a phone. */
+.filter-chips-row {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem 0.75rem;
+}
+
+.filter-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.filter-quick-toggle {
+  min-height: 32px;
+  padding: 0 0.75rem;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: var(--fs-small);
+  cursor: pointer;
+}
+
+.filter-quick-toggle:hover {
+  color: var(--color-text);
+}
+
+.filter-quick-toggle:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.filter-quick-toggle[aria-pressed="true"] {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: rgba(15, 125, 88, 0.06);
+  font-weight: 500;
 }
 
 /* ---- Wider screens ------------------------------------------------------- */
+
+@media (max-width: 47.99rem) {
+  .filter-chips-row {
+    flex-wrap: nowrap;
+    margin-inline: calc(-1 * var(--page-gutter, 1rem));
+    padding-inline: var(--page-gutter, 1rem);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .filter-chips-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .filter-chips-row > .filter-quick,
+  .filter-chips-row > .list-toolbar-chips {
+    flex: none;
+    flex-wrap: nowrap;
+  }
+
+  .filter-chips-row .list-toolbar-chips .ant-tag {
+    max-width: none;
+    flex: none;
+  }
+
+  /* Touch target: 40px chips (the 40px segments come from global.css). */
+  .filter-quick-toggle {
+    min-height: 40px;
+  }
+}
 
 @media (min-width: 48rem) {
   .filter-panel-body {

@@ -8,11 +8,11 @@ import {
 } from "../api/accounts";
 import { queryTransactions } from "../api/transactions";
 import { ApiError } from "../api/problems";
-import type { Account, TransactionQuery } from "../api/contracts";
+import type { Account, TransactionItem, TransactionQuery } from "../api/contracts";
 import { accountsQueryKey } from "./useAccounts";
 import { browserTimezone, transactionQueryKey } from "./useTransactions";
 
-export const RECENT_TRANSACTIONS_LIMIT = 10;
+const RECENT_TRANSACTIONS_LIMIT = 10;
 
 export type AccountDetailState = {
   accountId: string;
@@ -45,6 +45,9 @@ function recentTransactionsQuery(accountId: string, timezone: string): Transacti
     },
   };
 }
+
+/** Stable while loading, so consumers can compare results by identity. */
+const noTransactions: TransactionItem[] = [];
 
 export function useAccountDetail(accountId: string) {
   const detailQuery = useQuery({
@@ -120,7 +123,7 @@ export function useAccountDetail(accountId: string) {
     bills: billsQuery.data ?? [],
     billsLoading: billsQuery.isLoading,
     billsError: billsQuery.error,
-    transactions: transactionsQuery.data?.items ?? [],
+    transactions: transactionsQuery.data?.items ?? noTransactions,
     transactionsLoading: timezone !== null && transactionsQuery.isLoading,
     transactionsError:
       timezone === null ? new Error("Fuso horário indisponível.") : transactionsQuery.error,

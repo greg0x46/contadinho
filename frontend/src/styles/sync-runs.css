@@ -1,96 +1,176 @@
-.failure-list {
-  display: grid;
+/* Open Banking: the connection rows, the run history and the run detail.
+   Everything sits in `Section`s (components/layout), so the surfaces
+   themselves come from layout.css. */
+
+/* ---- Open Banking page: a stack of sections --------------------------- */
+
+.sync-runs-page {
+  display: flex;
+  flex-direction: column;
   gap: 1rem;
 }
 
-/* ---- Sync run detail: overview body + failure rows, replacing the old
-   Card+Descriptions/Statistic-grid pattern with the same flat, bounded
-   section language as the account detail page. ------------------------- */
+/* The credentials disclosure is a quiet, hairline-bordered row, not a card. */
+.sync-credentials.ant-collapse {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+@media (max-width: 47.99rem) {
+  .sync-credentials.ant-collapse {
+    margin-inline: calc(-1 * var(--page-gutter, 1rem));
+    border-inline: 0;
+    border-radius: 0;
+  }
+}
+
+/* ---- Connections: flat rows -------------------------------------------- */
+
+.connection-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The name and meta line are one button (tap = edit); the switch and the
+   `···` are its siblings, never nested inside it. */
+.connection-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.connection-row + .connection-row {
+  border-top: 1px solid var(--color-border);
+}
+
+.connection-row-main {
+  display: flex;
+  min-width: 0;
+  min-height: 56px;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.125rem;
+  padding: 0.625rem 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.connection-row-main:hover {
+  background: var(--color-hover);
+}
+
+/* The name wraps (two lines at most), it is never cut to a letter per line. */
+.connection-row-name {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--fs-row);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.connection-row-meta {
+  color: var(--color-text-secondary);
+  font-size: var(--fs-small);
+}
+
+.connection-row-meta:empty {
+  display: none;
+}
+
+.connection-row-controls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.connection-technical {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* ---- Sync run detail ---------------------------------------------------- */
 
 .sync-run-overview-body {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
-  padding: 1rem 1.25rem;
+  gap: 1rem;
 }
 
-.sync-run-overview-meta {
+.sync-run-overview-meta,
+.sync-run-metrics {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem 2rem;
   margin: 0;
 }
 
-.sync-run-overview-meta > div {
+.sync-run-overview-meta > div,
+.sync-run-metrics > div {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 0.125rem;
-  min-width: 0;
 }
 
-.sync-run-overview-meta dt {
+.sync-run-overview-meta dt,
+.sync-run-metrics dt {
   color: var(--color-text-secondary);
-  font-size: 0.75rem;
+  font-size: var(--fs-caption);
 }
 
-.sync-run-overview-meta dd {
+.sync-run-overview-meta dd,
+.sync-run-metrics dd {
   margin: 0;
   overflow-wrap: anywhere;
-  color: var(--color-text-primary);
-  font-size: 0.9375rem;
-  font-weight: 600;
+  color: var(--color-text);
+  font-size: var(--fs-row);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
+.sync-run-identifier {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--fs-caption);
+  overflow-wrap: anywhere;
+}
+
 .sync-failure-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding: 1rem 1.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.sync-failure-row .ant-alert {
-  align-items: flex-start;
-}
-
-.sync-failure-details {
+.sync-failure-row {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.125rem;
+  padding: 0.75rem 0;
+}
+
+.sync-failure-row + .sync-failure-row {
+  border-top: 1px solid var(--color-border);
+}
+
+.sync-failure-stage {
+  color: var(--color-danger);
+  font-size: var(--fs-row);
+  font-weight: 500;
 }
 
 .sync-failure-meta {
   color: var(--color-text-secondary);
-  font-size: 0.8125rem;
-}
-
-/* Open Banking list page: a stack of bounded sections — the sync action,
-   the connections list, the run history as a DataCard, and the (rarely
-   touched) Pluggy credentials tucked behind a Collapse. */
-.sync-runs-page {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-.sync-history-summary-count {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-
-.ant-pro-page-container-children-container {
-  padding-block-end: 2rem;
-}
-
-.ant-statistic-content,
-.ant-descriptions-item-content {
-  overflow-wrap: anywhere;
-}
-
-@media (max-width: 40rem) {
-  .ant-pro-page-container-children-container {
-    padding-inline: 0.75rem;
-  }
+  font-size: var(--fs-small);
 }

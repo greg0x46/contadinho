@@ -1,7 +1,6 @@
 import { Alert } from "antd";
 import {
   CartesianGrid,
-  Legend,
   Line,
   LineChart,
   ReferenceDot,
@@ -14,16 +13,27 @@ import {
 
 import type { TimelineEntry, TimelineSeries } from "../../api/contracts";
 import { formatBRL } from "../../presentation/money";
-import { monthlyEvolutionColor } from "../../presentation/chartColors";
+import { formatAxisMoney } from "../../presentation/chartAxis";
+import { yAxisWidth } from "../../presentation/chartAxisWidth";
+import { balanceChartColor } from "../../presentation/chartColors";
 import { colors } from "../../theme/tokens";
+import { useCompactScreen } from "../shared/useCompactScreen";
 
 function formatDate(value: string): string {
   const [year, month, day] = value.split("-");
   return `${day}/${month}/${year}`;
 }
 
+// Axis ticks only need to place a day in the month: the year is in the period
+// control and in the tooltip.
+function formatShortDate(value: string): string {
+  const [, month, day] = value.split("-");
+  return `${day}/${month}`;
+}
+
 const pastLineName = "Saldo realizado";
 const futureLineName = "Saldo projetado";
+const simulationLineName = "Saldo (simulação)";
 
 // The past and future halves of the base line share the reference day, so
 // without this the tooltip would list the same balance twice on that one day.
@@ -90,24 +100,35 @@ function TooltipContent({
   );
 }
 
-// The Y axis exists to give the curve a scale, not to be read to the cent —
-// so its ticks are rounded to thousands, keeping the axis narrow.
-function formatAxisMoney(value: number): string {
-  const abs = Math.abs(value);
-  const sign = value < 0 ? "-" : "";
-  if (abs >= 1_000_000) return `${sign}R$\u00a0${(abs / 1_000_000).toFixed(1).replace(".", ",")} mi`;
-  if (abs >= 1_000) return `${sign}R$\u00a0${Math.round(abs / 1_000)} mil`;
-  return `${sign}R$\u00a0${Math.round(abs)}`;
-}
-
-// A window can span a full year of daily points, where "dd/mm/yyyy" ticks
-// collide; past roughly four months only the month is worth reading.
+// A window can span a full year of daily points, where "dd/mm" ticks collide;
+// past roughly four months only the month (and its year) is worth reading.
 function tickFormatterFor(pointCount: number): (value: string) => string {
-  if (pointCount <= 120) return formatDate;
+  if (pointCount <= 120) return formatShortDate;
   return (value: string) => {
     const [year, month] = value.split("-");
-    return `${month}/${year}`;
+    return `${month}/${year.slice(2)}`;
   };
+}
+
+type LegendItem = { key: string; label: string; color: string; kind: "solid" | "dashed" | "dot" };
+
+/**
+ * The legend is HTML rather than recharts' own: its swatches have to show the
+ * one difference that matters — a solid line is what happened, a dashed one is
+ * a forecast — and the lowest-balance marker is named here instead of on the
+ * plot, where a label would collide with the line or clip at the chart edge.
+ */
+function ChartLegend({ items }: { items: LegendItem[] }) {
+  return (
+    <ul className="timeline-chart-legend" aria-label="Legenda do gráfico">
+      {items.map((item) => (
+        <li key={item.key}>
+          <span className={`timeline-chart-swatch is-${item.kind}`} style={{ color: item.color }} aria-hidden="true" />
+          {item.label}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 type PointRow = {
@@ -146,10 +167,11 @@ function mergePoints(base: TimelineSeries, simulation: TimelineSeries | null, re
 // Realizado→Confirmado→Projetado→Hipotético — never a separate chart per
 // tier, since the balance itself is one continuous number regardless of
 // how certain each contributing entry is. The only split is at the
-// reference date, where the same line turns dashed: everything before it
-// already happened, everything after it is a forecast. When a simulation
-// is active, a second line joins it — always Base vs. Simulação as a
-// whole, never one line per scenario even with several active (seção 20).
+// reference date, where the same line turns dashed (and from ink to brand
+// green): everything before it already happened, everything after it is a
+// forecast. When a simulation is active, a second line joins it — always Base
+// vs. Simulação as a whole, never one line per scenario even with several
+// active (seção 20).
 export function ProjectionTimeline({
   series,
   simulation,
@@ -167,7 +189,11 @@ export function ProjectionTimeline({
    */
   onSelectDay?: (date: string) => void;
 }) {
+  const compact = useCompactScreen();
   const data = mergePoints(series, simulation ?? null, referenceDate);
+  const axisWidth = yAxisWidth(
+    data.flatMap((row) => [row.balance, row.simulationBalance].filter((v): v is number => v !== undefined)),
+  );
   const todayPoint = series.points.find((p) => p.date === referenceDate);
   const activeSeries = simulation ?? series;
   const hasPast = data.some((row) => row.date < referenceDate);
@@ -185,8 +211,14 @@ export function ProjectionTimeline({
     if (onSelectDay && typeof date === "string" && date <= referenceDate) onSelectDay(date);
   };
 
+  const legend: LegendItem[] = [];
+  if (hasPast) legend.push({ key: "past", label: pastLineName, color: balanceChartColor.realized, kind: "solid" });
+  if (hasFuture) legend.push({ key: "future", label: futureLineName, color: balanceChartColor.projected, kind: "dashed" });
+  if (simulation) legend.push({ key: "simulation", label: simulationLineName, color: balanceChartColor.simulation, kind: "dashed" });
+  legend.push({ key: "lowest", label: "Menor saldo", color: balanceChartColor.lowest, kind: "dot" });
+
   return (
-    <div className="timeline-chart" aria-label="Saldo ao longo do tempo">
+    <div className="timeline-chart" role="group" aria-label="Saldo ao longo do tempo">
       {activeSeries.first_negative && (
         <Alert
           type="warning"
@@ -198,47 +230,56 @@ export function ProjectionTimeline({
       <ResponsiveContainer width="100%" height={height}>
         <LineChart
           data={data}
-          margin={{ top: 8, right: 8, left: 8, bottom: 8 }}
+          // Room above the plot for the "Hoje" label and on the right so the
+          // last tick is never clipped.
+          margin={{ top: 20, right: 16, left: 0, bottom: 4 }}
           onClick={onSelectDay ? handleClick : undefined}
           style={onSelectDay ? { cursor: "pointer" } : undefined}
         >
-          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <CartesianGrid stroke={balanceChartColor.grid} vertical={false} />
           <XAxis
             dataKey="date"
             tickFormatter={tickFormatterFor(data.length)}
             interval="preserveStartEnd"
+            minTickGap={compact ? 28 : 40}
+            tickMargin={8}
             tickLine={false}
-            axisLine={{ stroke: colors.border }}
+            axisLine={{ stroke: balanceChartColor.grid }}
+            tick={{ fontSize: 12, fill: balanceChartColor.axis }}
           />
           <YAxis
             tickFormatter={formatAxisMoney}
             tickLine={false}
             axisLine={false}
-            width={72}
-            tick={{ fontSize: 12 }}
+            width={axisWidth}
+            tick={{ fontSize: 12, fill: balanceChartColor.axis }}
           />
           <Tooltip content={<TooltipContent entriesByDate={entriesByDate} />} />
-          <Legend />
           {/* Zero is the line that matters on this chart — where the balance
               crosses it is the whole point of looking. */}
-          <ReferenceLine y={0} stroke={colors.error} strokeOpacity={0.5} />
+          <ReferenceLine y={0} stroke={balanceChartColor.lowest} strokeOpacity={0.5} />
           {todayPoint && (
-            <ReferenceLine x={todayPoint.date} stroke={colors.textSecondary} strokeDasharray="4 4" label="Hoje" />
+            <ReferenceLine
+              x={todayPoint.date}
+              stroke={balanceChartColor.axis}
+              strokeDasharray="2 3"
+              label={{ value: "Hoje", position: "top", fontSize: 12, fill: balanceChartColor.axis }}
+            />
           )}
           <ReferenceDot
             x={activeSeries.lowest_balance.date}
             y={Number(activeSeries.lowest_balance.balance)}
             r={5}
-            fill={monthlyEvolutionColor.expense}
-            stroke="none"
-            label={{ value: "Menor saldo", position: "top" }}
+            fill={balanceChartColor.lowest}
+            stroke="#fff"
+            strokeWidth={2}
           />
           {hasPast && (
             <Line
               type="stepAfter"
               dataKey="pastBalance"
               name={pastLineName}
-              stroke={monthlyEvolutionColor.result}
+              stroke={balanceChartColor.realized}
               strokeWidth={2}
               dot={false}
               connectNulls={false}
@@ -249,9 +290,9 @@ export function ProjectionTimeline({
               type="stepAfter"
               dataKey="futureBalance"
               name={futureLineName}
-              stroke={monthlyEvolutionColor.result}
+              stroke={balanceChartColor.projected}
               strokeWidth={2}
-              strokeDasharray="4 4"
+              strokeDasharray="5 4"
               dot={false}
               connectNulls={false}
             />
@@ -260,15 +301,16 @@ export function ProjectionTimeline({
             <Line
               type="stepAfter"
               dataKey="simulationBalance"
-              name="Saldo (simulação)"
-              stroke={monthlyEvolutionColor.income}
+              name={simulationLineName}
+              stroke={balanceChartColor.simulation}
               strokeWidth={2}
-              strokeDasharray="4 4"
+              strokeDasharray="2 3"
               dot={false}
             />
           )}
         </LineChart>
       </ResponsiveContainer>
+      <ChartLegend items={legend} />
     </div>
   );
 }

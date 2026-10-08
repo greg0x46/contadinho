@@ -1,23 +1,24 @@
-import { PlusOutlined } from "@ant-design/icons";
 import { Alert, Button } from "antd";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import type { RecurringCommitment, RecurringCommitmentWrite } from "../api/contracts";
-import { DataCard, Page } from "../components/layout";
+import { DataCard, EmptyState, Page, PageAction } from "../components/layout";
+import { RecurrenceEditExtras } from "../components/recurringCommitments/RecurrenceEditExtras";
 import type { RecurringCommitmentDraft } from "../components/recurringCommitments/RecurringCommitmentForm";
 import { RecurringCommitmentForm } from "../components/recurringCommitments/RecurringCommitmentForm";
 import { RecurringCommitmentList } from "../components/recurringCommitments/RecurringCommitmentList";
+import { useCompactScreen } from "../components/shared/useCompactScreen";
+import { useFeedback } from "../components/shared/useFeedback";
 import { useCategories } from "../hooks/useCategories";
 import { useRecurringCommitments } from "../hooks/useRecurringCommitments";
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Não foi possível salvar o compromisso.";
-}
+import { errorMessage } from "../presentation/errors";
 
 export function RecurringCommitmentsPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const compact = useCompactScreen();
+  const feedback = useFeedback();
   const commitments = useRecurringCommitments();
   const categories = useCategories();
   const [formOpen, setFormOpen] = useState(
@@ -58,9 +59,18 @@ export function RecurringCommitmentsPage() {
       }
       setFormOpen(false);
       if (location.state) navigate(".", { replace: true, state: null });
+      feedback.success(editingCommitment ? "Salvo" : "Recorrência criada");
     } catch (error) {
-      setSaveError(errorMessage(error));
+      setSaveError(errorMessage(error, "Não foi possível salvar a recorrência."));
     }
+  };
+
+  // The page-top Alert is out of view once the list has scrolled, and the
+  // row's menu/confirm that started the write is already closed: a toast says
+  // it where the user is, the Alert stays for whoever scrolls up.
+  const reportActionError = (message: string) => {
+    setActionError(message);
+    feedback.error(message);
   };
 
   const toggle = async (commitment: RecurringCommitment, isActive: boolean) => {
@@ -69,7 +79,7 @@ export function RecurringCommitmentsPage() {
     try {
       await commitments.toggleCommitment({ commitmentId: commitment.id, isActive });
     } catch (error) {
-      setActionError(errorMessage(error));
+      reportActionError(errorMessage(error, "Não foi possível salvar a recorrência."));
     } finally {
       setTogglingCommitmentId(null);
     }
@@ -79,20 +89,34 @@ export function RecurringCommitmentsPage() {
     setActionError(null);
     try {
       await commitments.deleteCommitment(commitment.id);
+      setFormOpen(false);
+      feedback.success("Excluído");
     } catch (error) {
-      setActionError(errorMessage(error));
+      const message = errorMessage(error, "Não foi possível excluir a recorrência.");
+      // Deleting from the phone's edit drawer: the error must show there, not behind it.
+      if (formOpen) setSaveError(message);
+      else reportActionError(message);
     }
   };
+
+  // No button here: the title row's "Nova recorrência" is the one way to start,
+  // and a second one right under it would only repeat it.
+  const empty = (
+    <EmptyState
+      title="Nenhuma recorrência ainda"
+      hint="Cadastre salário, aluguel e assinaturas para acompanhar o que se repete a cada mês."
+    />
+  );
+  // A failed load with nothing to show is not "nothing yet": it only says it failed.
+  const loadFailed = commitments.error !== null && commitments.commitments.length === 0;
 
   return (
     <Page
       title="Recorrências"
       description="Acompanhe salário, aluguel e assinaturas que se repetem"
-      actions={
-        <Button type="primary" icon={<PlusOutlined aria-hidden="true" />} onClick={openCreate}>
-          Novo compromisso
-        </Button>
-      }
+      width="narrow"
+      compactMobileHeader
+      actions={<PageAction label="Nova recorrência" shortLabel="Nova" onClick={openCreate} />}
     >
       {actionError && (
         <Alert
@@ -108,22 +132,25 @@ export function RecurringCommitmentsPage() {
         <Alert
           type="error"
           showIcon
-          message="Não foi possível carregar os compromissos recorrentes"
-          description={<Button onClick={() => commitments.refetch()}>Tentar novamente</Button>}
+          message="Não foi possível carregar as recorrências"
+          action={<Button onClick={() => commitments.refetch()}>Tentar novamente</Button>}
           style={{ marginBottom: 16 }}
         />
       )}
-      <DataCard flush>
-        <RecurringCommitmentList
-          commitments={commitments.commitments}
-          categories={categories.categories}
-          isLoading={commitments.isLoading}
-          togglingCommitmentId={togglingCommitmentId}
-          onEdit={openEdit}
-          onToggle={toggle}
-          onDelete={remove}
-        />
-      </DataCard>
+      {!loadFailed && (
+        <DataCard flush className="recurrences-card">
+          <RecurringCommitmentList
+            commitments={commitments.commitments}
+            categories={categories.categories}
+            isLoading={commitments.isLoading}
+            togglingCommitmentId={togglingCommitmentId}
+            empty={empty}
+            onEdit={openEdit}
+            onToggle={toggle}
+            onDelete={remove}
+          />
+        </DataCard>
+      )}
       <RecurringCommitmentForm
         open={formOpen}
         commitment={editingCommitment}
@@ -133,6 +160,11 @@ export function RecurringCommitmentsPage() {
         submitError={saveError}
         onSubmit={submit}
         onCancel={closeForm}
+        extra={
+          compact && editingCommitment ? (
+            <RecurrenceEditExtras commitment={editingCommitment} onDelete={remove} />
+          ) : undefined
+        }
       />
     </Page>
   );

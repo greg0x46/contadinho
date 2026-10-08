@@ -1,4 +1,5 @@
 import type { Investment, InvestmentOperation, InvestmentPosition } from "../../api/contracts";
+import { formatDateOnly } from "../../presentation/dates";
 import { yieldUnavailable } from "../../presentation/investmentLabels";
 import { subtractBRL, sumBRL } from "../../presentation/money";
 
@@ -17,7 +18,7 @@ function scaled(value: string): { digits: bigint; scale: number } {
   return { digits: negative ? -digits : digits, scale: fraction.length };
 }
 
-export function multiplyToBRL(left: string, right: string): string {
+function multiplyToBRL(left: string, right: string): string {
   const a = scaled(left);
   const b = scaled(right);
   const product = a.digits * b.digits;
@@ -45,7 +46,8 @@ export type LinkedInvestments = ReadonlyMap<string, Investment>;
 
 export type PositionYield =
   | { known: true; value: string; percent: number | null; basis: string; gross: string }
-  | { known: false; reason: string };
+  /** `reason` is the full explanation; `short` is its first clause, for a row's one meta line. */
+  | { known: false; reason: string; short: string };
 
 function linkedInvestment(position: InvestmentPosition, linked: LinkedInvestments): Investment | undefined {
   return position.linked_investment_id === null ? undefined : linked.get(position.linked_investment_id);
@@ -61,10 +63,19 @@ function linkedInvestment(position: InvestmentPosition, linked: LinkedInvestment
 function syncedYield(position: InvestmentPosition, linked: LinkedInvestments, cost: string): PositionYield {
   const investment = linkedInvestment(position, linked);
   if (investment === undefined) {
-    return { known: false, reason: "Rendimento informado pela instituição ainda não carregado." };
+    return {
+      known: false,
+      reason: "Rendimento informado pela instituição ainda não carregado.",
+      short: "Rendimento ainda não carregado",
+    };
   }
   if (investment.yield_value === null) {
-    return { known: false, reason: yieldUnavailable(investment).hint || "A instituição não informou o rendimento." };
+    const unavailable = yieldUnavailable(investment);
+    return {
+      known: false,
+      reason: unavailable.hint || "A instituição não informou o rendimento.",
+      short: unavailable.label,
+    };
   }
   const gain = sumBRL([investment.yield_value]);
   const basis =
@@ -90,13 +101,21 @@ function syncedYield(position: InvestmentPosition, linked: LinkedInvestments, co
 export function positionYield(position: InvestmentPosition, linked: LinkedInvestments, cost = "0"): PositionYield {
   if (position.source === "synced") return syncedYield(position, linked, cost);
   if (position.valuation_basis === "cost_basis") {
-    return { known: false, reason: "Sem cotação registrada: o valor exibido é o custo acumulado." };
+    return {
+      known: false,
+      reason: "Sem cotação registrada: o valor exibido é o custo acumulado.",
+      short: "Sem cotação registrada",
+    };
   }
   if (position.average_cost === null || isZeroBRL(position.average_cost)) {
-    return { known: false, reason: "Sem custo de aquisição registrado." };
+    return { known: false, reason: "Sem custo de aquisição registrado.", short: "Sem custo de aquisição" };
   }
   if (isZeroBRL(position.quantity)) {
-    return { known: false, reason: "Sem quantidade registrada para comparar com o custo." };
+    return {
+      known: false,
+      reason: "Sem quantidade registrada para comparar com o custo.",
+      short: "Sem quantidade registrada",
+    };
   }
   const basis = multiplyToBRL(position.average_cost, position.quantity);
   const gross = subtractBRL(position.current_value, basis);
@@ -212,22 +231,7 @@ export function latestDate(values: (string | null)[]): string | null {
     .at(-1) ?? null;
 }
 
-export function positionCountLabel(count: number): string {
-  return count === 1 ? "1 posição" : `${count} posições`;
-}
-
-/** A decimal quantity in pt-BR notation, without the trailing zeros the API pads it with. */
-export function formatQuantity(value: string): string {
-  const negative = value.startsWith("-");
-  const unsigned = negative ? value.slice(1) : value;
-  const [integer = "0", fraction = ""] = unsigned.split(".");
-  const grouped = (integer === "" ? "0" : integer).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-  const trimmed = fraction.replace(/0+$/, "");
-  return `${negative ? "-" : ""}${grouped}${trimmed ? `,${trimmed}` : ""}`;
-}
-
+/** A calendar day from the API through the shared formatter, or "Sem registro" when there is none. */
 export function formatDate(value: string | null): string {
-  if (value === null) return "Sem registro";
-  const [year, month, day] = value.split("-");
-  return year && month && day ? `${day}/${month}/${year}` : value;
+  return value === null ? "Sem registro" : formatDateOnly(value);
 }

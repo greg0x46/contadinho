@@ -1,29 +1,32 @@
 import { DollarOutlined, WalletOutlined } from "@ant-design/icons";
 import type { ReactNode } from "react";
 
-import type { PayableKind, PayableStatus } from "../api/contracts";
+import type { Payable, PayableKind, PayableStatus } from "../api/contracts";
 
 export const payableStatusLabel: Record<PayableKind, Record<PayableStatus, string>> = {
   debt: { open: "Aberta", settled: "Quitada" },
   receivable: { open: "Aberta", settled: "Recebida" },
 };
 
-export const payableStatusColor: Record<PayableStatus, string> = {
-  open: "processing",
-  settled: "success",
-};
-
 // payableVocabulary centralizes the one directional difference between a
 // debt ("pagamento" wording) and a receivable ("recebimento" wording) — see
-// PayableTimeline, PayableForm, PayableHeaderCard, PayableList,
-// PayablesSummary — so those components read the right copy for whichever
-// kind they're rendering instead of existing as two near-duplicate files.
+// PayableTimeline, PayableForm, PayableHeaderCard, PayableList — so those
+// components read the right copy for whichever kind they're rendering
+// instead of existing as two near-duplicate files.
 export interface PayableVocabulary {
+  /** Only for the create menu's phone sheet; rows and headings carry no icon. */
   icon: ReactNode;
-  ariaLabel: string;
+  /** Short kind name used in row meta and the table's "Tipo" column. */
+  kindLabel: string;
   settledColumnLabel: string;
-  settledCountLabel: string;
-  remainingSuffix: string;
+  /** Lower-case participle for "pago 42%" / "recebido 10%". */
+  settledShareLabel: string;
+  /** The small label over the detail hero figure. */
+  heroLabel: string;
+  /** The empty list's title when no payable of this kind exists yet. */
+  emptyTitle: string;
+  /** The list summary figure's label ("Você deve" / "Te devem"). */
+  summaryLabel: string;
   planNoun: string;
   onTrackMessage: string;
   noPlanMessage: string;
@@ -36,18 +39,17 @@ export interface PayableVocabulary {
   nameFieldPlaceholder: string;
   nameRequiredError: string;
   deleteTitle: string;
-  summaryTitle: string;
-  summaryCaption: string;
-  emptyListText: string;
 }
 
 export const payableVocabulary: Record<PayableKind, PayableVocabulary> = {
   debt: {
     icon: <WalletOutlined aria-hidden="true" />,
-    ariaLabel: "Dívidas",
+    kindLabel: "Dívida",
     settledColumnLabel: "Pago",
-    settledCountLabel: "Quitadas",
-    remainingSuffix: "restantes",
+    settledShareLabel: "pago",
+    heroLabel: "Restante a pagar",
+    emptyTitle: "Nenhuma dívida ainda",
+    summaryLabel: "Você deve",
     planNoun: "plano de pagamento",
     onTrackMessage: "Em dia com o plano de pagamento até hoje.",
     noPlanMessage: "Esta dívida ainda não tem um plano de pagamento.",
@@ -61,16 +63,15 @@ export const payableVocabulary: Record<PayableKind, PayableVocabulary> = {
     nameFieldPlaceholder: "Ex.: Financiamento do carro",
     nameRequiredError: "Informe um nome para a dívida.",
     deleteTitle: "Excluir dívida",
-    summaryTitle: "Resumo das dívidas",
-    summaryCaption: "restantes em dívidas abertas",
-    emptyListText: "Nenhuma dívida cadastrada ainda.",
   },
   receivable: {
     icon: <DollarOutlined aria-hidden="true" />,
-    ariaLabel: "Contas a receber",
+    kindLabel: "A receber",
     settledColumnLabel: "Recebido",
-    settledCountLabel: "Recebidas",
-    remainingSuffix: "a receber",
+    settledShareLabel: "recebido",
+    heroLabel: "Restante a receber",
+    emptyTitle: "Nenhuma conta a receber ainda",
+    summaryLabel: "Te devem",
     planNoun: "plano de recebimento",
     onTrackMessage: "Em dia com o plano de recebimento até hoje.",
     noPlanMessage: "Esta conta a receber ainda não tem um plano de recebimento.",
@@ -84,8 +85,18 @@ export const payableVocabulary: Record<PayableKind, PayableVocabulary> = {
     nameFieldPlaceholder: "Ex.: Empréstimo para Ana",
     nameRequiredError: "Informe um nome para a conta a receber.",
     deleteTitle: "Excluir conta a receber",
-    summaryTitle: "Resumo das contas a receber",
-    summaryCaption: "a receber em contas abertas",
-    emptyListText: "Nenhuma conta a receber cadastrada ainda.",
   },
 };
+
+/** The detail route of a payable; the kind rides along so the detail loads the right list cache. */
+export function payableDetailPath(payable: Payable): string {
+  return `/pendencias/${payable.id}?kind=${payable.kind}`;
+}
+
+/** How much is already settled, as a 0–100 integer rounded down, so only a settled payable reads 100%. */
+export function settledPercent(totalAmount: string, settledAmount: string): number {
+  const total = Number(totalAmount);
+  const settled = Number(settledAmount);
+  if (!(total > 0)) return 0;
+  return Math.floor(Math.min(100, Math.max(0, (settled / total) * 100)));
+}

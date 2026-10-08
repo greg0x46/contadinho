@@ -1,55 +1,60 @@
-import { BankOutlined } from "@ant-design/icons";
 import { Skeleton } from "antd";
 
 import type { Account } from "../../api/contracts";
-import { accountDisplayName, accountIdentityLine, formatAccountMoney } from "../../presentation/accountLabels";
+import { accountDisplayName, accountMetaLine } from "../../presentation/accountLabels";
+import { EmptyState, ListRow, Section } from "../layout";
+import { AccountMoney } from "./AccountMoney";
 
 /**
- * Bank accounts as flat rows: name + type/number on the left, the balance —
- * the one figure that matters here — as a plain right-aligned group. See
- * CreditCardList for the equivalent cards section.
+ * Bank accounts as rows: name (500) and the balance (600, right, on the
+ * name's line) on one line, type, number and institution as the one quiet line
+ * under it. The whole row opens the account. See CreditCardList for the cards
+ * section.
+ *
+ * `failed` is a load that went wrong: the page then shows only its retry
+ * Alert, so this section says nothing at all instead of "no accounts yet".
  */
 export function BankAccountList({
   accounts,
   isLoading,
+  failed = false,
   onOpen,
 }: {
   accounts: Account[];
   isLoading: boolean;
+  failed?: boolean;
   onOpen: (account: Account) => void;
 }) {
+  if (failed) return null;
   return (
-    <section className="accounts-section" aria-label="Contas bancárias">
-      <header className="accounts-section-header">
-        <h2>Contas bancárias</h2>
-        {!isLoading && accounts.length > 0 && (
-          <small>
-            {accounts.length} {accounts.length === 1 ? "conta" : "contas"}
-          </small>
-        )}
-      </header>
+    <Section title="Contas bancárias">
       {isLoading ? (
-        <div className="accounts-section-loading" role="status" aria-label="Carregando contas bancárias">
+        <div role="status" aria-label="Carregando contas bancárias">
           <Skeleton active paragraph={{ rows: 2 }} title={false} />
         </div>
       ) : accounts.length === 0 ? (
-        <div className="debt-list-empty">
-          <BankOutlined className="debt-list-empty-icon" aria-hidden="true" />
-          <span>Nenhuma conta bancária sincronizada ainda.</span>
-        </div>
+        <EmptyState
+          title="Nenhuma conta bancária"
+          hint="Conecte um banco em Configurações ou importe um extrato."
+        />
       ) : (
-        <div className="accounts-list">
+        <ul className="list-rows" aria-label="Contas bancárias">
           {accounts.map((account) => (
-            <button key={account.id} type="button" className="account-row" onClick={() => onOpen(account)}>
-              <span className="account-row-identity">
-                <span className="account-row-name">{accountDisplayName(account)}</span>
-                <span className="account-row-meta">{accountIdentityLine(account) || "—"}</span>
-              </span>
-              <span className="account-row-balance">{formatAccountMoney(account.balance, account.currency_code)}</span>
-            </button>
+            <ListRow
+              key={account.id}
+              className="account-row"
+              title={accountDisplayName(account)}
+              meta={accountMetaLine(account) || undefined}
+              trailing={
+                <AccountMoney value={account.balance} currencyCode={account.currency_code} tone="balance" />
+              }
+              truncate
+              onClick={() => onOpen(account)}
+              ariaLabel={`Abrir ${accountDisplayName(account)}`}
+            />
           ))}
-        </div>
+        </ul>
       )}
-    </section>
+    </Section>
   );
 }

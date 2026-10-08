@@ -1,43 +1,24 @@
-import { RiseOutlined } from "@ant-design/icons";
-
 import type { Investment } from "../../api/contracts";
 import { investmentYield } from "../../presentation/investmentLabels";
-import { formatBRL } from "../../presentation/money";
-import { WidgetCard } from "../shared/WidgetCard";
+import { sumBRL } from "../../presentation/money";
+import { SummaryStrip } from "../layout";
+import { Money } from "../shared/Money";
 
-function sum(values: string[]): number {
-  return values.reduce((total, value) => total + Number(value), 0);
-}
-
+/** What the synced investments add up to: the amount applied and the yield the institution lets us state. */
 export function InvestmentsSummary({ investments }: { investments: Investment[] }) {
-  const balanceTotal = sum(investments.map((investment) => investment.balance ?? "0"));
+  const balanceTotal = sumBRL(investments.map((investment) => investment.balance ?? "0"));
   const yields = investments.map((investment) => investmentYield(investment)).filter((y) => y !== null);
-  const yieldTotal = sum(yields.map((y) => y.value));
+  const yieldTotal = sumBRL(yields.map((y) => y.value));
+  const missing = investments.length - yields.length;
 
   return (
-    <WidgetCard
-      icon={<RiseOutlined aria-hidden="true" />}
-      title="Resumo dos investimentos"
-      style={{ marginBottom: 16 }}
-    >
-      <div className="debts-summary-body">
-        <div className="debts-summary-figure">
-          <p className="dashboard-hero-figure">{formatBRL(balanceTotal.toFixed(2))}</p>
-          <p className="debts-summary-caption">aplicados em {investments.length} investimento(s)</p>
-        </div>
-        <div className="debts-summary-counts">
-          <div className="debts-summary-chip">
-            <span className="debts-summary-chip-label">Rendimento acumulado</span>
-            <span className="debts-summary-chip-value">{formatBRL(yieldTotal.toFixed(2))}</span>
-          </div>
-          {yields.length < investments.length && (
-            <div className="debts-summary-chip">
-              <span className="debts-summary-chip-label">Sem dado de rendimento</span>
-              <span className="debts-summary-chip-value">{investments.length - yields.length}</span>
-            </div>
-          )}
-        </div>
-      </div>
-    </WidgetCard>
+    <SummaryStrip
+      label="Aplicado nos sincronizados"
+      value={<Money value={balanceTotal} tone="balance" size="hero" />}
+      items={[
+        { label: "Rendimento acumulado", value: <Money value={yieldTotal} tone="result" /> },
+        ...(missing > 0 ? [{ label: "Sem dado de rendimento", value: String(missing) }] : []),
+      ]}
+    />
   );
 }

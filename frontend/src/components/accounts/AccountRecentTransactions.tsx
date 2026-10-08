@@ -1,17 +1,18 @@
-import { SwapOutlined } from "@ant-design/icons";
 import { Alert, Skeleton } from "antd";
 import { Link } from "react-router-dom";
 
 import type { TransactionInclusionState, TransactionItem } from "../../api/contracts";
+import { EmptyState, Section } from "../layout";
+import { useRowLayout } from "../transactions/rowLayout";
 import { TransactionRow } from "../transactions/TransactionRow";
-import { SectionHeader } from "../layout";
 
 /**
  * Recent activity on this account, reusing the exact same TransactionRow as
  * the Transações list — same description/amount/category/meta hierarchy,
- * same click-to-open panel — rather than a page-specific row. Deep filtering
- * and pagination still live on the full list; "Ver todas" links there
- * pre-filtered to this account.
+ * same click-to-open panel — rather than a page-specific row. The account is
+ * the page's subject, so rows leave it out of their meta line. Deep
+ * filtering and pagination still live on the full list; "Ver todas" links
+ * there pre-filtered to this account.
  */
 export function AccountRecentTransactions({
   transactions,
@@ -32,29 +33,27 @@ export function AccountRecentTransactions({
   onInclusion?: (id: string, state: TransactionInclusionState) => void;
   pendingTransactionId?: string | null;
 }) {
+  const layout = useRowLayout();
   return (
-    <section className="accounts-section" aria-label="Últimas transações">
-      <SectionHeader
-        title="Últimas transações"
-        trailing={<Link to={`/transacoes?account_ids=${encodeURIComponent(accountId)}`}>Ver todas</Link>}
-      />
+    <Section
+      title="Últimas transações"
+      className="account-recent-transactions"
+      trailing={<Link className="touch-link" to={`/transacoes?account_ids=${encodeURIComponent(accountId)}`}>
+          Ver todas
+        </Link>}
+    >
       {error !== null && error !== undefined && (
-        <Alert
-          type="error"
-          showIcon
-          message="Não foi possível carregar as transações desta conta."
-          style={{ margin: "0 1.25rem 1rem" }}
-        />
+        <Alert type="error" showIcon message="Não foi possível carregar as transações desta conta." />
       )}
       {isLoading ? (
-        <div className="accounts-section-loading" role="status" aria-label="Carregando últimas transações">
+        <div role="status" aria-label="Carregando últimas transações">
           <Skeleton active paragraph={{ rows: 3 }} title={false} />
         </div>
       ) : transactions.length === 0 ? (
-        <div className="debt-list-empty">
-          <SwapOutlined className="debt-list-empty-icon" aria-hidden="true" />
-          <span>Nenhuma transação sincronizada para esta conta.</span>
-        </div>
+        <EmptyState
+          title="Nenhuma transação nesta conta"
+          hint="As transações sincronizadas ou importadas aparecem aqui."
+        />
       ) : (
         <div className="transaction-list">
           {transactions.map((item) => (
@@ -62,6 +61,8 @@ export function AccountRecentTransactions({
               key={item.id}
               item={item}
               selected={item.id === selectedId}
+              showAccount={false}
+              layout={layout}
               onSelect={onSelect}
               onInclusion={onInclusion}
               inclusionPending={pendingTransactionId === item.id}
@@ -69,6 +70,6 @@ export function AccountRecentTransactions({
           ))}
         </div>
       )}
-    </section>
+    </Section>
   );
 }

@@ -1,18 +1,32 @@
 import type { TransactionItem } from "../../api/contracts";
-import { formatSignedBRL } from "../../presentation/money";
+import { Money } from "../shared/Money";
 
-function transactionAmountText(item: TransactionItem): string {
+/**
+ * The signed BRL amount, tinted only when money comes in (tone "flow"); the
+ * anchor of every row scan. `size` picks the row figure or the panel's hero.
+ * `amount-<classification>` stays on the element because other screens style
+ * and query it.
+ */
+export function TransactionAmount({
+  item,
+  className = "",
+  size = "row",
+}: {
+  item: TransactionItem;
+  className?: string;
+  size?: "row" | "hero";
+}) {
+  const classes = `transaction-amount amount-${item.classification} ${className}`;
   if (!item.effective_money || item.effective_money.currency_code !== "BRL") {
-    return "Valor indisponível";
+    return <span className={classes}>Valor indisponível</span>;
   }
-  return formatSignedBRL(item.effective_money.value, item.classification);
-}
-
-/** The signed BRL amount, coloured by direction; the anchor of every row scan. */
-export function TransactionAmount({ item, className = "" }: { item: TransactionItem; className?: string }) {
   return (
-    <span className={`transaction-amount amount-${item.classification} ${className}`}>
-      {transactionAmountText(item)}
-    </span>
+    <Money
+      value={item.effective_money.value}
+      tone="flow"
+      size={size}
+      direction={item.classification}
+      className={classes}
+    />
   );
 }

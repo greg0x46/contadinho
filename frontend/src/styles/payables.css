@@ -1,227 +1,336 @@
-.debts-summary-body {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem 1.5rem;
+/* ---- Pendências: list page ------------------------------------------- */
+
+.payables-summary {
+  margin-bottom: 0.75rem;
 }
 
-.debts-summary-figure {
+.payables-loading {
+  padding: 1rem var(--page-gutter, 1rem);
+}
+
+/* The stacked rows come from the shared ListRow, which carries no side
+   padding of its own: the flush card gives them the page gutter. */
+.payables-card .list-rows,
+.recurrences-card .list-rows {
+  padding-inline: var(--page-gutter, 1rem);
+}
+
+/* Stacked rows, same rule as Transações: the figure sits on the title's
+   line (top-aligned with it), however tall the meta under the name gets. A
+   long name wraps to two lines and is cut there, never a six-line row. */
+.payables-card .list-row,
+.recurrences-card .list-row {
+  align-items: baseline;
+}
+
+.payables-card .list-row-title,
+.recurrences-card .list-row-title,
+.recurrences-card .list-row-meta {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* The progress meter: the settled share in the brand green on a neutral
+   track. The unpaid part is the empty track — never a red segment. */
+.payable-meter {
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--color-border, #e5e9f0);
+}
+
+.payable-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-accent, #1baf7a);
+}
+
+.payable-row-meta-text,
+.payable-row-meter {
+  display: block;
+}
+
+.payable-row-meter {
+  width: min(100%, 9rem);
+  margin-top: 0.375rem;
+}
+
+/* Wide: one table, whose first and last cells line up with the page gutter.
+   Its header skin comes from the theme, like every other table. */
+.payables-table .ant-table-tbody > tr > td {
+  font-size: var(--fs-body, 0.875rem);
+}
+
+.payables-table .ant-table-tbody > tr > td:first-child,
+.payables-table .ant-table-thead > tr > th:first-child {
+  padding-inline-start: var(--page-gutter, 1.5rem);
+}
+
+.payables-table .ant-table-tbody > tr > td:last-child,
+.payables-table .ant-table-thead > tr > th:last-child {
+  padding-inline-end: var(--page-gutter, 1.5rem);
+}
+
+.payable-name-link {
+  color: var(--color-text, #172b4d);
+  font-weight: 500;
+}
+
+.payable-name-link:hover {
+  color: var(--color-primary, #0f7d58);
+}
+
+.payable-progress-cell {
   display: flex;
-  flex: 1 1 12rem;
+  align-items: center;
+  gap: 0.625rem;
+  min-width: 10rem;
+}
+
+.payable-progress-cell .payable-meter {
+  flex: 0 0 6rem;
+}
+
+.payables-table .payable-kind-cell {
+  white-space: nowrap;
+}
+
+.payable-progress-label {
+  white-space: nowrap;
+  color: var(--color-text-secondary, #5d697c);
+  font-size: var(--fs-small, 0.8125rem);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Pendência: detail ------------------------------------------------- */
+
+/* The hero amount stands alone; the meter (SummaryStrip's children slot) takes
+   the hero's full width. */
+.payable-header .payable-meter {
+  width: 100%;
+}
+
+.payable-plan-notice {
+  margin: 0;
+  font-size: var(--fs-small, 0.8125rem);
+}
+
+.payable-plan-notice-good {
+  color: var(--color-money-in, #1f6f46);
+}
+
+.payable-plan-notice-late {
+  color: var(--color-danger, #c4302b);
+}
+
+/* Timeline rows: one line (date · parcela, amount, `···`), a lighter status
+   line, and the realizations that settled it indented underneath. */
+.payable-entries {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.payable-entry {
+  padding: 0.625rem 0;
+}
+
+.payable-entry + .payable-entry {
+  border-top: 1px solid var(--color-border, #e5e9f0);
+}
+
+.payable-entry-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.payable-entry-text {
+  display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 0.125rem;
   min-width: 0;
 }
 
-.debts-summary-value {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  margin: 0;
-  color: var(--color-text-primary);
-  font-size: 1.25rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
+.payable-entry-title {
+  color: var(--color-text, #172b4d);
+  font-size: var(--fs-row, 0.9375rem);
+  font-weight: 500;
+  overflow-wrap: anywhere;
 }
 
-.debts-summary-caption {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: 0.8125rem;
-}
-
-.debts-summary-counts {
+.payable-entry-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  color: var(--color-text-secondary, #5d697c);
+  font-size: var(--fs-small, 0.8125rem);
 }
 
-.debts-summary-chip {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  padding: 0.25rem 0.75rem;
-  border: 1px solid #e4e8ee;
-  border-radius: 0.5rem;
+/* The section header's action: a quiet text button, not the page's loudest
+   control. It keeps a 40px target on a phone. */
+.payable-add-action.ant-btn {
+  color: var(--color-primary, #0f7d58);
+  font-weight: 500;
 }
 
-.debts-summary-chip-label {
-  color: var(--color-text-secondary);
-  font-size: 0.75rem;
+@media (max-width: 47.99rem) {
+  .payable-add-action.ant-btn {
+    min-height: 40px;
+  }
 }
 
-.debts-summary-chip-value {
-  color: var(--color-text-primary);
-  font-size: 1rem;
-  font-weight: 600;
+.payable-entry-amount {
+  flex: none;
+  text-align: right;
+}
+
+.payable-entry-realization {
+  margin-top: 0.25rem;
+  padding-left: 1rem;
+  color: var(--color-text-secondary, #5d697c);
+  font-size: var(--fs-small, 0.8125rem);
+}
+
+.payable-entry-realization .payable-entry-amount {
   font-variant-numeric: tabular-nums;
 }
 
-.debt-row-progress {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  min-width: 160px;
+.payable-entry-realization-text {
+  overflow-wrap: anywhere;
 }
 
-.debt-row-meter {
-  display: flex;
-  height: 6px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: #eef1f5;
+.payable-entry-link.ant-btn {
+  height: auto;
+  margin-top: 0.25rem;
+  padding-inline: 0;
 }
 
-.debt-row-meter-segment {
-  height: 100%;
+/* "Alocar a uma parcela" is a link-sized control: on a phone it gets a 40px
+   row to land on, with the text still hugging the gutter. */
+@media (max-width: 47.99rem) {
+  .payable-entry-link.ant-btn {
+    min-height: 40px;
+    margin-top: 0;
+  }
 }
 
-.debt-row-meter-paid {
-  background: var(--color-success);
+/* A realization has no `···` of its own (its action sits in the installment's
+   menu), but its figure stays in the column the parent's figure is in. */
+.payable-entry-menu-spacer {
+  flex: none;
+  width: 24px;
 }
 
-.debt-row-meter-remaining {
-  background: #f5222d;
+/* The shared `···` (see RecordMenu) has a 44px target; negative margins keep
+   it from pushing the row's figures inward. */
+.payable-entry-menu.ant-btn {
+  margin-block: -0.5rem;
+  margin-inline-end: -0.5rem;
 }
 
-.debt-row-caption {
-  color: var(--color-text-secondary);
-  font-size: 0.8125rem;
-  font-variant-numeric: tabular-nums;
+@media (max-width: 47.99rem) {
+  .payable-entry-menu.ant-btn {
+    margin-block: -0.25rem;
+  }
 }
 
-/* Phone representation of the payables table — see CompactPayableList. */
-.debt-list-compact {
-  margin: 0;
-  padding: 0;
-  list-style: none;
+/* ---- Recorrências -------------------------------------------------------- */
+
+.recurrences-loading {
+  padding: 1rem var(--page-gutter, 1rem);
 }
 
-.debt-item {
-  display: grid;
-  gap: 0.25rem;
-  padding: 0.75rem;
-  border-bottom: 1px solid var(--color-border-secondary);
+/* The rows' padding and alignment are shared with the payables card, above.
+   The table's header skin comes from the theme. */
+.recurrences-table .ant-table-tbody > tr > td {
+  font-size: var(--fs-body, 0.875rem);
 }
 
-.debt-item:last-child {
-  border-bottom: 0;
+.recurrences-table .ant-table-tbody > tr > td:nth-child(2) {
+  padding-inline-start: var(--page-gutter, 1.5rem);
 }
 
-.debt-item-main {
-  display: grid;
-  gap: 0.375rem;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
+/* A row opens the editor; the expand chevron and the switch keep their own job. */
+.recurrences-table .recurrence-row {
   cursor: pointer;
 }
 
-.debt-item-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
+/* "Dia 18 de Março" stays on one line. */
+.recurrences-table .recurrence-schedule-cell {
+  white-space: nowrap;
 }
 
-.debt-item-heading .ant-tag {
-  margin: 0;
+.recurrence-name {
+  font-weight: 500;
 }
 
-.debt-item-name {
+/* The occurrences as stacked rows (the phone's edit drawer): date and amount,
+   a lighter status line, the actions under them. */
+.recurrence-extra {
+  margin-top: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border, #e5e9f0);
+}
+
+.recurrence-extra-title {
+  margin: 0 0 0.5rem;
+  font-size: var(--fs-row, 0.9375rem);
   font-weight: 600;
 }
 
-.debt-item-kind {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  color: var(--color-text-secondary);
-  font-size: 0.8125rem;
+.recurrence-extra-delete.ant-btn {
+  align-self: flex-start;
+  margin-top: 0.5rem;
+  padding-inline: 0;
 }
 
-.debt-item .debt-row-progress {
-  min-width: 0;
-}
-
-.debt-item-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.debt-item-actions .ant-btn {
-  padding-inline: 0.5rem;
-}
-
-.debt-list-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 2rem 1rem;
-  color: var(--color-text-secondary);
-}
-
-.debt-list-empty-icon {
-  font-size: 1.75rem;
-  color: #c3c2b7;
-}
-
-.debt-header-card .ant-card-body {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1.5rem;
-}
-
-.debt-header-identity {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  min-width: 220px;
-}
-
-.debt-header-name {
-  margin: 0;
-}
-
-.debt-header-figure {
-  container-type: inline-size;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  flex: 1;
-  min-width: 260px;
-}
-
-.debt-header-legend-inline {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
+.occurrence-rows {
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 0.8125rem;
 }
 
-.debt-header-legend-inline li {
+.occurrence-row {
+  padding: 0.625rem 0;
+}
+
+.occurrence-row + .occurrence-row {
+  border-top: 1px solid var(--color-border, #e5e9f0);
+}
+
+.occurrence-row-line {
   display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.occurrence-row-title {
+  color: var(--color-text, #172b4d);
+  font-size: var(--fs-row, 0.9375rem);
+  font-weight: 500;
+}
+
+.occurrence-row-meta {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.375rem;
-  color: var(--color-text-secondary);
+  gap: 0.25rem 0.5rem;
+  margin-top: 0.25rem;
+  color: var(--color-text-secondary, #5d697c);
+  font-size: var(--fs-small, 0.8125rem);
+  overflow-wrap: anywhere;
 }
 
-.debt-header-legend-inline strong {
-  color: var(--color-text-primary);
-  font-variant-numeric: tabular-nums;
-}
-
-.debt-header-actions {
-  display: flex;
-  gap: 0.5rem;
+.occurrence-row-actions {
+  margin-top: 0.125rem;
+  margin-inline-start: -0.5rem;
 }

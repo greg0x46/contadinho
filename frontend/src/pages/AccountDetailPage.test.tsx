@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
@@ -29,6 +30,20 @@ function renderPage(accountId: string) {
 const findHeading = (name: string) => screen.findByRole("heading", { name }, { timeout: 5000 });
 
 describe("AccountDetailPage", () => {
+  it("renders while the account's transactions are still loading", async () => {
+    vi.mocked(accountsApi.getAccount).mockResolvedValue(bankAccount);
+    vi.mocked(accountsApi.listAccountCards).mockResolvedValue([]);
+    vi.mocked(accountsApi.listAccountBills).mockResolvedValue([]);
+    vi.mocked(accountsApi.listAccounts).mockResolvedValue([]);
+    vi.mocked(categoriesApi.listCategories).mockResolvedValue([]);
+    // Never settles: the page must cope with no transaction data for a while.
+    vi.mocked(transactionsApi.queryTransactions).mockReturnValue(new Promise(() => {}));
+
+    renderPage(bankAccountId);
+
+    expect(await screen.findByText("R$ 2.500,00", undefined, { timeout: 5000 })).toBeVisible();
+  });
+
   it("never shows Pluggy's proxy connector name, even when the provider reported it", async () => {
     vi.mocked(accountsApi.getAccount).mockResolvedValue({
       ...bankAccount,
@@ -52,7 +67,7 @@ describe("AccountDetailPage", () => {
     expect(container.textContent).not.toContain("MeuPluggy");
   });
 
-  it("shows the short institution name, the balance in full, and reuses TransactionRow for recent activity", async () => {
+  it("titles the page with the account's own name, as the list does, and puts the short institution on the identity line", async () => {
     vi.mocked(accountsApi.getAccount).mockResolvedValue({
       ...bankAccount,
       institution_name: "Nu Pagamentos S.A. - Instituição de Pagamento",
@@ -65,7 +80,8 @@ describe("AccountDetailPage", () => {
 
     renderPage(bankAccountId);
 
-    await findHeading("Nu Pagamentos");
+    await findHeading("Conta Corrente");
+    expect(screen.getByText("Conta corrente · •••• 3456 · Nu Pagamentos")).toBeVisible();
     expect(screen.getByText("Saldo disponível")).toBeVisible();
     expect(screen.getByText("R$ 2.500,00")).toBeVisible();
     expect(screen.getByText("Últimas transações")).toBeVisible();
@@ -75,5 +91,27 @@ describe("AccountDetailPage", () => {
     expect(
       await screen.findByRole("button", { name: /Ver detalhes de Mercado/ }),
     ).toBeVisible();
+  });
+
+  it("shows a failed category/inclusion write inside the panel, with a retry", async () => {
+    const user = userEvent.setup();
+    vi.mocked(accountsApi.getAccount).mockResolvedValue(bankAccount);
+    vi.mocked(accountsApi.listAccountCards).mockResolvedValue([]);
+    vi.mocked(accountsApi.listAccountBills).mockResolvedValue([]);
+    vi.mocked(accountsApi.listAccounts).mockResolvedValue([]);
+    vi.mocked(categoriesApi.listCategories).mockResolvedValue([]);
+    vi.mocked(transactionsApi.queryTransactions).mockResolvedValue(transactionResult);
+    vi.mocked(transactionsApi.getTransactionReconciliation).mockResolvedValue({
+      current: null,
+      options: [],
+    } as never);
+    vi.mocked(transactionsApi.setTransactionInclusion).mockRejectedValue(new Error("Servidor indisponível."));
+
+    renderPage(bankAccountId);
+    await user.click(await screen.findByRole("button", { name: /Ver detalhes de Mercado/ }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("switch", { name: "Considerar nos totais" }));
+
+    expect(await screen.findByText("Não foi possível salvar a decisão")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Tentar novamente" })).toBeVisible();
   });
 });
