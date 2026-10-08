@@ -45,9 +45,11 @@ Cada decisão carrega um `origin`; a precedência é
   (`ApplyAutomatic`) ou heurística de pagamento de fatura
   (`ApplyAutomaticCardPayment`). Só escreve quando não há decisão.
 
-Ordem no sync (`syncsvc.upsertTransaction`, só em inserção): fatura de
-cartão → mapeamento Pluggy → aprendida → regras (hook). Lançamento manual
-sem `category_id` segue a mesma ordem (aprendida → regras).
+Ordem no sync (`syncsvc.upsertTransaction`): fatura de cartão → mapeamento
+Pluggy → aprendida (esses três só em inserção) → regras (hook, também em
+atualização). Todas compartilham a transação do upsert; uma falha reverte
+dados, decisões e eventos juntos, permitindo repetir na próxima sync.
+Lançamento manual sem `category_id` segue a mesma ordem (aprendida → regras).
 
 ## Rotas HTTP
 

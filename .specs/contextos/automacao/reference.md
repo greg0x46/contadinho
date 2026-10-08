@@ -22,6 +22,12 @@ regra a um `recurrences.RecurringCommitment` sem afetar a transação
 diretamente — regras reconcile-only são puladas pelo fluxo normal de
 aplicação (`isReconcileOnlyRule`).
 
+No sync, `NewTransactionHook` usa o `Querier` da transação do lançamento
+para aplicar regras e o hook de desvinculação de pendências. Não abre uma
+transação interna: falhas em qualquer ação revertem o lançamento, as
+decisões e os eventos em conjunto. Roda em inserções e atualizações com
+hash diferente; registros `unchanged` já concluídos não reaplicam regras.
+
 `set_category` aceita qualquer categoria ativa, inclusive as de
 `kind='transfer'` — é assim que se tira transferências dos totais em
 massa, sem recorrer a `ignore` (ver contexto de Categorias). O seletor de

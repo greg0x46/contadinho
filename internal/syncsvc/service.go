@@ -79,7 +79,8 @@ type Provider interface {
 // package automation can (re-)apply active rules without this package
 // importing it. The type itself lives on transactions (the Lançamentos
 // engine) so automation does not have to import an ingestion provider just
-// to name its own entry point; this alias keeps syncsvc's API unchanged.
+// to name its own entry point. The hook shares the record's transaction so
+// normalization and all resulting decisions commit or roll back together.
 type TransactionUpsertedHook = transactions.UpsertedHook
 
 // Service mirrors SyncService.
@@ -544,7 +545,9 @@ func (s *Service) processTransactionPage(ctx context.Context, accountID, externa
 // already serializes every transaction here, so per-record transactions give
 // the same "one bad record doesn't corrupt its neighbors" guarantee with far
 // simpler code, at the cost of one more commit per record than batching
-// would need — negligible at a single user's transaction volume.
+// would need — negligible at a single user's transaction volume. Category
+// passes, automation, audit events and counters share this boundary: a failed
+// record retains its previous hash (or remains absent), making resync retry it.
 func (s *Service) upsertTransaction(ctx context.Context, accountID string, snapshot pluggy.TransactionSnapshot, rawImportID string) error {
 	digest := pluggy.TransactionHash(snapshot)
 	now := db.FormatTime(time.Now())
@@ -636,16 +639,7 @@ func (s *Service) upsertTransaction(ctx context.Context, accountID string, snaps
 			return err
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-
-	// categories.ApplyAutomatic stays insert-only: it already no-ops whenever
-	// a category decision exists for the transaction (see
-	// categories.ApplyAutomatic), so re-running it on every update would be
-	// safe, but nothing reported forces that scope here — only the
-	// automation-rule staleness case below has an observed bug, so widening
-	// categorization's trigger is left for whoever actually needs it.
+	// Category passes remain insert-only; automation also reacts to updates.
 	if outcome == "inserted" {
 		// Card-payment goes first: it only ever matches one of the two
 		// specific card-bill-payment legs (see IsCardPaymentTransaction), but
@@ -654,31 +648,31 @@ func (s *Service) upsertTransaction(ctx context.Context, accountID string, snaps
 		// no-op once a decision exists, so whichever runs first wins — and
 		// the more specific card-payment transfer categorization must win
 		// over the generic mapping, not the other way around.
-		if err := categories.ApplyAutomaticCardPayment(ctx, s.DB, transactionID,
+		if err := categories.ApplyAutomaticCardPayment(ctx, tx, transactionID,
 			stringOrEmpty(snapshot.MovementType), stringOrEmpty(snapshot.SourceCategory),
 			stringOrEmpty(snapshot.SourceCategoryID), stringOrEmpty(snapshot.OperationTypeAdditionalInfo),
 		); err != nil {
 			return err
 		}
-		if err := categories.ApplyAutomatic(ctx, s.DB, transactionID, snapshot.SourceCategory); err != nil {
+		if err := categories.ApplyAutomatic(ctx, tx, transactionID, snapshot.SourceCategory); err != nil {
 			return err
 		}
 		// Learned goes last among the insert-only passes: a past manual
 		// decision on a same-looking transaction beats either automatic
 		// source above. The rules hook below may still override it —
 		// precedence is manual > rule > learned > automatic.
-		if _, err := categories.ApplyLearned(ctx, s.DB, transactionID); err != nil {
+		if _, err := categories.ApplyLearned(ctx, tx, transactionID); err != nil {
 			return err
 		}
 	}
 	if outcome == "inserted" || outcome == "updated" {
 		if s.OnTransactionUpserted != nil {
-			if err := s.OnTransactionUpserted(ctx, s.DB, transactionID, accountID); err != nil {
+			if err := s.OnTransactionUpserted(ctx, tx, transactionID, accountID); err != nil {
 				return err
 			}
 		}
 	}
-	return nil
+	return tx.Commit()
 }
 
 func nullBytes(b []byte) any {
