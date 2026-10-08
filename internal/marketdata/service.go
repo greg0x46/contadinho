@@ -29,9 +29,7 @@ var knownProviders = []string{ProviderYahoo, ProviderBrapi, ProviderCoinGecko}
 // know an instrument.
 const DefaultProviders = "yahoo,brapi,coingecko"
 
-// IsProvider reports whether name is a provider this build has. Callers use
-// it to recognize what a market data provider wrote, as opposed to a price
-// that came from somewhere else.
+// IsProvider reports whether name is a provider this build has.
 func IsProvider(name string) bool {
 	for _, known := range knownProviders {
 		if name == known {
@@ -54,13 +52,34 @@ type Service struct {
 	providers []Provider
 	now       func() time.Time
 
-	mu     sync.Mutex
-	quotes map[Instrument]Quote
+	mu       sync.Mutex
+	quotes   map[Instrument]Quote
+	inflight map[Instrument]*quoteFetch
+}
+
+// quoteFetch is a quote lookup in progress. Callers that ask for the same
+// instrument meanwhile wait on done instead of repeating it. The result
+// fields are written by the caller leading the lookup before it closes done,
+// and only read after it.
+type quoteFetch struct {
+	done  chan struct{}
+	quote Quote
+	err   error
+	// abandoned says the lookup ended because its leader gave up (its context
+	// was cancelled, or it panicked), not because the providers could not
+	// answer. Such an outcome says nothing about the instrument, so a waiter
+	// whose own context is alive asks again rather than inherit it.
+	abandoned bool
 }
 
 // New builds a Service that tries providers in the order given.
 func New(providers ...Provider) *Service {
-	return &Service{providers: providers, now: time.Now, quotes: map[Instrument]Quote{}}
+	return &Service{
+		providers: providers,
+		now:       time.Now,
+		quotes:    map[Instrument]Quote{},
+		inflight:  map[Instrument]*quoteFetch{},
+	}
 }
 
 // chain is the providers that serve market, in configured order.
@@ -80,14 +99,68 @@ func (s *Service) chain(instrument Instrument) ([]Provider, error) {
 // Quote returns the current price of instrument in BRL, stamped with the
 // provider that served it and when. A quote served in the last ten minutes
 // is returned again as it was; a failure is never remembered.
+//
+// Concurrent calls for the same instrument share one lookup: the first
+// leads it, the rest wait for its answer, each for as long as its own
+// context lives. A waiter does not inherit the leader's cancellation — if the
+// leader gave up, the waiter looks again (and may lead the new lookup).
 func (s *Service) Quote(ctx context.Context, instrument Instrument) (Quote, error) {
-	s.mu.Lock()
-	cached, ok := s.quotes[instrument]
-	s.mu.Unlock()
-	if ok && s.now().Sub(cached.At) < quoteTTL {
-		return cached, nil
-	}
+	for {
+		s.mu.Lock()
+		if cached, ok := s.quotes[instrument]; ok && s.now().Sub(cached.At) < quoteTTL {
+			s.mu.Unlock()
+			return cached, nil
+		}
+		pending, waiting := s.inflight[instrument]
+		if !waiting {
+			// Abandoned until proven otherwise, so a leader that panics
+			// leaves its waiters retrying instead of reading a zero Quote.
+			pending = &quoteFetch{done: make(chan struct{}), abandoned: true}
+			s.inflight[instrument] = pending
+		}
+		s.mu.Unlock()
 
+		if !waiting {
+			return s.lead(ctx, instrument, pending)
+		}
+		select {
+		case <-pending.done:
+		case <-ctx.Done():
+			return Quote{}, ctx.Err()
+		}
+		if pending.abandoned {
+			if err := ctx.Err(); err != nil {
+				return Quote{}, err
+			}
+			continue
+		}
+		return pending.quote, pending.err
+	}
+}
+
+// lead runs the lookup that fetch stands for and publishes its outcome: a
+// quote goes to the cache and the in-flight entry is removed in the same
+// critical section, so a caller arriving next finds one or the other, never
+// neither.
+func (s *Service) lead(ctx context.Context, instrument Instrument, fetch *quoteFetch) (Quote, error) {
+	defer func() {
+		s.mu.Lock()
+		delete(s.inflight, instrument)
+		if !fetch.abandoned && fetch.err == nil {
+			s.quotes[instrument] = fetch.quote
+		}
+		s.mu.Unlock()
+		close(fetch.done)
+	}()
+	fetch.quote, fetch.err = s.fetchQuote(ctx, instrument)
+	ctxErr := ctx.Err()
+	fetch.abandoned = ctxErr != nil && errors.Is(fetch.err, ctxErr)
+	return fetch.quote, fetch.err
+}
+
+// fetchQuote asks the providers for instrument, in order, until one gives a
+// good answer.
+func (s *Service) fetchQuote(ctx context.Context, instrument Instrument) (Quote, error) {
 	chain, err := s.chain(instrument)
 	if err != nil {
 		return Quote{}, err
@@ -102,9 +175,6 @@ func (s *Service) Quote(ctx context.Context, instrument Instrument) (Quote, erro
 			quote.Instrument = instrument
 			quote.Provider = provider.Name()
 			quote.At = s.now()
-			s.mu.Lock()
-			s.quotes[instrument] = quote
-			s.mu.Unlock()
 			return quote, nil
 		}
 		if ctxErr := ctx.Err(); ctxErr != nil {
