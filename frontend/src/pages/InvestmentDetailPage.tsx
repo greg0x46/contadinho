@@ -4,6 +4,7 @@ import { useParams } from "react-router-dom";
 import { isUuid } from "../api/contracts";
 import { DetailPage, InvalidDetailPage, Page } from "../components/layout";
 import { InvestmentHeaderCard } from "../components/investments/InvestmentHeaderCard";
+import { InvestmentPositionOperations } from "../components/investments/InvestmentPositionOperations";
 import { InvestmentTimeline } from "../components/investments/InvestmentTimeline";
 import { useInvestmentDetail } from "../hooks/useInvestmentDetail";
 
@@ -54,6 +55,8 @@ function ValidInvestmentDetail({ id }: { id: string }) {
             error={investment.transactionsError}
             onRetry={investment.retryTransactions}
           />
+
+          <InvestmentPositionOperations investmentId={id} />
         </>
       )}
     </DetailPage>

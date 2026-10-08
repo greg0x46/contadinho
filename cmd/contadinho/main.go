@@ -19,14 +19,23 @@ import (
 	"contadinho-go/internal/categories"
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/httpapi"
+	"contadinho-go/internal/marketdata"
 	"contadinho-go/internal/payables"
 	"contadinho-go/internal/pluggy"
+	"contadinho-go/internal/quotes"
 	"contadinho-go/internal/settings"
+	"contadinho-go/internal/syncsvc"
 	"contadinho-go/internal/webui"
 	"contadinho-go/internal/worker"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "seed" {
+		if err := seedCommand(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "auth" {
 		if err := authCommand(os.Args[2:]); err != nil {
 			log.Fatal(err)
@@ -51,6 +60,16 @@ func main() {
 		log.Fatal(err)
 	}
 	schedule, scheduled, err := worker.ParseSchedule(os.Getenv("CONTADINHO_SYNC_SCHEDULE"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Opt-in and independent of the sync schedule above: unset means no
+	// automatic quoting, so a fresh install never starts market requests.
+	quotesSchedule, quotesScheduled, err := quotes.ParseSchedule(os.Getenv("CONTADINHO_QUOTES_SCHEDULE"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	quoteProviders, err := marketdata.ParseProviders(os.Getenv("CONTADINHO_QUOTES_PROVIDERS"))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -91,12 +110,26 @@ func main() {
 		log.Printf("categorized %d card payment transactions as transfers", applied)
 	}
 
+	// Synced holdings had no price history before investment_asset_quotes;
+	// raw_imports kept every investments payload, so the series is rebuilt
+	// from them once. Logged rather than fatal for the same reason as above:
+	// without it rendimento falls back to the movement history.
+	if processed, err := syncsvc.BackfillAssetQuotes(context.Background(), conn); err != nil {
+		log.Printf("backfill investment asset quotes failed, rendimento falls back to movement history: %v", err)
+	} else if processed > 0 {
+		log.Printf("rebuilt investment asset quotes from %d stored holding snapshots", processed)
+	}
+
 	frontend, err := webui.DistFS()
 	if err != nil {
 		log.Fatalf("load embedded frontend: %v", err)
 	}
 
 	secrets := settings.NewSecrets(master)
+	marketService, err := marketdata.NewDefault(marketdata.Config{Providers: quoteProviders, BrapiToken: quotes.BrapiToken(conn, secrets)})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -108,6 +141,11 @@ func main() {
 	if scheduled {
 		log.Printf("sync scheduled daily at %02d:%02d %s", schedule.Hour, schedule.Minute, schedule.Location)
 		go worker.RunSchedule(ctx, conn, schedule)
+	}
+
+	if quotesScheduled {
+		log.Printf("quote refresh scheduled daily at %02d:%02d %s", quotesSchedule.Hour, quotesSchedule.Minute, quotesSchedule.Location)
+		go quotes.RunSchedule(ctx, conn, marketService, quotesSchedule)
 	}
 
 	handler := httpapi.NewServer(conn, frontend, secrets, config)

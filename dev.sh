@@ -5,6 +5,14 @@ set -Eeuo pipefail
 repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$repo_dir"
 
+# Optional untracked local config (KEY=value lines), e.g. CONTADINHO_DB or ports.
+if [[ -f "$repo_dir/.env.local" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$repo_dir/.env.local"
+  set +a
+fi
+
 backend_addr="${CONTADINHO_DEV_ADDR:-localhost:8000}"
 frontend_host="${VITE_DEV_HOST:-127.0.0.1}"
 frontend_port="${VITE_DEV_PORT:-5173}"

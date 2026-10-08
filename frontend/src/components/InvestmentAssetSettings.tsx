@@ -1,8 +1,13 @@
-import { Alert, Button, Input, Skeleton, Table } from "antd";
+import { Alert, Button, Input, Select, Skeleton, Switch, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useEffect, useState } from "react";
 
-import type { InvestmentAsset, InvestmentAssetWrite } from "../api/contracts";
+import type {
+  InvestmentAsset,
+  InvestmentAssetClass,
+  InvestmentAssetClassDefinition,
+  InvestmentAssetWrite,
+} from "../api/contracts";
 import { useInvestmentAssets } from "../hooks/useInvestmentAssets";
 import { errorMessage } from "../presentation/errors";
 import { FormDrawer } from "./forms/FormDrawer";
@@ -12,22 +17,45 @@ import { useConfirm } from "./shared/useConfirm";
 import { DataCard, EmptyState, ResponsiveList } from "./layout";
 import { useFeedback } from "./shared/useFeedback";
 
+/** The "Tipo" select's escape hatch: the instrument is not in the class's catalog. */
+const customType = "__custom";
+
 type AssetDraft = {
   name: string;
   ticker: string;
+  assetClass: InvestmentAssetClass | "";
   assetType: string;
+  customType: string;
   currencyCode: string;
+  quoteEnabled: boolean;
+  quoteSymbol: string;
 };
 
-const emptyDraft: AssetDraft = { name: "", ticker: "", assetType: "", currencyCode: "BRL" };
+const emptyDraft: AssetDraft = {
+  name: "",
+  ticker: "",
+  assetClass: "",
+  assetType: "",
+  customType: "",
+  currencyCode: "BRL",
+  quoteEnabled: false,
+  quoteSymbol: "",
+};
 
-function draftFrom(asset: InvestmentAsset | null): AssetDraft {
+function draftFrom(asset: InvestmentAsset | null, classification: InvestmentAssetClassDefinition[]): AssetDraft {
   if (!asset) return emptyDraft;
+  const known = classification
+    .find((item) => item.asset_class === asset.asset_class)
+    ?.types.some((item) => item.name === asset.asset_type);
   return {
     name: asset.name,
     ticker: asset.ticker ?? "",
-    assetType: asset.asset_type,
+    assetClass: asset.asset_class,
+    assetType: known ? asset.asset_type : customType,
+    customType: known ? "" : asset.asset_type,
     currencyCode: asset.currency_code,
+    quoteEnabled: asset.quote_source !== null,
+    quoteSymbol: asset.quote_symbol ?? "",
   };
 }
 
@@ -53,25 +81,56 @@ export function InvestmentAssetSettings({
   const [actionError, setActionError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const open = creating || editing !== null;
+  // The form needs the class catalog; until it loads there is nothing to pick.
+  const catalogReady = assets.classification.length > 0;
 
   useEffect(() => {
     if (open) {
-      setDraft(draftFrom(editing));
+      setDraft(draftFrom(editing, assets.classification));
       setFormError(null);
     }
-  }, [open, editing]);
+  }, [open, editing, assets.classification]);
 
   const close = () => {
     setEditing(null);
     onCreatingClose();
   };
 
+  const classDefinition = assets.classification.find((item) => item.asset_class === draft.assetClass);
+  const typeDefinition = classDefinition?.types.find((item) => item.name === draft.assetType);
+  const legacyMarket =
+    editing &&
+    draft.assetClass === editing.asset_class &&
+    draft.assetType === customType &&
+    draft.customType === editing.asset_type
+      ? editing.quote_source
+      : null;
+  const quoteMarket = typeDefinition?.quote_market ?? legacyMarket;
+  const quoteSource = draft.quoteEnabled ? quoteMarket : null;
+  const classOptions = assets.classification.map((item) => ({ value: item.asset_class, label: item.label }));
+  const typeOptions = [
+    ...(classDefinition?.types.map((item) => ({ value: item.name, label: item.name })) ?? []),
+    { value: customType, label: "Outro tipo" },
+  ];
+  const classLabel = (value: InvestmentAssetClass) =>
+    assets.classification.find((item) => item.asset_class === value)?.label ?? value;
+  // Grouped by class (in the catalog's order), then by name.
+  const sortedAssets = [...assets.assets].sort((left, right) => {
+    const order = (value: InvestmentAssetClass) =>
+      assets.classification.findIndex((item) => item.asset_class === value);
+    return order(left.asset_class) - order(right.asset_class) || left.name.localeCompare(right.name, "pt-BR");
+  });
+
   const submit = async () => {
     const name = draft.name.trim();
-    const assetType = draft.assetType.trim();
+    const assetType = (draft.assetType === customType ? draft.customType : draft.assetType).trim();
     const currencyCode = draft.currencyCode.trim().toUpperCase();
     if (name === "") {
       setFormError("Informe o nome do ativo.");
+      return;
+    }
+    if (draft.assetClass === "") {
+      setFormError("Escolha a classe do ativo.");
       return;
     }
     if (assetType === "") {
@@ -82,12 +141,26 @@ export function InvestmentAssetSettings({
       setFormError("Informe a moeda com três letras, como BRL ou USD.");
       return;
     }
+    // O código para cotação vem pré-preenchido com o que o sistema derivou do
+    // código antigo. Se o código mudou e o campo não foi tocado, ele deixa de
+    // valer: enviar vazio faz o sistema derivar de novo do código novo.
+    const tickerChanged =
+      editing !== null && (editing.ticker ?? "").trim().toLowerCase() !== draft.ticker.trim().toLowerCase();
+    const symbolUntouched = editing !== null && draft.quoteSymbol.trim() === (editing.quote_symbol ?? "");
+    const quoteSymbol = !quoteSource || (tickerChanged && symbolUntouched) ? "" : draft.quoteSymbol.trim();
+    if (quoteSource && quoteSymbol === "" && draft.ticker.trim() === "") {
+      setFormError("Informe o código do ativo, como PETR4 ou BTC, para buscar a cotação.");
+      return;
+    }
 
     const write: InvestmentAssetWrite = {
       name,
       ticker: draft.ticker.trim() || null,
       asset_type: assetType,
+      asset_class: draft.assetClass,
       currency_code: currencyCode,
+      quote_source: quoteSource || null,
+      quote_symbol: quoteSymbol || null,
     };
     setFormError(null);
     try {
@@ -122,7 +195,7 @@ export function InvestmentAssetSettings({
     <RecordMenu
       label={`Ações de ${asset.name}`}
       items={[
-        { key: "edit", label: "Editar", onClick: () => setEditing(asset) },
+        { key: "edit", label: "Editar", disabled: !catalogReady, onClick: () => setEditing(asset) },
         {
           key: "delete",
           label: "Excluir",
@@ -149,6 +222,13 @@ export function InvestmentAssetSettings({
       title: "Código",
       dataIndex: "ticker",
       render: (ticker: string | null) => ticker ?? <span className="investment-quiet">—</span>,
+    },
+    {
+      title: "Classe",
+      dataIndex: "asset_class",
+      render: (value: InvestmentAssetClass) => classLabel(value),
+      filters: classOptions.map((item) => ({ text: item.label, value: item.value })),
+      onFilter: (value, asset) => asset.asset_class === value,
     },
     { title: "Tipo", dataIndex: "asset_type" },
     { title: "Moeda", dataIndex: "currency_code", width: 100 },
@@ -187,7 +267,7 @@ export function InvestmentAssetSettings({
         <DataCard flush className="settings-list-card">
           <ResponsiveList
             label="Ativos de investimento"
-            items={assets.assets}
+            items={sortedAssets}
             getKey={(asset) => asset.id}
             isLoading={assets.isLoading}
             loading={
@@ -204,7 +284,9 @@ export function InvestmentAssetSettings({
             }
             row={(asset) => ({
               title: asset.name,
-              meta: [asset.ticker, asset.asset_type, asset.currency_code].filter(Boolean).join(" · "),
+              meta: [asset.ticker, classLabel(asset.asset_class), asset.asset_type, asset.currency_code]
+                .filter(Boolean)
+                .join(" · "),
               trailing: menu(asset),
               ariaLabel: asset.name,
             })}
@@ -214,9 +296,14 @@ export function InvestmentAssetSettings({
                 className="investment-table"
                 rowKey="id"
                 columns={columns}
-                dataSource={assets.assets}
+                dataSource={sortedAssets}
                 pagination={false}
-                onRow={(asset) => ({ onClick: () => setEditing(asset), style: { cursor: "pointer" } })}
+                onRow={(asset) => ({
+                  onClick: () => {
+                    if (catalogReady) setEditing(asset);
+                  },
+                  style: { cursor: catalogReady ? "pointer" : "default" },
+                })}
               />
             }
           />
@@ -231,6 +318,53 @@ export function InvestmentAssetSettings({
         submitting={assets.isSaving}
         error={formError}
       >
+        <FormField label="Classe" htmlFor="investment-asset-class">
+          <Select
+            id="investment-asset-class"
+            value={draft.assetClass || undefined}
+            placeholder="Selecione a classe financeira"
+            options={classOptions}
+            onChange={(value: InvestmentAssetClass) =>
+              setDraft((current) => ({
+                ...current,
+                assetClass: value,
+                assetType: "",
+                customType: "",
+                quoteEnabled: false,
+                quoteSymbol: "",
+              }))
+            }
+          />
+        </FormField>
+        <FormField label="Tipo" htmlFor="investment-asset-type">
+          <Select
+            id="investment-asset-type"
+            value={draft.assetType || undefined}
+            disabled={!draft.assetClass}
+            placeholder="Selecione o tipo de instrumento"
+            options={typeOptions}
+            showSearch
+            optionFilterProp="label"
+            onChange={(value: string) =>
+              setDraft((current) => ({
+                ...current,
+                assetType: value,
+                customType: "",
+                quoteEnabled: Boolean(classDefinition?.types.find((item) => item.name === value)?.quote_market),
+                quoteSymbol: "",
+              }))
+            }
+          />
+        </FormField>
+        {draft.assetType === customType && (
+          <FormField label="Descrição do tipo" htmlFor="investment-asset-custom-type">
+            <Input
+              id="investment-asset-custom-type"
+              value={draft.customType}
+              onChange={(event) => setDraft((current) => ({ ...current, customType: event.target.value }))}
+            />
+          </FormField>
+        )}
         <FormField label="Nome" htmlFor="investment-asset-name">
           <Input
             id="investment-asset-name"
@@ -239,20 +373,12 @@ export function InvestmentAssetSettings({
             onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
           />
         </FormField>
-        <FormField label="Código (opcional)" htmlFor="investment-asset-ticker">
+        <FormField label={quoteSource ? "Código" : "Código (opcional)"} htmlFor="investment-asset-ticker">
           <Input
             id="investment-asset-ticker"
             value={draft.ticker}
             placeholder="Ex.: PETR4"
             onChange={(event) => setDraft((current) => ({ ...current, ticker: event.target.value }))}
-          />
-        </FormField>
-        <FormField label="Tipo" htmlFor="investment-asset-type">
-          <Input
-            id="investment-asset-type"
-            value={draft.assetType}
-            placeholder="Ex.: Ação, fundo ou renda fixa"
-            onChange={(event) => setDraft((current) => ({ ...current, assetType: event.target.value }))}
           />
         </FormField>
         <FormField label="Moeda" htmlFor="investment-asset-currency">
@@ -264,6 +390,41 @@ export function InvestmentAssetSettings({
             onChange={(event) => setDraft((current) => ({ ...current, currencyCode: event.target.value.toUpperCase() }))}
           />
         </FormField>
+        <FormField
+          label="Cotação automática"
+          htmlFor="investment-asset-quote-enabled"
+          hint={
+            quoteMarket
+              ? "Atualiza o preço e busca o histórico do ativo em reais."
+              : "Para este tipo, registre avaliações manualmente ou use os valores da instituição integrada."
+          }
+        >
+          <div>
+            <Switch
+              id="investment-asset-quote-enabled"
+              checked={draft.quoteEnabled && Boolean(quoteMarket)}
+              disabled={!quoteMarket}
+              onChange={(checked) => setDraft((current) => ({ ...current, quoteEnabled: checked }))}
+            />
+          </div>
+        </FormField>
+        {quoteSource && (
+          <details>
+            <summary>Código alternativo para cotação</summary>
+            <FormField
+              label="Código para cotação (opcional)"
+              htmlFor="investment-asset-quote-symbol"
+              hint="Em branco, usa o código do ativo. Preencha somente quando o código cotado for diferente."
+            >
+              <Input
+                id="investment-asset-quote-symbol"
+                value={draft.quoteSymbol}
+                placeholder={quoteSource === "crypto" ? "BTC" : "PETR4"}
+                onChange={(event) => setDraft((current) => ({ ...current, quoteSymbol: event.target.value }))}
+              />
+            </FormField>
+          </details>
+        )}
       </FormDrawer>
     </>
   );

@@ -6,7 +6,7 @@ import (
 )
 
 var investmentAssetResponseKeys = []string{
-	"id", "name", "ticker", "asset_type", "currency_code", "created_at", "updated_at",
+	"id", "name", "ticker", "asset_type", "asset_class", "currency_code", "quote_source", "quote_symbol", "created_at", "updated_at",
 }
 
 func TestInvestmentAssetLifecycleOverHTTP(t *testing.T) {
@@ -74,5 +74,90 @@ func TestInvestmentAssetValidationAndMissingRecords(t *testing.T) {
 		"/api/investment-assets/33333333-3333-4333-8333-333333333333", nil, http.StatusNotFound)
 	if problem != "investment-asset-not-found" {
 		t.Errorf("missing problem = %q", problem)
+	}
+}
+
+func TestInvestmentAssetFinancialClassificationOverHTTP(t *testing.T) {
+	srv, _ := newTestServer(t)
+	classes := investmentItems(t, srv, "/api/investment-asset-classification")
+	if len(classes) != 6 {
+		t.Fatalf("classification = %+v, want six financial classes", classes)
+	}
+	created := investmentCall(t, srv, http.MethodPost, "/api/investment-assets", map[string]any{
+		"name": "ETF cripto", "ticker": "HASH11", "asset_type": "ETF de criptoativos", "asset_class": "crypto",
+		"currency_code": "BRL", "quote_source": "b3",
+	}, http.StatusCreated)
+	if created["asset_class"] != "crypto" || created["quote_source"] != "b3" {
+		t.Fatalf("created = %+v", created)
+	}
+	for _, class := range []string{"provider", "variable_income"} {
+		investmentProblem(t, srv, http.MethodPost, "/api/investment-assets", map[string]any{
+			"name": "CDB", "asset_type": "CDB", "asset_class": class,
+		}, http.StatusBadRequest)
+	}
+}
+
+func TestInvestmentAssetQuoteMarketRoundTrip(t *testing.T) {
+	srv, _ := newTestServer(t)
+	created := investmentCall(t, srv, http.MethodPost, "/api/investment-assets", map[string]any{
+		"name": "Bitcoin", "ticker": "btc-usd", "asset_type": "Criptoativo", "currency_code": "BRL", "quote_source": "crypto",
+	}, http.StatusCreated)
+	assertInvestmentKeys(t, "asset", created, investmentAssetResponseKeys)
+	if created["quote_source"] != "crypto" || created["quote_symbol"] != "BTC" {
+		t.Fatalf("created = %+v", created)
+	}
+	id := investmentID(t, created)
+	items := investmentItems(t, srv, "/api/investment-assets")
+	if len(items) != 1 || items[0]["quote_symbol"] != "BTC" {
+		t.Fatalf("items = %+v", items)
+	}
+	updated := investmentCall(t, srv, http.MethodPut, "/api/investment-assets/"+id, map[string]any{
+		"name": "Bitcoin", "ticker": "btc", "asset_type": "Criptoativo", "currency_code": "BRL", "quote_source": "crypto",
+	}, http.StatusOK)
+	if updated["quote_symbol"] != "BTC" {
+		t.Fatalf("updated = %+v", updated)
+	}
+	cleared := investmentCall(t, srv, http.MethodPut, "/api/investment-assets/"+id, map[string]any{
+		"name": "Bitcoin", "ticker": "BTC", "asset_type": "Criptoativo", "currency_code": "BRL",
+	}, http.StatusOK)
+	if cleared["quote_source"] != nil || cleared["quote_symbol"] != nil {
+		t.Fatalf("cleared = %+v", cleared)
+	}
+}
+
+func TestInvestmentAssetCanonicalizesMarketSymbols(t *testing.T) {
+	for _, tc := range []struct{ market, ticker, symbol, want string }{
+		{"b3", "petr4.sa", "", "PETR4"},
+		{"b3", "PETR4", "bvmf:vale3", "VALE3"},
+		{"crypto", "BTC", "", "BTC"},
+		{"crypto", "BTC", "btc-usd", "BTC"},
+	} {
+		srv, _ := newTestServer(t)
+		body := map[string]any{"name": "Ativo " + tc.want, "ticker": tc.ticker, "asset_type": "Ação", "currency_code": "BRL", "quote_source": tc.market}
+		if tc.symbol != "" {
+			body["quote_symbol"] = tc.symbol
+		}
+		got := investmentCall(t, srv, http.MethodPost, "/api/investment-assets", body, http.StatusCreated)
+		if got["quote_symbol"] != tc.want {
+			t.Errorf("%+v: got %+v", tc, got)
+		}
+	}
+}
+
+func TestInvestmentAssetRejectsInvalidMarketSymbols(t *testing.T) {
+	srv, _ := newTestServer(t)
+	for _, tc := range []struct{ market, ticker, symbol string }{
+		{"other", "PETR4", ""},
+		{"b3", "BTC", ""},
+		{"b3", "", ""},
+		{"crypto", "BTC", "bit coin"},
+	} {
+		body := map[string]any{"name": "Ativo", "ticker": tc.ticker, "asset_type": "Ação", "currency_code": "BRL", "quote_source": tc.market}
+		if tc.symbol != "" {
+			body["quote_symbol"] = tc.symbol
+		}
+		if got := investmentProblem(t, srv, http.MethodPost, "/api/investment-assets", body, http.StatusBadRequest); got != "invalid-investment-input" {
+			t.Errorf("%+v: %s", tc, got)
+		}
 	}
 }

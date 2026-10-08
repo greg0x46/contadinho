@@ -7,6 +7,34 @@ import (
 	"net/http"
 )
 
+// handleQuotesSettings mirrors handlePluggySettings: write-only, and never
+// echoes the saved value back. Unlike Pluggy's credentials, the brapi token
+// is optional — the brapi provider in internal/marketdata sends requests
+// unauthenticated when it is empty — so an empty body value is accepted too,
+// as the deliberate way to clear a previously saved token.
+func handleQuotesSettings(db *sql.DB, keys *settings.Secrets) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 16384)
+		var req struct {
+			BrapiToken string `json:"brapi_token"`
+		}
+		if decodeStrict(r, &req) != nil {
+			writeProblem(w, 422, "invalid-settings", "Dados inválidos", "Não foi possível ler o token informado.")
+			return
+		}
+		key, ok := keys.Key()
+		if !ok {
+			writeProblem(w, 503, "settings-unavailable", "Configuração indisponível", "")
+			return
+		}
+		if err := settings.SetBrapiToken(r.Context(), db, req.BrapiToken, key); err != nil {
+			writeProblem(w, 503, "settings-unavailable", "Não foi possível salvar o token", "")
+			return
+		}
+		writeJSON(w, 200, map[string]bool{"saved": true})
+	}
+}
+
 // Credentials are write-only and may be configured only by an authenticated owner.
 func handlePluggySettings(db *sql.DB, keys *settings.Secrets) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

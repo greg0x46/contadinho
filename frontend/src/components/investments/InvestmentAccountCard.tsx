@@ -11,12 +11,20 @@ import { investmentAccountKindLabel } from "../../presentation/investmentWorkspa
 import { sumBRL } from "../../presentation/money";
 import { Section } from "../layout";
 import { Money } from "../shared/Money";
-import { InvestmentFigures } from "./InvestmentFigures";
-import { InvestmentOperationsTable } from "./InvestmentOperationsTable";
-import { InvestmentPositionsTable } from "./InvestmentPositionsTable";
 import { RecordMenu, type RecordMenuItem } from "../shared/RecordMenu";
 import { useConfirm } from "../shared/useConfirm";
-import { accountMovements, formatDate, latestDate } from "./investmentMath";
+import { InvestmentFigures, InvestmentYieldValue } from "./InvestmentFigures";
+import { InvestmentOperationsTable } from "./InvestmentOperationsTable";
+import { InvestmentPositionsTable } from "./InvestmentPositionsTable";
+import {
+  accountMovements,
+  aggregateYield,
+  costsByPosition,
+  formatDate,
+  groupCost,
+  latestDate,
+  type LinkedInvestments,
+} from "./investmentMath";
 
 /**
  * One investment account as a Section: its figures, its positions as rows
@@ -31,6 +39,7 @@ export function InvestmentAccountCard({
   allPositions,
   operations,
   portfolios,
+  linked,
   onRename,
   onRemove,
   onNewPosition,
@@ -50,6 +59,8 @@ export function InvestmentAccountCard({
   allPositions: InvestmentPosition[];
   operations: InvestmentOperation[];
   portfolios: InvestmentPortfolio[];
+  /** Provider holdings by id: a synced position reads its rendimento and IR/IOF from here. */
+  linked: LinkedInvestments;
   onRename: (account: InvestmentAccount) => void;
   onRemove: (account: InvestmentAccount) => void;
   onNewPosition: (account: InvestmentAccount) => void;
@@ -72,6 +83,12 @@ export function InvestmentAccountCard({
     ...positions.map((position) => position.valued_on),
     ...operations.map((operation) => operation.occurred_on),
   ]);
+
+  // Costs and rendimento read every position of the account, closed ones
+  // included: hiding a sold position's row must not change what it cost.
+  const costs = costsByPosition(operations, allPositions, linked);
+  const yieldAggregate = aggregateYield(positions, linked, costs);
+  const cost = groupCost(operations, allPositions, linked);
 
   const menuItems: RecordMenuItem[] = [
     { key: "operation", label: "Registrar movimentação", onClick: () => onNewOperation(account) },
@@ -122,6 +139,16 @@ export function InvestmentAccountCard({
         figures={[
           { label: "Valor atual", value: <Money value={currentValue} tone="balance" /> },
           {
+            label: "Rendimento líquido",
+            value: <InvestmentYieldValue gain={yieldAggregate.gain} percent={yieldAggregate.percent} />,
+            hint: "Já descontados IR, IOF e taxas das posições que têm rendimento conhecido.",
+          },
+          {
+            label: "IR/Taxas",
+            value: <Money value={cost} tone="neutral" />,
+            hint: "Taxas e impostos das movimentações, mais IR e IOF informados pela instituição.",
+          },
+          {
             label: "Aportes",
             value: <Money value={movements.deposits} tone="neutral" />,
             hint: "Dinheiro que entrou nesta conta de investimento, vindo do seu caixa, desde o início.",
@@ -142,6 +169,8 @@ export function InvestmentAccountCard({
       <InvestmentPositionsTable
         positions={positions}
         portfolios={portfolios}
+        costs={costs}
+        linked={linked}
         onAssignGoal={onAssignGoal}
         onEdit={editable ? onEditPosition : undefined}
         onDelete={editable ? onRemovePosition : undefined}

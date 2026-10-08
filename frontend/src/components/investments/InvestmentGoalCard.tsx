@@ -9,11 +9,19 @@ import type {
 import { sumBRL } from "../../presentation/money";
 import { Section } from "../layout";
 import { Money } from "../shared/Money";
-import { InvestmentFigures } from "./InvestmentFigures";
-import { InvestmentPositionsTable } from "./InvestmentPositionsTable";
 import { RecordMenu } from "../shared/RecordMenu";
 import { useConfirm } from "../shared/useConfirm";
-import { formatDate, goalMovements, latestDate } from "./investmentMath";
+import { InvestmentFigures, InvestmentYieldValue } from "./InvestmentFigures";
+import { InvestmentPositionsTable } from "./InvestmentPositionsTable";
+import {
+  aggregateYield,
+  costsByPosition,
+  formatDate,
+  goalMovements,
+  groupCost,
+  latestDate,
+  type LinkedInvestments,
+} from "./investmentMath";
 
 /**
  * One goal as a Section: a goal only groups positions, so its figures and the
@@ -26,6 +34,7 @@ export function InvestmentGoalCard({
   positions,
   operations,
   portfolios,
+  linked,
   accountNameOf,
   onEdit,
   onRemove,
@@ -38,6 +47,8 @@ export function InvestmentGoalCard({
   positions: InvestmentPosition[];
   operations: InvestmentOperation[];
   portfolios: InvestmentPortfolio[];
+  /** Provider holdings by id: a synced position reads its rendimento and IR/IOF from here. */
+  linked: LinkedInvestments;
   accountNameOf: (accountId: string) => string;
   onEdit: (portfolio: InvestmentPortfolio) => void;
   onRemove: (portfolio: InvestmentPortfolio) => void;
@@ -54,6 +65,10 @@ export function InvestmentGoalCard({
   ]);
   const target = summary?.target_amount ?? portfolio?.target_amount ?? null;
   const progress = summary?.progress ?? portfolio?.progress ?? null;
+
+  const costs = costsByPosition(operations, positions, linked);
+  const yieldAggregate = aggregateYield(positions, linked, costs);
+  const cost = groupCost(operations, positions, linked);
 
   return (
     <Section
@@ -87,6 +102,16 @@ export function InvestmentGoalCard({
         figures={[
           { label: "Valor atual", value: <Money value={currentValue} tone="balance" /> },
           {
+            label: "Rendimento líquido",
+            value: <InvestmentYieldValue gain={yieldAggregate.gain} percent={yieldAggregate.percent} />,
+            hint: "Já descontados IR, IOF e taxas das posições que têm rendimento conhecido.",
+          },
+          {
+            label: "IR/Taxas",
+            value: <Money value={cost} tone="neutral" />,
+            hint: "Taxas e impostos das movimentações, mais IR e IOF informados pela instituição.",
+          },
+          {
             label: "Compras e saldo inicial",
             value: <Money value={movements.deposits} tone="neutral" />,
             hint: "Compras e saldos iniciais registrados nas posições deste objetivo.",
@@ -111,6 +136,8 @@ export function InvestmentGoalCard({
       <InvestmentPositionsTable
         positions={positions}
         portfolios={portfolios}
+        costs={costs}
+        linked={linked}
         accountNameOf={accountNameOf}
         showAccount
         showGoal={false}

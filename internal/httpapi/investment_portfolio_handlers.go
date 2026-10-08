@@ -6,13 +6,16 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
 
 	"contadinho-go/internal/investments"
+	"contadinho-go/internal/marketdata"
 	"contadinho-go/internal/money"
+	"contadinho-go/internal/quotes"
 )
 
 // This file is the HTTP face of internal/investments: the custody accounts,
@@ -182,13 +185,16 @@ type investmentPortfolioDTO struct {
 }
 
 type investmentAssetDTO struct {
-	ID           string    `json:"id"`
-	Name         string    `json:"name"`
-	Ticker       *string   `json:"ticker"`
-	AssetType    string    `json:"asset_type"`
-	CurrencyCode string    `json:"currency_code"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID           string                 `json:"id"`
+	Name         string                 `json:"name"`
+	Ticker       *string                `json:"ticker"`
+	AssetType    string                 `json:"asset_type"`
+	AssetClass   investments.AssetClass `json:"asset_class"`
+	CurrencyCode string                 `json:"currency_code"`
+	QuoteSource  *string                `json:"quote_source"`
+	QuoteSymbol  *string                `json:"quote_symbol"`
+	CreatedAt    time.Time              `json:"created_at"`
+	UpdatedAt    time.Time              `json:"updated_at"`
 }
 
 func investmentAssetToDTO(asset investments.Asset) investmentAssetDTO {
@@ -197,7 +203,10 @@ func investmentAssetToDTO(asset investments.Asset) investmentAssetDTO {
 		Name:         asset.Name,
 		Ticker:       asset.Ticker,
 		AssetType:    asset.AssetType,
+		AssetClass:   asset.AssetClass,
 		CurrencyCode: asset.CurrencyCode,
+		QuoteSource:  asset.QuoteSource,
+		QuoteSymbol:  asset.QuoteSymbol,
 		CreatedAt:    asset.CreatedAt,
 		UpdatedAt:    asset.UpdatedAt,
 	}
@@ -751,16 +760,66 @@ func handleDeleteInvestmentPortfolio(conn *sql.DB) http.HandlerFunc {
 // ------------------------------------------------------------------- assets
 
 type investmentAssetRequest struct {
-	Name         string  `json:"name"`
-	Ticker       *string `json:"ticker"`
-	AssetType    string  `json:"asset_type"`
-	CurrencyCode string  `json:"currency_code"`
+	Name         string                 `json:"name"`
+	Ticker       *string                `json:"ticker"`
+	AssetType    string                 `json:"asset_type"`
+	AssetClass   investments.AssetClass `json:"asset_class"`
+	CurrencyCode string                 `json:"currency_code"`
+	QuoteSource  *string                `json:"quote_source"`
+	QuoteSymbol  *string                `json:"quote_symbol"`
 }
 
 func (req investmentAssetRequest) toInput() investments.AssetInput {
 	return investments.AssetInput{
-		Name: req.Name, Ticker: req.Ticker, AssetType: req.AssetType, CurrencyCode: req.CurrencyCode,
+		Name: req.Name, Ticker: req.Ticker, AssetType: req.AssetType, AssetClass: req.AssetClass, CurrencyCode: req.CurrencyCode,
+		QuoteSource: req.QuoteSource, QuoteSymbol: req.QuoteSymbol,
 	}
+}
+
+// quoteSourceKnown accepts an empty market or one market marketdata knows.
+func quoteSourceKnown(source *string) bool {
+	if source == nil || strings.TrimSpace(*source) == "" {
+		return true
+	}
+	_, ok := marketdata.ParseMarket(*source)
+	return ok
+}
+
+// normalizeQuoteConfig validates the quote configuration of an asset request
+// and stores a provider-neutral symbol. An explicit symbol takes precedence
+// over the ticker; both are canonicalized offline for the chosen market.
+func normalizeQuoteConfig(req *investmentAssetRequest) (string, bool) {
+	if req.QuoteSource == nil || strings.TrimSpace(*req.QuoteSource) == "" {
+		return "", true
+	}
+	market, _ := marketdata.ParseMarket(*req.QuoteSource)
+	source := string(market)
+	req.QuoteSource = &source
+
+	symbol := ""
+	if req.QuoteSymbol != nil {
+		symbol = strings.TrimSpace(*req.QuoteSymbol)
+	}
+	if symbol == "" {
+		if req.Ticker == nil || strings.TrimSpace(*req.Ticker) == "" {
+			return "Informe o ticker do ativo para buscar a cotação.", false
+		}
+		symbol = *req.Ticker
+	}
+	instrument, err := marketdata.ParseInstrument(market, symbol)
+	if err != nil {
+		return quoteConfigMessage(err), false
+	}
+	req.QuoteSymbol = &instrument.Symbol
+	return "", true
+}
+
+func quoteConfigMessage(err error) string {
+	var symbolErr *marketdata.SymbolError
+	if errors.As(err, &symbolErr) {
+		return "Ticker " + strconv.Quote(symbolErr.Input) + " não serve para o mercado de cotação escolhido: " + symbolErr.Reason + "."
+	}
+	return "Mercado de cotação inválido."
 }
 
 func handleListInvestmentAssets(conn *sql.DB) http.HandlerFunc {
@@ -778,6 +837,10 @@ func handleListInvestmentAssets(conn *sql.DB) http.HandlerFunc {
 	}
 }
 
+func handleInvestmentAssetClassification(w http.ResponseWriter, r *http.Request) {
+	writeInvestmentItems(w, investments.AssetClassification())
+}
+
 func handleCreateInvestmentAsset(conn *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req investmentAssetRequest
@@ -785,11 +848,20 @@ func handleCreateInvestmentAsset(conn *sql.DB) http.HandlerFunc {
 			writeInvestmentInvalid(w, "Não foi possível ler os dados enviados.")
 			return
 		}
+		if !quoteSourceKnown(req.QuoteSource) {
+			writeInvestmentInvalid(w, "Mercado de cotação desconhecido.")
+			return
+		}
+		if message, ok := normalizeQuoteConfig(&req); !ok {
+			writeInvestmentInvalid(w, message)
+			return
+		}
 		asset, err := investments.CreateAsset(r.Context(), conn, req.toInput())
 		if err != nil {
 			writeInvestmentProblem(w, err)
 			return
 		}
+		quotes.RequestBackfill()
 		writeJSON(w, http.StatusCreated, investmentAssetToDTO(asset))
 	}
 }
@@ -801,11 +873,20 @@ func handleUpdateInvestmentAsset(conn *sql.DB) http.HandlerFunc {
 			writeInvestmentInvalid(w, "Não foi possível ler os dados enviados.")
 			return
 		}
+		if !quoteSourceKnown(req.QuoteSource) {
+			writeInvestmentInvalid(w, "Mercado de cotação desconhecido.")
+			return
+		}
+		if message, ok := normalizeQuoteConfig(&req); !ok {
+			writeInvestmentInvalid(w, message)
+			return
+		}
 		asset, err := investments.UpdateAsset(r.Context(), conn, r.PathValue("id"), req.toInput())
 		if err != nil {
 			writeInvestmentProblem(w, err)
 			return
 		}
+		quotes.RequestBackfill()
 		writeJSON(w, http.StatusOK, investmentAssetToDTO(asset))
 	}
 }
@@ -915,6 +996,7 @@ func handleCreateInvestmentPosition(conn *sql.DB) http.HandlerFunc {
 			writeInvestmentProblem(w, err)
 			return
 		}
+		quotes.RequestBackfill()
 		writeJSON(w, http.StatusCreated, investmentPositionToDTO(position))
 	}
 }
@@ -954,6 +1036,7 @@ func handleUpdateInvestmentPosition(conn *sql.DB) http.HandlerFunc {
 			writeInvestmentProblem(w, err)
 			return
 		}
+		quotes.RequestBackfill()
 		writeJSON(w, http.StatusOK, investmentPositionToDTO(position))
 	}
 }
@@ -1057,6 +1140,7 @@ func handleCreateInvestmentOperation(conn *sql.DB) http.HandlerFunc {
 			writeInvestmentProblem(w, err)
 			return
 		}
+		quotes.RequestBackfill()
 		writeJSON(w, http.StatusCreated, investmentOperationToDTO(operation))
 	}
 }
@@ -1090,6 +1174,7 @@ func handleCreateInvestmentTransfer(conn *sql.DB) http.HandlerFunc {
 		for _, operation := range operations {
 			items = append(items, investmentOperationToDTO(operation))
 		}
+		quotes.RequestBackfill()
 		writeJSON(w, http.StatusCreated, map[string]any{"items": items})
 	}
 }
@@ -1121,6 +1206,7 @@ func handleUpdateInvestmentOperation(conn *sql.DB) http.HandlerFunc {
 			writeInvestmentProblem(w, err)
 			return
 		}
+		quotes.RequestBackfill()
 		writeJSON(w, http.StatusOK, investmentOperationToDTO(operation))
 	}
 }
@@ -1253,6 +1339,7 @@ func handleCreateInvestmentOperations(conn *sql.DB) http.HandlerFunc {
 		for _, op := range operations {
 			items = append(items, investmentOperationToDTO(op))
 		}
+		quotes.RequestBackfill()
 		writeJSON(w, http.StatusCreated, map[string]any{"items": items})
 	}
 }

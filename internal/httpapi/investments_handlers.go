@@ -3,6 +3,8 @@ package httpapi
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -10,23 +12,31 @@ import (
 	"github.com/shopspring/decimal"
 
 	"contadinho-go/internal/db"
+	"contadinho-go/internal/investments"
 	"contadinho-go/internal/money"
 )
 
 type investmentDTO struct {
-	ID                   string     `json:"id"`
-	ExternalID           string     `json:"external_id"`
-	SourceDisplayName    *string    `json:"source_display_name"`
-	InvestmentType       *string    `json:"investment_type"`
-	Subtype              *string    `json:"subtype"`
-	Name                 *string    `json:"name"`
-	Balance              *string    `json:"balance"`
-	CurrencyCode         *string    `json:"currency_code"`
-	Quantity             *string    `json:"quantity"`
-	Value                *string    `json:"value"`
-	Amount               *string    `json:"amount"`
-	AmountProfit         *string    `json:"amount_profit"`
-	AmountWithdrawal     *string    `json:"amount_withdrawal"`
+	ID                string  `json:"id"`
+	ExternalID        string  `json:"external_id"`
+	SourceDisplayName *string `json:"source_display_name"`
+	InvestmentType    *string `json:"investment_type"`
+	Subtype           *string `json:"subtype"`
+	Name              *string `json:"name"`
+	Balance           *string `json:"balance"`
+	CurrencyCode      *string `json:"currency_code"`
+	Quantity          *string `json:"quantity"`
+	Value             *string `json:"value"`
+	Amount            *string `json:"amount"`
+	AmountProfit      *string `json:"amount_profit"`
+	AmountWithdrawal  *string `json:"amount_withdrawal"`
+	// AmountOriginal/Taxes/Taxes2 are Pluggy's principal-applied/IR/IOF detail
+	// for FIXED_INCOME holdings (see the amount_original migration). Null for
+	// EQUITY, matching real Nubank data. The price-series yield is gross, so
+	// the IR/IOF here is what a caller deducts to state it net.
+	AmountOriginal       *string    `json:"amount_original"`
+	Taxes                *string    `json:"taxes"`
+	Taxes2               *string    `json:"taxes2"`
 	Rate                 *string    `json:"rate"`
 	RateType             *string    `json:"rate_type"`
 	FixedAnnualRate      *string    `json:"fixed_annual_rate"`
@@ -49,8 +59,9 @@ type investmentDTO struct {
 const investmentSelectColumns = `
 	fi.id, fi.external_id, ` + connectionNameColumn + `, fi.investment_type, fi.subtype, fi.name,
 	fi.balance, fi.currency_code, fi.quantity, fi.value, fi.amount, fi.amount_profit,
-	fi.amount_withdrawal, fi.rate, fi.rate_type, fi.fixed_annual_rate, fi.annual_rate,
-	fi.last_twelve_months_rate, fi.issuer, fi.due_date, fi.as_of_date, fi.provider_updated_at`
+	fi.amount_withdrawal, fi.amount_original, fi.taxes, fi.taxes2, fi.rate, fi.rate_type,
+	fi.fixed_annual_rate, fi.annual_rate, fi.last_twelve_months_rate, fi.issuer, fi.due_date,
+	fi.as_of_date, fi.provider_updated_at`
 
 func scanInvestment(row interface{ Scan(...any) error }) (investmentDTO, error) {
 	var (
@@ -61,7 +72,7 @@ func scanInvestment(row interface{ Scan(...any) error }) (investmentDTO, error) 
 	)
 	if err := row.Scan(&d.ID, &d.ExternalID, &d.SourceDisplayName, &d.InvestmentType, &d.Subtype, &d.Name,
 		&d.Balance, &d.CurrencyCode, &d.Quantity, &d.Value, &d.Amount, &d.AmountProfit,
-		&d.AmountWithdrawal, &d.Rate, &d.RateType, &d.FixedAnnualRate, &d.AnnualRate,
+		&d.AmountWithdrawal, &d.AmountOriginal, &d.Taxes, &d.Taxes2, &d.Rate, &d.RateType, &d.FixedAnnualRate, &d.AnnualRate,
 		&d.LastTwelveMonthsRate, &d.Issuer, &dueDateRaw, &asOfDateRaw, &providerUpdRaw); err != nil {
 		return investmentDTO{}, err
 	}
@@ -201,17 +212,50 @@ func historyCovers(info contributionInfo, investmentType *string) bool {
 }
 
 // applyYield fills YieldValue/YieldSource: Pluggy's own amount_profit when
-// the provider sends it ("informado"), otherwise balance minus net
-// contributed from the transaction history when that history is complete
-// enough to net against ("calculado"). When neither holds it leaves the
-// yield nil and says why, so the UI can distinguish a holding that simply
-// has no movements yet from one whose history the provider only half sent.
-func applyYield(d *investmentDTO, contributed map[string]contributionInfo) {
+// the provider sends it ("informado"), otherwise the rendimento since
+// inception derived from the asset's price series (investments.PositionYield,
+// "calculado"). Until the series covers the holding — no quote stored yet —
+// it falls back to balance minus net contributed from the transaction
+// history, when that history is complete enough to net against. When
+// nothing holds it leaves the yield nil and says why, so the UI can
+// distinguish a holding that simply has no movements yet from one whose
+// history the provider only half sent.
+//
+// The yield is display data, so it never fails the response: an unexpected
+// error from the price series is logged and the holding falls back to its
+// transaction history, as it did before price series existed.
+func applyYield(ctx context.Context, conn *sql.DB, cache *investments.YieldCache, d *investmentDTO, contributed map[string]contributionInfo) {
 	if d.AmountProfit != nil {
 		informado := "informado"
 		d.YieldValue, d.YieldSource = d.AmountProfit, &informado
 		return
 	}
+	result, err := investments.PositionYieldWith(ctx, conn, cache, d.ID, nil, investments.ProviderDay(time.Now()))
+	var reason *investments.YieldUnavailableError
+	switch {
+	case err == nil:
+		value := money.CanonicalDecimal(result.Value)
+		calculado := "calculado"
+		d.YieldValue, d.YieldSource = &value, &calculado
+		return
+	case !errors.As(err, &reason):
+		// A cancelled request has nobody left to read the answer; one line
+		// per holding of it would only be noise.
+		if ctx.Err() == nil {
+			log.Printf("investment_yield_failed investment_id=%s: %v", d.ID, err)
+		}
+	case reason.Reason != investments.YieldReasonNoPrice:
+		// The history itself cannot reach the purchase; netting the same
+		// history below would only restate that less carefully.
+		d.YieldUnavailableReason = &reason.Reason
+		return
+	}
+	applyHistoryYield(d, contributed)
+}
+
+// applyHistoryYield is the fallback for a holding the price series does not
+// cover yet: balance minus net contributed.
+func applyHistoryYield(d *investmentDTO, contributed map[string]contributionInfo) {
 	info := contributed[d.ID]
 	if info.movements == 0 {
 		reason := "sem_historico"
@@ -280,8 +324,10 @@ func handleListInvestments(conn *sql.DB) http.HandlerFunc {
 			writeProblem(w, 503, "investments-unavailable", "Investimentos temporariamente indisponíveis", "Tente novamente em instantes.")
 			return
 		}
+		// One cache per request: holdings of the same asset share its series.
+		cache := investments.NewYieldCache()
 		for i := range result {
-			applyYield(&result[i], contributed)
+			applyYield(r.Context(), conn, cache, &result[i], contributed)
 		}
 		writeJSON(w, http.StatusOK, result)
 	}
@@ -309,7 +355,7 @@ func handleGetInvestment(conn *sql.DB) http.HandlerFunc {
 			writeProblem(w, 503, "investments-unavailable", "Investimentos temporariamente indisponíveis", "Tente novamente em instantes.")
 			return
 		}
-		applyYield(&d, contributed)
+		applyYield(r.Context(), conn, nil, &d, contributed)
 		writeJSON(w, http.StatusOK, d)
 	}
 }

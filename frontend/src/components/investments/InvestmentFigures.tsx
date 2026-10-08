@@ -1,6 +1,10 @@
 import { Popover } from "antd";
 import type { ReactNode } from "react";
 
+import { moneyTone } from "../../presentation/money";
+import { Money } from "../shared/Money";
+import { formatPercent } from "./investmentMath";
+
 export type InvestmentFigure = { label: string; value: ReactNode; hint?: string };
 
 /**
@@ -29,5 +33,22 @@ export function InvestmentFigures({ figures }: { figures: InvestmentFigure[] }) 
         </div>
       ))}
     </dl>
+  );
+}
+
+/**
+ * Rendimento in R$ with its % beside it. The amount goes through the app's
+ * money rule for a result (explicit +/−, never colour alone), and the % takes
+ * the same tone so the two read as one figure.
+ */
+export function InvestmentYieldValue({ gain, percent }: { gain: string; percent: number | null }) {
+  const { color } = moneyTone(gain, "result");
+  return (
+    <span className="investment-yield">
+      <Money value={gain} tone="result" />
+      {percent !== null && (
+        <span className={`investment-yield-percent money-${color}`}>{formatPercent(percent)}</span>
+      )}
+    </span>
   );
 }

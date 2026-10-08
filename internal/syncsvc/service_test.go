@@ -577,6 +577,71 @@ func TestExecuteInsertsInvestmentAndItsTransactions(t *testing.T) {
 	}
 }
 
+// TestExecuteUpsertsInvestmentTaxFields covers amount_original/taxes/taxes2:
+// the Pluggy FIXED_INCOME (CDB/LCA) detail fields that were previously parsed
+// nowhere and silently dropped. The first Execute must persist them on
+// INSERT; a second Execute with a changed taxes value must persist the new
+// value on UPDATE (InvestmentHash includes the three, so the changed digest
+// takes the update branch rather than being treated as unchanged).
+func TestExecuteUpsertsInvestmentTaxFields(t *testing.T) {
+	conn := newTestConn(t)
+	sourceID, syncRunID1 := newSyncRun(t, conn)
+	insertRawImport(t, conn, "raw-investments-1", syncRunID1, sourceID)
+
+	provider := &fakeProvider{
+		source: investmentSafeSource(),
+		investmentsPage: pluggy.InvestmentsPage{
+			RawImportID: "raw-investments-1",
+			Investments: []pluggy.InvestmentSnapshot{{
+				ExternalID: "inv-1", InvestmentType: strp("FIXED_INCOME"), Balance: amountP("1015.32"),
+				AmountOriginal: amountP("900.00"), Taxes: amountP("15.00"), Taxes2: amountP("2.50"),
+			}},
+		},
+	}
+	if err := (&syncsvc.Service{DB: conn, Provider: provider, SyncRunID: syncRunID1, SourceID: sourceID}).Execute(context.Background()); err != nil {
+		t.Fatalf("first Execute: %v", err)
+	}
+
+	var amountOriginal, taxes, taxes2 string
+	if err := conn.QueryRow(`SELECT amount_original, taxes, taxes2 FROM financial_investments WHERE external_id = 'inv-1'`).
+		Scan(&amountOriginal, &taxes, &taxes2); err != nil {
+		t.Fatalf("query tax fields after insert: %v", err)
+	}
+	if amountOriginal != "900.00" || taxes != "15.00" || taxes2 != "2.50" {
+		t.Errorf("after insert: amount_original=%q taxes=%q taxes2=%q, want 900.00/15.00/2.50", amountOriginal, taxes, taxes2)
+	}
+
+	now := db.FormatTime(time.Now())
+	syncRunID2 := uuid.NewString()
+	if _, err := conn.Exec(`INSERT INTO sync_runs (id, source_id, status, started_at) VALUES (?, ?, 'in_progress', ?)`, syncRunID2, sourceID, now); err != nil {
+		t.Fatalf("insert second sync_run: %v", err)
+	}
+	insertRawImport(t, conn, "raw-investments-2", syncRunID2, sourceID)
+	provider.investmentsPage = pluggy.InvestmentsPage{
+		RawImportID: "raw-investments-2",
+		Investments: []pluggy.InvestmentSnapshot{{
+			ExternalID: "inv-1", InvestmentType: strp("FIXED_INCOME"), Balance: amountP("1015.32"),
+			AmountOriginal: amountP("900.00"), Taxes: amountP("18.40"), Taxes2: amountP("2.50"),
+		}},
+	}
+	if err := (&syncsvc.Service{DB: conn, Provider: provider, SyncRunID: syncRunID2, SourceID: sourceID}).Execute(context.Background()); err != nil {
+		t.Fatalf("second Execute: %v", err)
+	}
+
+	var investmentCount int
+	conn.QueryRow(`SELECT COUNT(*) FROM financial_investments`).Scan(&investmentCount)
+	if investmentCount != 1 {
+		t.Fatalf("investmentCount = %d, want 1 (update in place, not a duplicate insert)", investmentCount)
+	}
+	if err := conn.QueryRow(`SELECT amount_original, taxes, taxes2 FROM financial_investments WHERE external_id = 'inv-1'`).
+		Scan(&amountOriginal, &taxes, &taxes2); err != nil {
+		t.Fatalf("query tax fields after update: %v", err)
+	}
+	if amountOriginal != "900.00" || taxes != "18.40" || taxes2 != "2.50" {
+		t.Errorf("after update: amount_original=%q taxes=%q taxes2=%q, want 900.00/18.40/2.50", amountOriginal, taxes, taxes2)
+	}
+}
+
 func TestExecuteSkipsInvestmentsWhenNotSafe(t *testing.T) {
 	conn := newTestConn(t)
 	sourceID, syncRunID := newSyncRun(t, conn)

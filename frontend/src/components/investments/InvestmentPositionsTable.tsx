@@ -6,10 +6,11 @@ import { Link, useNavigate } from "react-router-dom";
 import type { InvestmentPortfolio, InvestmentPosition } from "../../api/contracts";
 import { investmentValuationBasisLabel } from "../../presentation/investmentWorkspaceLabels";
 import { formatDecimal } from "../../presentation/investmentLabels";
-import { formatMoney } from "../../presentation/money";
+import { formatBRL, formatMoney } from "../../presentation/money";
 import { EmptyState, ResponsiveList } from "../layout";
 import { Money } from "../shared/Money";
-import { formatDate, positionYield } from "./investmentMath";
+import { InvestmentYieldValue } from "./InvestmentFigures";
+import { formatDate, isZeroBRL, positionYield, type LinkedInvestments } from "./investmentMath";
 import { RecordMenu, type RecordMenuItem } from "../shared/RecordMenu";
 import { useConfirm } from "../shared/useConfirm";
 
@@ -23,20 +24,33 @@ function PositionValue({ position }: { position: InvestmentPosition }) {
 }
 
 /**
- * Rentabilidade: a signed result, or why there is none. The reason is plain
- * text next to the figure (not a hover tooltip), so a phone can read it too.
+ * Rendimento líquido: a signed result with its %, or why there is none. The
+ * reason is plain text next to the figure (not a hover tooltip), so a phone
+ * can read it too.
  */
-function YieldCell({ position, short = false }: { position: InvestmentPosition; short?: boolean }) {
-  const estimate = positionYield(position);
+function YieldCell({
+  position,
+  linked,
+  cost,
+  short = false,
+}: {
+  position: InvestmentPosition;
+  linked: LinkedInvestments;
+  cost: string;
+  short?: boolean;
+}) {
+  const estimate = positionYield(position, linked, cost);
   if (!estimate.known) {
     return <span className="investment-quiet">{short ? estimate.short : estimate.reason}</span>;
   }
-  return <Money value={estimate.value} tone="result" />;
+  return <InvestmentYieldValue gain={estimate.value} percent={estimate.percent} />;
 }
 
 export function InvestmentPositionsTable({
   positions,
   portfolios,
+  costs,
+  linked,
   accountNameOf,
   showAccount = false,
   showGoal = true,
@@ -50,6 +64,9 @@ export function InvestmentPositionsTable({
 }: {
   positions: InvestmentPosition[];
   portfolios: InvestmentPortfolio[];
+  /** position_id -> taxas e impostos lançados nas movimentações dessa posição. */
+  costs: Record<string, string>;
+  linked: LinkedInvestments;
   accountNameOf?: (accountId: string) => string;
   showAccount?: boolean;
   /** The goal column: off inside a goal's own section, where every row has that goal. */
@@ -68,6 +85,7 @@ export function InvestmentPositionsTable({
     portfolios.find((portfolio) => portfolio.id === position.portfolio_id)?.name ?? null;
   const subtitle = (position: InvestmentPosition) =>
     [position.ticker, position.asset_type].filter(Boolean).join(" · ");
+  const costOf = (position: InvestmentPosition) => costs[position.id] ?? null;
 
   /**
    * An imported position is the institution's record: only the goal, which is
@@ -176,7 +194,14 @@ export function InvestmentPositionsTable({
       title: "Quantidade",
       key: "quantity",
       align: "right",
-      render: (_, position) => <span className="investment-number">{formatDecimal(position.quantity)}</span>,
+      render: (_, position) => (
+        <div className="investment-cell investment-cell-end">
+          <span className="investment-number">{formatDecimal(position.quantity)}</span>
+          {!isZeroBRL(position.average_cost) && (
+            <span className="investment-quiet">Custo médio {formatBRL(position.average_cost as string)}</span>
+          )}
+        </div>
+      ),
     },
     {
       title: "Valor atual",
@@ -194,14 +219,18 @@ export function InvestmentPositionsTable({
       ),
     },
     {
-      title: "Rentabilidade",
+      title: "Rendimento líquido",
       key: "yield",
       align: "right",
-      render: (_, position) => (
-        <div className="investment-cell investment-cell-end">
-          <YieldCell position={position} />
-        </div>
-      ),
+      render: (_, position) => {
+        const cost = costOf(position);
+        return (
+          <div className="investment-cell investment-cell-end">
+            <YieldCell position={position} linked={linked} cost={cost ?? "0"} />
+            {!isZeroBRL(cost) && <span className="investment-quiet">IR/Taxas {formatBRL(cost as string)}</span>}
+          </div>
+        );
+      },
     },
     {
       title: <span className="investment-visually-hidden">Ações</span>,
@@ -230,7 +259,7 @@ export function InvestmentPositionsTable({
                 <PositionValue position={position} />
               </span>
               <span className="investment-row-yield">
-                <YieldCell position={position} short />
+                <YieldCell position={position} linked={linked} cost={costOf(position) ?? "0"} short />
               </span>
             </span>
             {menu(position)}

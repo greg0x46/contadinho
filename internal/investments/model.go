@@ -43,6 +43,9 @@ const (
 	ValuationBasisManualValuation ValuationBasis = "manual_valuation"
 	ValuationBasisCostBasis       ValuationBasis = "cost_basis"
 	ValuationBasisProviderBalance ValuationBasis = "provider_balance"
+	// ValuationBasisMarketQuote is a manual holding valued at its asset's
+	// latest price in the quote series, derived on read.
+	ValuationBasisMarketQuote ValuationBasis = "market_quote"
 )
 
 type OperationKind string
@@ -111,16 +114,26 @@ type Asset struct {
 	Name         string
 	Ticker       *string
 	AssetType    string
+	AssetClass   AssetClass
 	CurrencyCode string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// QuoteSource stores the market ("b3" or "crypto"); QuoteSymbol stores
+	// its provider-neutral symbol ("PETR4" or "BTC"). Only relevant for manual
+	// positions of this asset — a synced position already carries its own
+	// provider quote and never reads these.
+	QuoteSource *string
+	QuoteSymbol *string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type AssetInput struct {
 	Name         string
 	Ticker       *string
 	AssetType    string
+	AssetClass   AssetClass
 	CurrencyCode string
+	QuoteSource  *string
+	QuoteSymbol  *string
 }
 
 type Position struct {

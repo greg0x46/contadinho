@@ -105,6 +105,78 @@ func insertInvestmentMovement(t *testing.T, conn *sql.DB, investmentID, movement
 	}
 }
 
+// insertInvestmentWithTaxFields inserts a financial_investments row with an
+// explicit investment_type plus the amount_original/taxes/taxes2 columns
+// Feature 1 added, without touching insertInvestment's fixed MUTUAL_FUND
+// shape the other tests in this file depend on. Nil arguments leave the
+// columns NULL, matching how Pluggy actually sends EQUITY holdings.
+func insertInvestmentWithTaxFields(t *testing.T, conn *sql.DB, investmentType string, amountOriginal, taxes, taxes2 any) string {
+	t.Helper()
+	now := db.FormatTime(time.Now())
+	sourceID, syncRunID, rawImportID, investmentID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
+	exec := func(query string, args ...any) {
+		t.Helper()
+		if _, err := conn.Exec(query, args...); err != nil {
+			t.Fatalf("exec %q: %v", query, err)
+		}
+	}
+	exec(`INSERT INTO data_sources (id, provider, external_item_id, display_name, created_at, updated_at)
+		VALUES (?, 'pluggy', ?, 'Banco Exemplo', ?, ?)`, sourceID, sourceID, now, now)
+	exec(`INSERT INTO sync_runs (id, source_id, status, started_at, finished_at)
+		VALUES (?, ?, 'completed', ?, ?)`, syncRunID, sourceID, now, now)
+	exec(`INSERT INTO raw_imports (
+			id, sync_run_id, source_id, scope, page_sequence, request_attempt,
+			request_method, request_path, http_status, response_headers, payload,
+			payload_sha256, received_at
+		) VALUES (?, ?, ?, 'investments', 1, 1, 'GET', '/x', 200, '{}', x'00', 'sha', ?)`,
+		rawImportID, syncRunID, sourceID, now)
+	exec(`INSERT INTO financial_investments (
+			id, source_id, external_id, investment_type, name, balance, currency_code,
+			amount_original, taxes, taxes2,
+			current_raw_import_id, normalized_hash, created_at, updated_at
+		) VALUES (?, ?, ?, ?, 'Fundo XYZ', '1000.50', 'BRL', ?, ?, ?, ?, 'hash', ?, ?)`,
+		investmentID, sourceID, investmentID, investmentType, amountOriginal, taxes, taxes2, rawImportID, now, now)
+	return investmentID
+}
+
+// TestListInvestmentsRoundTripsTaxFieldsForFixedIncomeOnly covers
+// amount_original/taxes/taxes2 end to end through GET /api/investments: a
+// FIXED_INCOME holding (what real Nubank CDB/LCA data sends) must expose all
+// three, while an EQUITY holding (which Pluggy never populates them for)
+// must come back null rather than some zero-value placeholder.
+func TestListInvestmentsRoundTripsTaxFieldsForFixedIncomeOnly(t *testing.T) {
+	srv, conn := newTestServer(t)
+	fixedIncomeID := insertInvestmentWithTaxFields(t, conn, "FIXED_INCOME", "900.00", "15.00", "2.50")
+	equityID := insertInvestmentWithTaxFields(t, conn, "EQUITY", nil, nil, nil)
+
+	resp, err := testGet(t, srv.URL+"/api/investments")
+	if err != nil {
+		t.Fatalf("GET /api/investments: %v", err)
+	}
+	var investments []map[string]any
+	decodeJSON(t, resp, &investments)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	byID := map[string]map[string]any{}
+	for _, inv := range investments {
+		byID[inv["id"].(string)] = inv
+	}
+
+	fixedIncome := byID[fixedIncomeID]
+	if fixedIncome["amount_original"] != "900.00" || fixedIncome["taxes"] != "15.00" || fixedIncome["taxes2"] != "2.50" {
+		t.Errorf("FIXED_INCOME tax fields = amount_original=%v taxes=%v taxes2=%v, want 900.00/15.00/2.50",
+			fixedIncome["amount_original"], fixedIncome["taxes"], fixedIncome["taxes2"])
+	}
+
+	equity := byID[equityID]
+	if equity["amount_original"] != nil || equity["taxes"] != nil || equity["taxes2"] != nil {
+		t.Errorf("EQUITY tax fields = amount_original=%v taxes=%v taxes2=%v, want all null",
+			equity["amount_original"], equity["taxes"], equity["taxes2"])
+	}
+}
+
 func TestListInvestmentsReturnsSyncedHoldings(t *testing.T) {
 	srv, conn := newTestServer(t)
 	investmentID := insertInvestment(t, conn)

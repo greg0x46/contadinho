@@ -11,6 +11,11 @@ export default defineConfig({
       "/api": apiProxyTarget,
       "/health": apiProxyTarget,
     },
+    // Only set when the dev server is reached through a hostname Vite
+    // wouldn't otherwise trust.
+    allowedHosts: process.env.CONTADINHO_DEV_ALLOWED_HOST
+      ? [process.env.CONTADINHO_DEV_ALLOWED_HOST]
+      : undefined,
   },
   test: {
     environment: "jsdom",

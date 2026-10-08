@@ -51,6 +51,15 @@ export function InvestmentHeaderCard({
     ...(investment.source_display_name !== null
       ? [{ label: "Instituição", value: investment.source_display_name }]
       : []),
+    ...(investment.amount_original !== null
+      ? [{ label: "Valor aplicado", value: <Money value={investment.amount_original} tone="neutral" /> }]
+      : []),
+    ...(investment.taxes !== null
+      ? [{ label: "IR retido", value: <Money value={investment.taxes} tone="neutral" /> }]
+      : []),
+    ...(investment.taxes2 !== null
+      ? [{ label: "IOF retido", value: <Money value={investment.taxes2} tone="neutral" /> }]
+      : []),
     ...(investment.annual_rate !== null ? [{ label: "Taxa anual", value: `${formatDecimal(investment.annual_rate)}%` }] : []),
     ...(investment.last_twelve_months_rate !== null
       ? [{ label: "Rentabilidade 12 meses", value: `${formatDecimal(investment.last_twelve_months_rate)}%` }]

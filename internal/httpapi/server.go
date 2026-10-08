@@ -55,6 +55,7 @@ func NewServer(db *sql.DB, frontend fs.FS, secrets *settings.Secrets, config aut
 	mux.HandleFunc("PUT /api/auth/password", authentication.password)
 	mux.HandleFunc("PUT /api/auth/config", authentication.updateConfig)
 	mux.HandleFunc("PUT /api/settings/pluggy", handlePluggySettings(db, secrets))
+	mux.HandleFunc("PUT /api/settings/quotes", handleQuotesSettings(db, secrets))
 
 	mux.HandleFunc("GET /api/preferences", handleGetPreferences(db))
 	mux.HandleFunc("PUT /api/preferences", handleUpdatePreferences(db))
@@ -114,12 +115,14 @@ func NewServer(db *sql.DB, frontend fs.FS, secrets *settings.Secrets, config aut
 	mux.HandleFunc("DELETE /api/investment-portfolios/{id}", handleDeleteInvestmentPortfolio(db))
 
 	mux.HandleFunc("GET /api/investment-assets", handleListInvestmentAssets(db))
+	mux.HandleFunc("GET /api/investment-asset-classification", handleInvestmentAssetClassification)
 	mux.HandleFunc("POST /api/investment-assets", handleCreateInvestmentAsset(db))
 	mux.HandleFunc("PUT /api/investment-assets/{id}", handleUpdateInvestmentAsset(db))
 	mux.HandleFunc("DELETE /api/investment-assets/{id}", handleDeleteInvestmentAsset(db))
 
 	mux.HandleFunc("GET /api/investment-positions", handleListInvestmentPositions(db))
 	mux.HandleFunc("GET /api/investment-positions/{id}", handleGetInvestmentPosition(db))
+	mux.HandleFunc("GET /api/investment-positions/{id}/yield", handleGetInvestmentPositionYield(db))
 	mux.HandleFunc("POST /api/investment-positions", handleCreateInvestmentPosition(db))
 	mux.HandleFunc("PUT /api/investment-positions/{id}", handleUpdateInvestmentPosition(db))
 	mux.HandleFunc("DELETE /api/investment-positions/{id}", handleDeleteInvestmentPosition(db))

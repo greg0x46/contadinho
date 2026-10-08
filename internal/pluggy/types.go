@@ -136,11 +136,26 @@ type InvestmentSnapshot struct {
 	Amount               *decimal.Decimal
 	AmountProfit         *decimal.Decimal
 	AmountWithdrawal     *decimal.Decimal
-	AsOfDate             *time.Time
-	ProviderUpdatedAt    *time.Time
-	ISIN                 *string
-	Code                 *string
-	ProviderStatus       *string
+	// AmountOriginal is the principal originally applied. Taxes is Pluggy's
+	// "taxes" (IR provisioned) and Taxes2 its "taxes2" (IOF, regressive,
+	// nonzero only in the holding's first 30 days) — both empirically
+	// verified against real Nubank FIXED_INCOME data; Pluggy never populates
+	// any of the three for EQUITY.
+	AmountOriginal *decimal.Decimal
+	Taxes          *decimal.Decimal
+	Taxes2         *decimal.Decimal
+	AsOfDate       *time.Time
+	// IssueDate, PurchaseDate and IssuerCNPJ identify a fixed income title
+	// when the provider sends no code/isin: two holdings with the same
+	// issuer, rate, issue and due date carry the same unit price (PU), so
+	// they are the same instrument. See investments.FixedIncomeCode.
+	IssueDate         *time.Time
+	PurchaseDate      *time.Time
+	IssuerCNPJ        *string
+	ProviderUpdatedAt *time.Time
+	ISIN              *string
+	Code              *string
+	ProviderStatus    *string
 }
 
 // InvestmentTransactionSnapshot mirrors one movement (buy/sell/dividend/...)

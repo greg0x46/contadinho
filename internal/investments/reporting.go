@@ -70,8 +70,9 @@ func ReconciledTransactionAmount(ctx context.Context, q Querier, financialTransa
 }
 
 // ManualNetWorth is the manual investment asset contribution: manual
-// holdings at their latest manual valuation (or their replayed cost basis)
-// plus book cash only when that cash is not already represented by a linked
+// holdings at their current value (the latest quote of an asset priced from a
+// market, or the latest manual valuation, or their replayed cost basis) plus
+// book cash only when that cash is not already represented by a linked
 // provider account. It intentionally does not include provider holdings.
 func ManualNetWorth(ctx context.Context, q Querier) (decimal.Decimal, error) {
 	accounts, err := ListAccounts(ctx, q)

@@ -4,6 +4,7 @@ import {
   parseInvestmentAccountList,
   parseInvestmentAsset,
   parseInvestmentAssetList,
+  parseInvestmentAssetClassification,
   parseInvestmentOperation,
   parseInvestmentOperationList,
   parseInvestmentPortfolio,
@@ -19,6 +20,7 @@ import {
   type InvestmentAccountWrite,
   type InvestmentAsset,
   type InvestmentAssetWrite,
+  type InvestmentAssetClassDefinition,
   type InvestmentOperation,
   type InvestmentOperationWrite,
   type InvestmentPortfolio,
@@ -114,6 +116,10 @@ export function deleteInvestmentAccount(accountId: string): Promise<void> {
 
 export function listInvestmentAssets(signal?: AbortSignal): Promise<InvestmentAsset[]> {
   return send("/api/investment-assets", { ...get, signal }, 200, parseInvestmentAssetList);
+}
+
+export function listInvestmentAssetClassification(signal?: AbortSignal): Promise<InvestmentAssetClassDefinition[]> {
+  return send("/api/investment-asset-classification", { ...get, signal }, 200, parseInvestmentAssetClassification);
 }
 
 export function createInvestmentAsset(write: InvestmentAssetWrite): Promise<InvestmentAsset> {

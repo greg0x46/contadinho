@@ -119,7 +119,7 @@ func (s positionScope) where(column string) (string, []any) {
 func listManualPositions(ctx context.Context, q Querier, scope positionScope) ([]Position, error) {
 	where, args := scope.where("p.id")
 	rows, err := q.QueryContext(ctx, `
-		SELECT p.id, p.account_id, p.asset_id, a.name, a.ticker, a.asset_type, p.notes,
+		SELECT p.id, p.account_id, p.asset_id, a.name, a.ticker, a.asset_type, a.quote_source, p.notes,
 		       p.created_at, p.updated_at, pp.portfolio_id
 		FROM investment_positions p
 		JOIN investment_assets a ON a.id = p.asset_id
@@ -132,17 +132,20 @@ func listManualPositions(ctx context.Context, q Querier, scope positionScope) ([
 	defer rows.Close()
 
 	positions := []Position{}
+	// quoted marks the assets whose price series values their holdings.
+	quoted := map[string]bool{}
 	for rows.Next() {
 		var (
-			position                   Position
-			ticker, notes, portfolioID sql.NullString
-			createdAtRaw, updatedAtRaw string
+			position                                Position
+			ticker, quoteSource, notes, portfolioID sql.NullString
+			createdAtRaw, updatedAtRaw              string
 		)
 		var assetID string
 		if err := rows.Scan(&position.ID, &position.AccountID, &assetID, &position.Name, &ticker, &position.AssetType,
-			&notes, &createdAtRaw, &updatedAtRaw, &portfolioID); err != nil {
+			&quoteSource, &notes, &createdAtRaw, &updatedAtRaw, &portfolioID); err != nil {
 			return nil, err
 		}
+		quoted[assetID] = quoteSource.Valid && quoteSource.String != ""
 		position.Source = PositionSourceManual
 		position.AssetID = &assetID
 		position.ValuationBasis = ValuationBasisCostBasis
@@ -175,6 +178,7 @@ func listManualPositions(ctx context.Context, q Querier, scope positionScope) ([
 	}
 
 	ledgers := map[string]accountLedger{}
+	latest := map[string]*AssetQuote{} // per asset: one lookup however many accounts hold it
 	for i := range positions {
 		ledger, ok := ledgers[positions[i].AccountID]
 		if !ok {
@@ -183,7 +187,16 @@ func listManualPositions(ctx context.Context, q Querier, scope positionScope) ([
 			}
 			ledgers[positions[i].AccountID] = ledger
 		}
-		if err := applyLedgerState(&positions[i], ledger.positions[positions[i].ID]); err != nil {
+		var quote *AssetQuote
+		if assetID := *positions[i].AssetID; quoted[assetID] {
+			if quote, ok = latest[assetID]; !ok {
+				if quote, err = LatestAssetQuote(ctx, q, assetID); err != nil {
+					return nil, err
+				}
+				latest[assetID] = quote
+			}
+		}
+		if err := applyLedgerState(&positions[i], ledger.positions[positions[i].ID], quote); err != nil {
 			return nil, err
 		}
 	}
@@ -191,10 +204,17 @@ func listManualPositions(ctx context.Context, q Querier, scope positionScope) ([
 }
 
 // applyLedgerState copies the replayed holding onto the position. Without a
-// dated valuation the holding is reported at cost and identified as such,
-// rather than carrying an invented quote. Values come from the ledger's exact
-// totals; the unit figures are derived for display and never multiplied back.
-func applyLedgerState(position *Position, state *positionLedger) error {
+// dated valuation or a market quote the holding is reported at cost and
+// identified as such, rather than carrying an invented quote. Values come from
+// the ledger's exact totals; the unit figures are derived for display and never
+// multiplied back.
+//
+// quote is the latest price in the series of an asset that has a quote
+// market, nil otherwise. The most recent statement about the price wins: a
+// quote dated after the last typed valuation values the holding at quantity ×
+// price, derived on every read, and on the same day the typed valuation wins.
+// An old quote keeps valuing the holding, and ValuedOn says how old it is.
+func applyLedgerState(position *Position, state *positionLedger, quote *AssetQuote) error {
 	if state == nil {
 		return nil
 	}
@@ -203,6 +223,18 @@ func applyLedgerState(position *Position, state *positionLedger) error {
 	position.AverageCost = &averageCost
 	position.TotalCost = &totalCost
 	position.Closed = quantity.IsZero()
+	valuedDay, err := state.valuedDay()
+	if err != nil {
+		return err
+	}
+	if quote != nil && quantity.IsPositive() && (valuedDay == nil || valuedDay.Before(quote.QuotedOn)) {
+		unitPrice, quotedOn := quote.Price, quote.QuotedOn
+		position.ValuationBasis = ValuationBasisMarketQuote
+		position.CurrentValue = quantity.Mul(unitPrice).Round(2)
+		position.CurrentUnitPrice = &unitPrice
+		position.ValuedOn = &quotedOn
+		return nil
+	}
 	if state.valuationTotal == nil {
 		position.CurrentValue = totalCost
 		return nil
@@ -213,13 +245,7 @@ func applyLedgerState(position *Position, state *positionLedger) error {
 		unitPrice := state.valuationUnitPrice()
 		position.CurrentUnitPrice = &unitPrice
 	}
-	if state.valuedOn != nil {
-		valuedOn, err := parseDate(state.valuedOn.value)
-		if err != nil {
-			return err
-		}
-		position.ValuedOn = &valuedOn
-	}
+	position.ValuedOn = valuedDay
 	return nil
 }
 
@@ -230,12 +256,8 @@ func applyLedgerState(position *Position, state *positionLedger) error {
 func listSyncedPositions(ctx context.Context, q Querier, scope positionScope) ([]Position, error) {
 	where, args := scope.where("fi.id")
 	rows, err := q.QueryContext(ctx, `
-		SELECT fi.id, ia.id,
-		       COALESCE(NULLIF(fi.name, ''), NULLIF(fi.code, ''), NULLIF(fi.isin, ''), fi.external_id),
-		       COALESCE(NULLIF(fi.code, ''), NULLIF(fi.isin, '')),
-		       COALESCE(NULLIF(fi.investment_type, ''), NULLIF(fi.subtype, ''), 'Investimento'),
-		       fi.balance, fi.quantity, fi.value, fi.currency_code, fi.as_of_date, fi.created_at, fi.updated_at,
-		       pp.portfolio_id
+		SELECT fi.id, ia.id, fi.balance, fi.created_at, fi.updated_at, pp.portfolio_id,
+		       `+syncedHoldingColumns+`
 		FROM financial_investments fi
 		JOIN investment_accounts ia ON ia.source_id = fi.source_id
 		LEFT JOIN investment_position_portfolios pp ON pp.financial_investment_id = fi.id
@@ -247,30 +269,30 @@ func listSyncedPositions(ctx context.Context, q Querier, scope positionScope) ([
 	defer rows.Close()
 
 	positions := []Position{}
+	holdings := []SyncedHolding{}
 	for rows.Next() {
 		var (
-			position                                       Position
-			ticker, balance, quantity, unitPrice, currency sql.NullString
-			asOfDateRaw, portfolioID                       sql.NullString
-			createdAtRaw, updatedAtRaw                     string
+			position                   Position
+			balance, portfolioID       sql.NullString
+			createdAtRaw, updatedAtRaw string
+			row                        syncedHoldingRow
 		)
-		if err := rows.Scan(&position.ID, &position.AccountID, &position.Name, &ticker, &position.AssetType,
-			&balance, &quantity, &unitPrice, &currency, &asOfDateRaw, &createdAtRaw, &updatedAtRaw,
-			&portfolioID); err != nil {
+		if err := rows.Scan(append([]any{&position.ID, &position.AccountID, &balance, &createdAtRaw, &updatedAtRaw,
+			&portfolioID}, row.dests()...)...); err != nil {
+			return nil, err
+		}
+		holding, err := row.holding()
+		if err != nil {
 			return nil, err
 		}
 		linked := position.ID
 		position.Source = PositionSourceSynced
 		position.ValuationBasis = ValuationBasisProviderBalance
 		position.LinkedInvestmentID = &linked
-		if ticker.Valid {
-			v := ticker.String
-			position.Ticker = &v
-		}
-		if currency.Valid {
-			v := currency.String
-			position.CurrencyCode = &v
-		}
+		position.Name = holding.DisplayName()
+		position.Ticker = holding.Ticker()
+		position.AssetType = holding.AssetType()
+		position.CurrencyCode = holding.CurrencyCode
 		if portfolioID.Valid {
 			v := portfolioID.String
 			position.PortfolioID = &v
@@ -282,26 +304,12 @@ func listSyncedPositions(ctx context.Context, q Querier, scope positionScope) ([
 			}
 			position.CurrentValue = value
 		}
-		if quantity.Valid {
-			value, err := decimal.NewFromString(quantity.String)
-			if err != nil {
-				return nil, err
-			}
-			position.Quantity = value
+		if holding.Quantity != nil {
+			position.Quantity = *holding.Quantity
 		}
-		if unitPrice.Valid {
-			value, err := decimal.NewFromString(unitPrice.String)
-			if err != nil {
-				return nil, err
-			}
-			position.CurrentUnitPrice = &value
-		}
-		valuedOn, err := db.ParseNullTime(asOfDateRaw)
-		if err != nil {
-			return nil, err
-		}
-		if valuedOn != nil {
-			day := Day(*valuedOn)
+		position.CurrentUnitPrice = holding.Value
+		if holding.AsOfDate != nil {
+			day := Day(*holding.AsOfDate)
 			position.ValuedOn = &day
 		}
 		createdAt, err := parseTimestamp(createdAtRaw)
@@ -317,6 +325,7 @@ func listSyncedPositions(ctx context.Context, q Querier, scope positionScope) ([
 		// closed for the same reason a manual holding with no quantity is.
 		position.Closed = position.CurrentValue.IsZero()
 		positions = append(positions, position)
+		holdings = append(holdings, holding)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -328,11 +337,7 @@ func listSyncedPositions(ctx context.Context, q Querier, scope positionScope) ([
 	// This lets a BTC imported from one institution and a BTC held manually in
 	// another account share identity while provider balances stay read-only.
 	for i := range positions {
-		currency := "BRL"
-		if positions[i].CurrencyCode != nil {
-			currency = *positions[i].CurrencyCode
-		}
-		asset, err := ensureAsset(ctx, q, positions[i].Name, positions[i].Ticker, positions[i].AssetType, currency)
+		asset, err := ResolveSyncedAsset(ctx, q, holdings[i])
 		if err != nil {
 			return nil, err
 		}
@@ -469,6 +474,14 @@ func UpdatePosition(ctx context.Context, conn *sql.DB, id string, in PositionUpd
 	if name == "" || assetType == "" || current.AssetID == nil {
 		return Position{}, ErrInvalidInput
 	}
+	asset, err := GetAsset(ctx, tx, *current.AssetID)
+	if err != nil {
+		return Position{}, err
+	}
+	assetClass := asset.AssetClass
+	if assetType != asset.AssetType {
+		assetClass = InferAssetClass(assetType)
+	}
 	// The asset is shared by every position of the same instrument, so the
 	// new identity must not collide with another catalog entry: the UNIQUE
 	// index would refuse it anyway, but as a storage error, not a conflict.
@@ -479,9 +492,9 @@ func UpdatePosition(ctx context.Context, conn *sql.DB, id string, in PositionUpd
 		return Position{}, ErrAssetAlreadyExists
 	}
 	if _, err := tx.ExecContext(ctx, `
-		UPDATE investment_assets SET canonical_key = ?, name = ?, ticker = ?, asset_type = ?, updated_at = ?
+		UPDATE investment_assets SET canonical_key = ?, name = ?, ticker = ?, asset_type = ?, asset_class = ?, updated_at = ?
 		WHERE id = ?`,
-		key, name, nullableString(trimOptional(in.Ticker)), assetType,
+		key, name, nullableString(trimOptional(in.Ticker)), assetType, assetClass,
 		db.FormatTime(time.Now()), *current.AssetID); err != nil {
 		return Position{}, err
 	}

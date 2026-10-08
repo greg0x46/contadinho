@@ -82,9 +82,10 @@ de autenticação independente da hospedagem:
 - **Patrimônio líquido** — snapshots e histórico de patrimônio (ativos −
   passivos) ao longo do tempo.
 - **Investimentos** — contas de investimento integradas e manuais, carteiras
-  por objetivo, operações por ativo e avaliações manuais. Aportes e resgates
-  conciliados com o extrato aparecem separados dos gastos, preservando seu
-  efeito no caixa e evitando duplicação no patrimônio.
+  por objetivo, operações por ativo, avaliações manuais e cotação automática
+  opcional (B3 e criptomoedas). Aportes e resgates conciliados com o extrato
+  aparecem separados dos gastos, preservando seu efeito no caixa e evitando
+  duplicação no patrimônio.
 - **Autenticação por navegador** — login com e-mail e senha para a conta
   proprietária, sessões persistidas, saída e troca de senha. Sem cadastro público.
 - **Segredos criptografados em repouso** — credenciais Pluggy protegidas com
@@ -148,25 +149,15 @@ Os contratos e limites estão na [referência de investimentos](.specs/contextos
 Antes de iniciar, configure a chave de criptografia e crie ou migre a conta.
 O servidor recusa iniciar sem autenticação preparada ou com chave inválida.
 
-### Deploy no homelab
+### Publicar e instalar uma versão
 
-Com a configuração persistente já instalada em
-`/home/greg0x46/contadinho`, publique a versão atual com:
-
-```sh
-./deploy.sh
-```
-
-O script instala as dependências exatas do frontend, compila o binário para
-Linux/amd64, envia-o por SSH para `greg0x46@192.168.0.196`, reinicia a unidade
-`contadinho.service` e valida o endpoint `/health`. Se a validação falhar, ele
-restaura o binário anterior e reinicia o serviço novamente. O banco, o arquivo
-`contadinho.env` e a chave mestra não são alterados.
-
-Host, diretório, unidade e URL de saúde podem ser sobrescritos por
-`CONTADINHO_DEPLOY_HOST`, `CONTADINHO_DEPLOY_DIR`,
-`CONTADINHO_DEPLOY_SERVICE` e `CONTADINHO_DEPLOY_HEALTH_URL`, respectivamente.
-O reinício usa `sudo` no homelab e pode solicitar a senha do usuário remoto.
+Todo push na `main` que passa na CI publica uma release no GitHub com o
+binário `contadinho-linux-amd64`, o `SHA256SUMS` e a atestação de procedência
+(`contadinho-linux-amd64.sigstore.json`). A versão é o conteúdo de `VERSION`
+mais um contador de patch. Para instalar, baixe o binário da release, confira
+o checksum e execute-o com a configuração descrita nas próximas seções; como
+iniciá-lo e mantê-lo no ar (serviço do sistema, contêiner etc.) depende do seu
+ambiente.
 
 ### Autenticação e chave de criptografia
 
@@ -299,6 +290,41 @@ Se o processo estiver parado no horário, a sincronização pendente é
 enfileirada assim que ele subir; uma conexão que já sincronizou (inclusive
 manualmente) depois do horário do dia não é repetida. Vazio desabilita.
 
+### Cotações automáticas
+
+Ativos de investimento com cotação automática habilitada têm o preço
+das posições manuais buscado automaticamente e guardado na série de preços do
+ativo. O valor da posição é calculado a cada leitura (quantidade × último
+preço); uma avaliação manual de data igual ou posterior ao último preço vale
+mais que ele. A busca é opt-in: defina
+`CONTADINHO_QUOTES_SCHEDULE` (mesmo formato da sincronização) para rodar uma vez
+por dia e na subida do processo. Os provedores são tentados em ordem, com
+fallback automático; `CONTADINHO_QUOTES_PROVIDERS` define a ordem (separada por
+vírgula; provedor omitido fica desligado; nome desconhecido impede a subida):
+
+```sh
+export CONTADINHO_QUOTES_SCHEDULE="19:00 America/Sao_Paulo"
+export CONTADINHO_QUOTES_PROVIDERS="yahoo,brapi,coingecko" # padrão
+```
+
+Por padrão o Yahoo Finance é a fonte principal dos dois mercados; a brapi é o
+fallback da B3 e a CoinGecko, o de criptomoedas. O token da brapi, opcional, é
+configurado na interface. Detalhes na
+[referência de investimentos](.specs/contextos/investimentos/reference.md#cotação-automática).
+
+O cadastro usa classe financeira (renda fixa, renda variável, multimercado,
+cambial, criptoativos ou outros) e tipo de instrumento. O mercado da cotação é
+derivado do tipo; ETFs de renda fixa e de criptoativos podem usar preços da B3.
+
+Para carregar um catálogo inicial opcional com 27 ativos conhecidos:
+
+```sh
+go run ./cmd/contadinho seed investment-assets
+```
+
+O comando usa `CONTADINHO_DB` ou aceita `-db caminho-ou-DSN`. Pode ser repetido
+sem duplicar ou sobrescrever cadastros e não cria posições ou saldos.
+
 ### Rodar para desenvolvimento local
 
 Depois de configurar a chave e preparar a conta com `go run ./cmd/contadinho auth init`
@@ -322,6 +348,11 @@ URL à mão. `Ctrl-C` encerra os dois processos. Para sobrescrever host e portas
 ```sh
 CONTADINHO_DEV_ADDR=localhost:8100 VITE_DEV_HOST=localhost VITE_DEV_PORT=5174 ./dev.sh
 ```
+
+Para configuração fixa da sua máquina, crie um `.env.local` na raiz do repositório
+(ignorado pelo git) com linhas `CHAVE=valor`; o `dev.sh` carrega esse arquivo antes
+de iniciar. Ex.: `CONTADINHO_DB`, `CONTADINHO_MASTER_KEY_FILE`, portas e, para acessar
+o Vite por outro domínio, `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=<host>`.
 
 Se as dependências ainda não estiverem instaladas, execute `cd frontend &&
 npm install` uma vez antes de iniciar o script.

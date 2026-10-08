@@ -1,6 +1,6 @@
 import { AimOutlined, BankOutlined, PieChartOutlined, SwapOutlined } from "@ant-design/icons";
 import { Alert, Button, Skeleton, Switch } from "antd";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import type {
@@ -48,6 +48,13 @@ export function InvestmentsPage() {
   const syncedInvestments = useInvestments();
   const navigate = useNavigate();
   const feedback = useFeedback();
+
+  // Synced positions carry no local cost basis; their rendimento, principal
+  // and IR/IOF live on the linked provider investment.
+  const linkedInvestments = useMemo(
+    () => new Map(syncedInvestments.investments.map((investment) => [investment.id, investment])),
+    [syncedInvestments.investments],
+  );
 
   const [view, setView] = useState<View>("accounts");
   const [showClosedPositions, setShowClosedPositions] = useState(false);
@@ -322,7 +329,12 @@ export function InvestmentsPage() {
             !syncedInvestments.isLoading &&
             syncedInvestments.investments.length > 0 && <InvestmentsSummary investments={syncedInvestments.investments} />
           ) : (
-            <InvestmentWorkspaceSummary summary={workspace.summary} operations={workspace.operations} />
+            <InvestmentWorkspaceSummary
+              summary={workspace.summary}
+              positions={workspace.positions}
+              operations={workspace.operations}
+              linked={linkedInvestments}
+            />
           )}
 
           {view !== "synced" && (
@@ -363,6 +375,7 @@ export function InvestmentsPage() {
                     allPositions={allPositionsOfAccount(account.id)}
                     operations={operationsOfAccount(account.id)}
                     portfolios={workspace.portfolios}
+                    linked={linkedInvestments}
                     onRename={openAccountEdit}
                     onRemove={(target) =>
                       void run(() => workspace.deleteAccount(target.id), "Não foi possível excluir a conta.", "Excluído")
@@ -407,6 +420,7 @@ export function InvestmentsPage() {
                     positions={positions}
                     operations={operationsOfPositions(allPositionsOfGoal(portfolio?.id ?? null))}
                     portfolios={workspace.portfolios}
+                    linked={linkedInvestments}
                     accountNameOf={accountName}
                     onEdit={openPortfolio}
                     onRemove={(target) =>
