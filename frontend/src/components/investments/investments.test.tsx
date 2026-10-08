@@ -112,6 +112,28 @@ describe("InvestmentPositionsTable", () => {
     await userEvent.click(screen.getByRole("button", { name: "Ações de Tesouro Selic 2029" }));
     expect(await screen.findByText("Mudar objetivo")).toBeInTheDocument();
   });
+
+  it("names a value derived from the market quote and states its gain like any valued position", () => {
+    vi.spyOn(compactScreen, "useCompactScreen").mockReturnValue(false);
+    render(
+      <MemoryRouter>
+        <InvestmentPositionsTable
+          positions={[{ ...position, valuation_basis: "market_quote", current_unit_price: "13806.32" }]}
+          portfolios={[]}
+          costs={{}}
+          linked={new Map()}
+          onAssignGoal={vi.fn()}
+          busy={false}
+          emptyTitle="Nenhuma posição"
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText(/Cotação de mercado/)).toBeVisible();
+    // 44.180,21 over 3,2 × 10.000,00 of cost: a valued position states its gain
+    // instead of the cost-basis explanation.
+    expect(screen.getByText("+38,1%")).toBeVisible();
+    expect(screen.queryByText(/Sem cotação registrada/)).toBeNull();
+  });
 });
 
 describe("InvestmentFigures", () => {

@@ -2,6 +2,7 @@ package syncsvc_test
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -22,17 +23,13 @@ func investmentsPayload(asOf, amount string) string {
 		"date":"` + asOf + `"}]}`
 }
 
-// Every investments payload the syncs stored is replayed into the price
-// series once, and holdings stored before issue_date existed get it filled.
-func TestBackfillAssetQuotesRebuildsTheSeriesFromStoredPayloadsOnce(t *testing.T) {
-	conn := newTestConn(t)
-	ctx := context.Background()
+// storeLCA stores the payloads as raw_imports, oldest first, and the LCA they
+// describe as it stood after the last one, still without the title terms.
+func storeLCA(t *testing.T, conn *sql.DB, payloads ...string) {
+	t.Helper()
 	sourceID, syncRunID := newSyncRun(t, conn)
 	now := time.Now()
-	for i, payload := range []string{
-		investmentsPayload("2026-08-31T06:25:30.000Z", "256.29"),
-		investmentsPayload("2026-09-28T00:03:22.000Z", "258.6"),
-	} {
+	for i, payload := range payloads {
 		if _, err := conn.Exec(`INSERT INTO raw_imports (
 				id, sync_run_id, source_id, scope, page_sequence, request_attempt,
 				request_method, request_path, http_status, response_headers, payload,
@@ -48,14 +45,44 @@ func TestBackfillAssetQuotesRebuildsTheSeriesFromStoredPayloadsOnce(t *testing.T
 			id, source_id, external_id, name, code, investment_type, subtype, currency_code, balance, quantity,
 			amount, amount_original, as_of_date, current_raw_import_id, normalized_hash, created_at, updated_at
 		) VALUES ('fi-lca', ?, 'lca-1', 'LCA - BANCO VOTORANTIM S.A.', '24I01250142', 'FIXED_INCOME', 'LCA', 'BRL',
-			'258.6', '200', '258.6', '200', '2026-09-28T00:03:22.000000000Z', 'raw-b', 'hash', ?, ?)`,
-		sourceID, stamp, stamp); err != nil {
+			'258.6', '200', '258.6', '200', '2026-09-28T00:03:22.000000000Z', ?, 'hash', ?, ?)`,
+		sourceID, "raw-"+string(rune('a'+len(payloads)-1)), stamp, stamp); err != nil {
 		t.Fatalf("insert investment: %v", err)
 	}
+}
+
+// Every investments payload the syncs stored is replayed into the price
+// series once, and holdings stored before issue_date existed get it filled.
+func TestBackfillAssetQuotesRebuildsTheSeriesFromStoredPayloadsOnce(t *testing.T) {
+	conn := newTestConn(t)
+	ctx := context.Background()
+	storeLCA(t, conn,
+		investmentsPayload("2026-08-31T06:25:30.000Z", "256.29"),
+		investmentsPayload("2026-09-28T00:03:22.000Z", "258.6"),
+	)
 
 	processed, err := syncsvc.BackfillAssetQuotes(ctx, conn)
 	if err != nil || processed != 2 {
 		t.Fatalf("BackfillAssetQuotes = %d, %v; want 2 snapshots", processed, err)
+	}
+	// The rebuilt series says what each price is: the snapshots' own prices
+	// are sync prices, the purchase PU derived from the title is an issue price.
+	origins := map[string]int{}
+	rows, err := conn.Query(`SELECT origin, COUNT(*) FROM investment_asset_quotes GROUP BY origin`)
+	if err != nil {
+		t.Fatalf("read origins: %v", err)
+	}
+	for rows.Next() {
+		var origin string
+		var count int
+		if err := rows.Scan(&origin, &count); err != nil {
+			t.Fatalf("scan origins: %v", err)
+		}
+		origins[origin] = count
+	}
+	rows.Close()
+	if origins[string(investments.QuoteOriginSync)] != 2 || origins[string(investments.QuoteOriginIssue)] != 1 || len(origins) != 2 {
+		t.Fatalf("origins = %v, want 2 sync and 1 issue", origins)
 	}
 	var issueDate string
 	if err := conn.QueryRow(`SELECT issue_date FROM financial_investments WHERE id = 'fi-lca'`).Scan(&issueDate); err != nil {
@@ -82,5 +109,29 @@ func TestParseInvestmentsPayloadReadsTheTitleTerms(t *testing.T) {
 	s := snapshots[0]
 	if s.IssueDate == nil || s.PurchaseDate == nil || s.IssuerCNPJ == nil || *s.IssuerCNPJ != "59.588.111/0001-03" {
 		t.Fatalf("title terms not mapped: %+v", s)
+	}
+}
+
+// The rebuild is gated on a price a sync wrote, not on any price: a database
+// whose series holds only a market quote or a purchase PU has not been rebuilt.
+func TestBackfillAssetQuotesStillRunsWhenTheSeriesHoldsNoSyncedPrice(t *testing.T) {
+	conn := newTestConn(t)
+	storeLCA(t, conn, investmentsPayload("2026-09-28T00:03:22.000Z", "258.6"))
+	if _, err := conn.Exec(`INSERT INTO investment_assets
+		(id, canonical_key, name, asset_type, currency_code, created_at, updated_at)
+		VALUES ('asset-x', 'name:acao:petr4', 'Petrobras PN', 'Ação', 'BRL', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`); err != nil {
+		t.Fatalf("insert asset: %v", err)
+	}
+	for day, kind := range map[string][2]string{"2026-09-01": {"yahoo", "market"}, "2026-09-02": {"issue", "issue"}} {
+		if _, err := conn.Exec(`INSERT INTO investment_asset_quotes
+			(asset_id, quoted_on, price, source, origin, created_at, updated_at)
+			VALUES ('asset-x', ?, '10', ?, ?, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`, day, kind[0], kind[1]); err != nil {
+			t.Fatalf("insert quote: %v", err)
+		}
+	}
+
+	processed, err := syncsvc.BackfillAssetQuotes(context.Background(), conn)
+	if err != nil || processed != 1 {
+		t.Fatalf("BackfillAssetQuotes = %d, %v; want the stored snapshot rebuilt", processed, err)
 	}
 }

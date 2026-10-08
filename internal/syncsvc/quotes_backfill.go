@@ -30,12 +30,12 @@ func HoldingFromSnapshot(snapshot pluggy.InvestmentSnapshot) investments.SyncedH
 // rather than on their next sync.
 //
 // It runs once: after the first pass the live sync keeps the series current,
-// so any stored pluggy quote means there is nothing left to rebuild. It runs
+// so any stored sync quote means there is nothing left to rebuild. It runs
 // in one transaction so an interrupted pass is retried whole on next start.
 func BackfillAssetQuotes(ctx context.Context, conn *sql.DB) (int, error) {
 	var done bool
 	if err := conn.QueryRowContext(ctx,
-		`SELECT EXISTS (SELECT 1 FROM investment_asset_quotes WHERE source = ?)`, investments.QuoteSourcePluggy).
+		`SELECT EXISTS (SELECT 1 FROM investment_asset_quotes WHERE origin = ?)`, string(investments.QuoteOriginSync)).
 		Scan(&done); err != nil {
 		return 0, err
 	}

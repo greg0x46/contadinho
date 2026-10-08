@@ -2584,7 +2584,7 @@ export function parseInvestmentPortfolioList(value: unknown): InvestmentPortfoli
 
 export const investmentPositionSources = ["manual", "synced"] as const;
 export type InvestmentPositionSource = (typeof investmentPositionSources)[number];
-export const investmentValuationBases = ["manual_valuation", "cost_basis", "provider_balance"] as const;
+export const investmentValuationBases = ["manual_valuation", "cost_basis", "provider_balance", "market_quote"] as const;
 export type InvestmentValuationBasis = (typeof investmentValuationBases)[number];
 
 export interface InvestmentPosition {

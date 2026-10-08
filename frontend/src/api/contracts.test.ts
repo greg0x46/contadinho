@@ -787,3 +787,13 @@ describe("Imported investment currencies", () => {
     expect(parseInvestmentPosition({ ...syncedPosition, currency_code: "USD" }).currency_code).toBe("USD");
   });
 });
+
+describe("Investment valuation basis", () => {
+  it("accepts a position valued from the market quote series", () => {
+    expect(parseInvestmentPosition({ ...syncedPosition, valuation_basis: "market_quote" }).valuation_basis).toBe("market_quote");
+  });
+
+  it("rejects a basis it does not know", () => {
+    expect(() => parseInvestmentPosition({ ...syncedPosition, valuation_basis: "guess" })).toThrow("Posição de investimento inválida.");
+  });
+});

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -17,11 +16,11 @@ import (
 )
 
 // fakeConnector is an in-memory Connector: no HTTP at all, so job tests
-// exercise only RefreshAll's orchestration and dedupe, never a real
-// network call.
+// exercise only RefreshAll's orchestration, never a real network call.
 type fakeConnector struct {
 	prices map[string]decimal.Decimal
 	err    error
+	asked  []string // symbols quoted, in order
 }
 
 func (f *fakeConnector) Name() string { return marketdata.ProviderYahoo }
@@ -30,6 +29,7 @@ func (f *fakeConnector) Supports(market marketdata.Market) bool {
 }
 func (f *fakeConnector) Quote(_ context.Context, instrument marketdata.Instrument) (marketdata.Quote, error) {
 	symbol := instrument.Symbol
+	f.asked = append(f.asked, symbol)
 	if f.err != nil {
 		return marketdata.Quote{}, f.err
 	}
@@ -71,8 +71,7 @@ func mustCreateQuotedAsset(t *testing.T, ctx context.Context, conn *sql.DB, name
 
 // mustCreateManualPosition opens a fresh manual account and a position of
 // quantity units of asset in it, dated well before any "today" used in
-// these tests so the opening operation never lands inside a same-day
-// dedupe window.
+// these tests.
 func mustCreateManualPosition(t *testing.T, ctx context.Context, conn *sql.DB, accountName string, asset investments.Asset, quantity int64) investments.Position {
 	t.Helper()
 	account, err := investments.CreateAccount(ctx, conn, investments.AccountInput{Name: accountName})
@@ -99,25 +98,28 @@ func listPositionOperations(t *testing.T, ctx context.Context, conn *sql.DB, pos
 	return ops
 }
 
-// onlyValuation picks out the single OperationValuation among ops (ignoring
-// e.g. the initial_balance operation mustCreateManualPosition's opening
-// balance always creates), failing the test if there is more than one.
-func onlyValuation(t *testing.T, ops []investments.Operation) *investments.Operation {
+// onlyOpeningBalance fails the test unless the position's ledger is just the
+// initial_balance operation mustCreateManualPosition writes: the job records
+// prices in the series, never operations.
+func onlyOpeningBalance(t *testing.T, ctx context.Context, conn *sql.DB, positionID string) investments.Operation {
 	t.Helper()
-	var found *investments.Operation
-	for i := range ops {
-		if ops[i].Kind != investments.OperationValuation {
-			continue
-		}
-		if found != nil {
-			t.Fatalf("more than one valuation operation: %+v", ops)
-		}
-		found = &ops[i]
+	ops := listPositionOperations(t, ctx, conn, positionID)
+	if len(ops) != 1 || ops[0].Kind != investments.OperationInitialBalance {
+		t.Fatalf("operations = %+v, want only the opening balance", ops)
 	}
-	return found
+	return ops[0]
 }
 
-func TestRefreshAllInsertsOnFirstRun(t *testing.T) {
+func currentPosition(t *testing.T, ctx context.Context, conn *sql.DB, positionID string) investments.Position {
+	t.Helper()
+	position, err := investments.GetPosition(ctx, conn, positionID)
+	if err != nil {
+		t.Fatalf("GetPosition: %v", err)
+	}
+	return position
+}
+
+func TestRefreshAllStoresTheDaysPriceInTheSeries(t *testing.T) {
 	ctx := context.Background()
 	conn := newJobTestConn(t)
 	asset := mustCreateQuotedAsset(t, ctx, conn, "Bitcoin", "Criptoativo", string(marketdata.MarketCrypto), "BTC")
@@ -130,32 +132,26 @@ func TestRefreshAllInsertsOnFirstRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RefreshAll: %v", err)
 	}
-	if summary.PositionsCreated != 1 || summary.PositionsUpdated != 0 || summary.PositionsSkipped != 0 {
-		t.Fatalf("summary = %+v, want 1 created", summary)
+	if summary.AssetsConsidered != 1 || summary.PricesFetched != 1 || summary.PriceFailures != 0 {
+		t.Fatalf("summary = %+v, want 1 asset priced", summary)
 	}
 
-	ops := listPositionOperations(t, ctx, conn, position.ID)
-	var valuation *investments.Operation
-	for i := range ops {
-		if ops[i].Kind == investments.OperationValuation {
-			valuation = &ops[i]
-		}
+	stored := quotesOf(t, ctx, conn, asset.ID)
+	if len(stored) != 1 || !stored[0].QuotedOn.Equal(today) || stored[0].Price.String() != "100000" || stored[0].Source != marketdata.ProviderYahoo {
+		t.Fatalf("series = %+v, want today's 100000 from the provider that served it", stored)
 	}
-	if valuation == nil {
-		t.Fatal("no valuation operation created")
+	onlyOpeningBalance(t, ctx, conn, position.ID)
+
+	got := currentPosition(t, ctx, conn, position.ID)
+	if got.ValuationBasis != investments.ValuationBasisMarketQuote || got.CurrentValue.String() != "200000" {
+		t.Errorf("position = basis %s value %s, want market_quote and 2 × 100000", got.ValuationBasis, got.CurrentValue)
 	}
-	if valuation.Amount.String() != "200000" {
-		t.Errorf("amount = %s, want 200000 (2 * 100000)", valuation.Amount.String())
-	}
-	if valuation.Notes == nil || !strings.HasPrefix(*valuation.Notes, AutoQuoteMarker) {
-		t.Errorf("notes = %v, want a value prefixed with %q", valuation.Notes, AutoQuoteMarker)
-	}
-	if valuation.Source != "manual" || !valuation.IsEditable {
-		t.Errorf("valuation = %+v, want source=manual and editable", valuation)
+	if got.ValuedOn == nil || !got.ValuedOn.Equal(today) {
+		t.Errorf("valued on = %v, want %s", got.ValuedOn, today.Format(investments.DateLayout))
 	}
 }
 
-func TestRefreshAllUpdatesInPlaceOnSecondRunSameDay(t *testing.T) {
+func TestRefreshAllUpdatesTheSeriesRowOnASecondRunSameDay(t *testing.T) {
 	ctx := context.Background()
 	conn := newJobTestConn(t)
 	asset := mustCreateQuotedAsset(t, ctx, conn, "Bitcoin", "Criptoativo", string(marketdata.MarketCrypto), "BTC")
@@ -166,52 +162,41 @@ func TestRefreshAllUpdatesInPlaceOnSecondRunSameDay(t *testing.T) {
 	if _, err := RefreshAll(ctx, conn, service, today); err != nil {
 		t.Fatalf("first RefreshAll: %v", err)
 	}
-	first := onlyValuation(t, listPositionOperations(t, ctx, conn, position.ID))
-	if first == nil {
-		t.Fatal("after first run: no valuation operation")
-	}
-	firstID, firstCreatedAt := first.ID, first.CreatedAt
 
 	service = marketdata.New(&fakeConnector{prices: map[string]decimal.Decimal{"BTC": decimal.NewFromInt(150000)}})
 	summary, err := RefreshAll(ctx, conn, service, today)
 	if err != nil {
 		t.Fatalf("second RefreshAll: %v", err)
 	}
-	if summary.PositionsUpdated != 1 || summary.PositionsCreated != 0 {
-		t.Fatalf("summary = %+v, want 1 updated, 0 created", summary)
+	if summary.PricesFetched != 1 {
+		t.Fatalf("summary = %+v, want the second run to price the asset again", summary)
 	}
 
-	allOps := listPositionOperations(t, ctx, conn, position.ID)
-	if len(allOps) != 2 {
-		t.Fatalf("after second run: %d operations (%+v), want 2 (opening balance + one valuation, update in place rather than a duplicate)", len(allOps), allOps)
+	stored := quotesOf(t, ctx, conn, asset.ID)
+	if len(stored) != 1 || stored[0].Price.String() != "150000" {
+		t.Fatalf("series = %+v, want the same day's row updated to 150000, not a second row", stored)
 	}
-	second := onlyValuation(t, allOps)
-	if second == nil {
-		t.Fatal("after second run: no valuation operation")
-	}
-	if second.ID != firstID {
-		t.Errorf("operation id changed: %s -> %s, want the same id", firstID, second.ID)
-	}
-	if !second.CreatedAt.Equal(firstCreatedAt) {
-		t.Errorf("created_at changed: %v -> %v, want unchanged", firstCreatedAt, second.CreatedAt)
-	}
-	if second.Amount.String() != "300000" {
-		t.Errorf("amount = %s, want 300000 (2 * 150000)", second.Amount.String())
+	onlyOpeningBalance(t, ctx, conn, position.ID)
+	if got := currentPosition(t, ctx, conn, position.ID); got.CurrentValue.String() != "300000" {
+		t.Errorf("value = %s, want 2 × 150000", got.CurrentValue)
 	}
 }
 
-func TestRefreshAllSkipsWhenHumanValuationExistsToday(t *testing.T) {
+// A valuation a person typed today is as recent as today's price, and on a tie
+// theirs wins: the job neither touches the operation nor displaces its value.
+func TestRefreshAllLeavesATypedValuationOfTodayWinning(t *testing.T) {
 	ctx := context.Background()
 	conn := newJobTestConn(t)
 	asset := mustCreateQuotedAsset(t, ctx, conn, "Bitcoin", "Criptoativo", string(marketdata.MarketCrypto), "BTC")
 	position := mustCreateManualPosition(t, ctx, conn, "Corretora A", asset, 2)
 	today := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
 
-	if _, err := investments.CreateOperation(ctx, conn, investments.OperationInput{
+	typed, err := investments.CreateOperation(ctx, conn, investments.OperationInput{
 		AccountID: position.AccountID, PositionID: &position.ID, Kind: investments.OperationValuation,
 		OccurredOn: today, Amount: decimal.NewFromInt(999999),
-	}); err != nil {
-		t.Fatalf("human valuation: %v", err)
+	})
+	if err != nil {
+		t.Fatalf("typed valuation: %v", err)
 	}
 
 	service := marketdata.New(&fakeConnector{prices: map[string]decimal.Decimal{"BTC": decimal.NewFromInt(100000)}})
@@ -219,57 +204,88 @@ func TestRefreshAllSkipsWhenHumanValuationExistsToday(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RefreshAll: %v", err)
 	}
-	if summary.PositionsSkipped != 1 || summary.PositionsCreated != 0 || summary.PositionsUpdated != 0 {
-		t.Fatalf("summary = %+v, want 1 skipped", summary)
+	if summary.PricesFetched != 1 {
+		t.Fatalf("summary = %+v, want the price stored all the same", summary)
 	}
 
-	human := onlyValuation(t, listPositionOperations(t, ctx, conn, position.ID))
-	if human == nil {
-		t.Fatal("the human valuation operation disappeared")
+	ops := listPositionOperations(t, ctx, conn, position.ID)
+	if len(ops) != 2 {
+		t.Fatalf("operations = %+v, want the opening balance and the typed valuation", ops)
 	}
-	if human.Amount.String() != "999999" {
-		t.Errorf("amount = %s, want the human-entered 999999 to survive untouched", human.Amount.String())
+	for _, op := range ops {
+		if op.Kind != investments.OperationValuation {
+			continue
+		}
+		if op.ID != typed.ID || op.Amount.String() != "999999" || op.Notes != nil || !op.UpdatedAt.Equal(typed.UpdatedAt) {
+			t.Errorf("valuation = %+v, want the typed operation untouched", op)
+		}
 	}
-	if human.Notes != nil {
-		t.Errorf("notes = %v, want nil (never stamped by the job)", human.Notes)
+	got := currentPosition(t, ctx, conn, position.ID)
+	if got.ValuationBasis != investments.ValuationBasisManualValuation || got.CurrentValue.String() != "999999" {
+		t.Errorf("position = basis %s value %s, want the typed 999999", got.ValuationBasis, got.CurrentValue)
+	}
+	if stored := quotesOf(t, ctx, conn, asset.ID); len(stored) != 1 || stored[0].Price.String() != "100000" {
+		t.Errorf("series = %+v, want today's price recorded", stored)
 	}
 }
 
-func TestRefreshAllSkipsClosedPosition(t *testing.T) {
+// Only an asset some manual position holds units of is worth a request: not
+// one nobody holds, one whose position is still empty, nor one sold out.
+func TestRefreshAllSkipsAssetsNobodyHoldsUnitsOf(t *testing.T) {
 	ctx := context.Background()
 	conn := newJobTestConn(t)
-	asset := mustCreateQuotedAsset(t, ctx, conn, "Bitcoin", "Criptoativo", string(marketdata.MarketCrypto), "BTC")
+	prices := map[string]decimal.Decimal{"BTC": decimal.NewFromInt(100000), "ETH": decimal.NewFromInt(5000), "SOL": decimal.NewFromInt(900), "ADA": decimal.NewFromInt(3)}
+	unheld := mustCreateQuotedAsset(t, ctx, conn, "Cardano", "Criptoativo", string(marketdata.MarketCrypto), "ADA")
+	emptyAsset := mustCreateQuotedAsset(t, ctx, conn, "Ether", "Criptoativo", string(marketdata.MarketCrypto), "ETH")
+	soldOutAsset := mustCreateQuotedAsset(t, ctx, conn, "Solana", "Criptoativo", string(marketdata.MarketCrypto), "SOL")
+	heldAsset := mustCreateQuotedAsset(t, ctx, conn, "Bitcoin", "Criptoativo", string(marketdata.MarketCrypto), "BTC")
+
 	account, err := investments.CreateAccount(ctx, conn, investments.AccountInput{Name: "Corretora A"})
 	if err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
-	// No initial quantity/cost/value: opens with zero units, i.e. already closed.
-	position, err := investments.CreatePosition(ctx, conn, investments.PositionInput{
-		AccountID: account.ID, AssetID: &asset.ID, Name: asset.Name, AssetType: asset.AssetType,
+	// No initial quantity/cost/value: opens with zero units and no operation.
+	// Such a position replays with no ledger state at all, so it is not Closed
+	// even though Quantity is zero: the job reads the quantity itself.
+	empty, err := investments.CreatePosition(ctx, conn, investments.PositionInput{
+		AccountID: account.ID, AssetID: &emptyAsset.ID, Name: emptyAsset.Name, AssetType: emptyAsset.AssetType,
 	})
 	if err != nil {
 		t.Fatalf("CreatePosition (empty): %v", err)
 	}
-	// A position that never had any operation replays with no ledger state
-	// for it at all, so applyLedgerState never runs and Closed stays the
-	// zero value (false) even though Quantity is zero too — this is
-	// exactly the gap job.go's explicit Quantity.IsPositive() guard covers,
-	// so this test intentionally does not assert Closed here.
-	if !position.Quantity.IsZero() {
-		t.Fatalf("expected a zero-quantity position, got %+v", position)
+	if !empty.Quantity.IsZero() {
+		t.Fatalf("expected a zero-quantity position, got %+v", empty)
 	}
+	soldOut := mustCreateManualPosition(t, ctx, conn, "Corretora B", soldOutAsset, 2)
+	if _, err := investments.CreateOperation(ctx, conn, investments.OperationInput{
+		AccountID: soldOut.AccountID, PositionID: &soldOut.ID, Kind: investments.OperationSell,
+		OccurredOn: time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), Amount: decimal.NewFromInt(2), Quantity: decimalPtr(2),
+	}); err != nil {
+		t.Fatalf("sell: %v", err)
+	}
+	mustCreateManualPosition(t, ctx, conn, "Corretora C", heldAsset, 1)
 
-	service := marketdata.New(&fakeConnector{prices: map[string]decimal.Decimal{"BTC": decimal.NewFromInt(100000)}})
-	summary, err := RefreshAll(ctx, conn, service, time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC))
+	fake := &fakeConnector{prices: prices}
+	summary, err := RefreshAll(ctx, conn, marketdata.New(fake), time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("RefreshAll: %v", err)
 	}
-	if summary.PositionsCreated != 0 || summary.PositionsUpdated != 0 || summary.PositionsSkipped != 0 {
-		t.Fatalf("summary = %+v, want no positions touched", summary)
+	if summary.AssetsConsidered != 1 || summary.PricesFetched != 1 {
+		t.Fatalf("summary = %+v, want only the held asset priced", summary)
 	}
-	if ops := listPositionOperations(t, ctx, conn, position.ID); len(ops) != 0 {
-		t.Fatalf("operations for a closed position = %d, want 0", len(ops))
+	if len(fake.asked) != 1 || fake.asked[0] != "BTC" {
+		t.Fatalf("connector asked for %v, want only BTC", fake.asked)
 	}
+	for _, skipped := range []investments.Asset{unheld, emptyAsset, soldOutAsset} {
+		if stored := quotesOf(t, ctx, conn, skipped.ID); len(stored) != 0 {
+			t.Errorf("%s series = %+v, want no price", skipped.Name, stored)
+		}
+	}
+}
+
+func decimalPtr(v int64) *decimal.Decimal {
+	d := decimal.NewFromInt(v)
+	return &d
 }
 
 func TestRefreshAllOneAssetFailureDoesNotBlockAnother(t *testing.T) {
@@ -289,21 +305,25 @@ func TestRefreshAllOneAssetFailureDoesNotBlockAnother(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RefreshAll: %v", err)
 	}
-	if summary.PriceFailures != 1 || summary.PositionsCreated != 1 {
-		t.Fatalf("summary = %+v, want 1 failure and 1 created", summary)
+	if summary.PriceFailures != 1 || summary.PricesFetched != 1 {
+		t.Fatalf("summary = %+v, want 1 failure and 1 priced", summary)
 	}
 
-	if v := onlyValuation(t, listPositionOperations(t, ctx, conn, brokenPosition.ID)); v != nil {
-		t.Fatalf("broken asset valuation = %+v, want none", v)
+	if stored := quotesOf(t, ctx, conn, broken.ID); len(stored) != 0 {
+		t.Fatalf("broken asset series = %+v, want none", stored)
 	}
-	if v := onlyValuation(t, listPositionOperations(t, ctx, conn, okPosition.ID)); v == nil {
-		t.Fatal("ok asset valuation missing")
+	if got := currentPosition(t, ctx, conn, brokenPosition.ID); got.ValuationBasis != investments.ValuationBasisCostBasis {
+		t.Errorf("broken asset position = %+v, want it left at cost", got)
+	}
+	if got := currentPosition(t, ctx, conn, okPosition.ID); got.CurrentValue.String() != "100000" {
+		t.Errorf("ok asset value = %s, want 100000", got.CurrentValue)
 	}
 }
 
 // TestRefreshAllPricesSameAssetHeldInDifferentAccounts mirrors
 // internal/investments' TestSameAssetCanBeHeldInDifferentAccounts guarantee:
-// one asset, two manual positions in two different accounts, both priced.
+// one asset, two manual positions in two different accounts, one price in the
+// series and each position valued from it.
 func TestRefreshAllPricesSameAssetHeldInDifferentAccounts(t *testing.T) {
 	ctx := context.Background()
 	conn := newJobTestConn(t)
@@ -311,26 +331,137 @@ func TestRefreshAllPricesSameAssetHeldInDifferentAccounts(t *testing.T) {
 	first := mustCreateManualPosition(t, ctx, conn, "Corretora A", asset, 1)
 	second := mustCreateManualPosition(t, ctx, conn, "Corretora B", asset, 3)
 
-	service := marketdata.New(&fakeConnector{prices: map[string]decimal.Decimal{"BTC": decimal.NewFromInt(100000)}})
+	fake := &fakeConnector{prices: map[string]decimal.Decimal{"BTC": decimal.NewFromInt(100000)}}
 	today := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
-	summary, err := RefreshAll(ctx, conn, service, today)
+	summary, err := RefreshAll(ctx, conn, marketdata.New(fake), today)
 	if err != nil {
 		t.Fatalf("RefreshAll: %v", err)
 	}
-	if summary.PositionsCreated != 2 {
-		t.Fatalf("summary = %+v, want 2 created", summary)
+	if summary.AssetsConsidered != 1 || summary.PricesFetched != 1 || len(fake.asked) != 1 {
+		t.Fatalf("summary = %+v, asked = %v; want the asset priced once however many accounts hold it", summary, fake.asked)
+	}
+	if stored := quotesOf(t, ctx, conn, asset.ID); len(stored) != 1 {
+		t.Fatalf("series = %+v, want a single row", stored)
 	}
 
 	for _, tc := range []struct {
 		position investments.Position
 		want     string
 	}{{first, "100000"}, {second, "300000"}} {
-		v := onlyValuation(t, listPositionOperations(t, ctx, conn, tc.position.ID))
-		if v == nil {
-			t.Fatalf("position %s: no valuation operation", tc.position.ID)
+		onlyOpeningBalance(t, ctx, conn, tc.position.ID)
+		if got := currentPosition(t, ctx, conn, tc.position.ID); got.CurrentValue.String() != tc.want {
+			t.Errorf("position %s value = %s, want %s", tc.position.ID, got.CurrentValue, tc.want)
 		}
-		if v.Amount.String() != tc.want {
-			t.Errorf("position %s amount = %s, want %s", tc.position.ID, v.Amount.String(), tc.want)
+	}
+}
+
+// The market price must not replace what the provider itself reported for the
+// day: a Pluggy quote outranks a spot from a market data provider.
+func TestRefreshAllDoesNotOverwriteAPriceTheProviderReported(t *testing.T) {
+	ctx := context.Background()
+	conn := newJobTestConn(t)
+	asset := mustCreateQuotedAsset(t, ctx, conn, "Bitcoin", "Criptoativo", string(marketdata.MarketCrypto), "BTC")
+	mustCreateManualPosition(t, ctx, conn, "Corretora A", asset, 1)
+	today := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
+	if err := investments.UpsertAssetQuote(ctx, conn, investments.AssetQuote{
+		AssetID: asset.ID, QuotedOn: today, Price: decimal.NewFromInt(95000),
+		Source: investments.QuoteSourcePluggy, Origin: investments.QuoteOriginSync,
+	}); err != nil {
+		t.Fatalf("UpsertAssetQuote: %v", err)
+	}
+
+	service := marketdata.New(&fakeConnector{prices: map[string]decimal.Decimal{"BTC": decimal.NewFromInt(100000)}})
+	if _, err := RefreshAll(ctx, conn, service, today); err != nil {
+		t.Fatalf("RefreshAll: %v", err)
+	}
+	if stored := quotesOf(t, ctx, conn, asset.ID); len(stored) != 1 || stored[0].Origin != investments.QuoteOriginSync || stored[0].Price.String() != "95000" {
+		t.Fatalf("series = %+v, want the Pluggy price kept", stored)
+	}
+}
+
+// Only a market price makes an asset priced for the day: what the sync
+// observed or an issue PU says nothing about the market price, so RefreshMissing
+// still asks for it. It cannot replace what the sync observed, though.
+func TestPricedTodayCountsOnlyMarketPrices(t *testing.T) {
+	ctx := context.Background()
+	conn := newJobTestConn(t)
+	today := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
+
+	for _, tc := range []struct {
+		name, symbol, source string
+		origin               investments.QuoteOrigin
+		want                 bool
+	}{
+		{"market price", "MKT", marketdata.ProviderBrapi, investments.QuoteOriginMarket, true},
+		{"sync price", "SYN", investments.QuoteSourcePluggy, investments.QuoteOriginSync, false},
+		{"issue price", "ISS", investments.QuoteSourceIssue, investments.QuoteOriginIssue, false},
+	} {
+		asset := mustCreateQuotedAsset(t, ctx, conn, tc.name, "Criptoativo", string(marketdata.MarketCrypto), tc.symbol)
+		if err := investments.UpsertAssetQuote(ctx, conn, investments.AssetQuote{
+			AssetID: asset.ID, QuotedOn: today, Price: decimal.NewFromInt(10), Source: tc.source, Origin: tc.origin,
+		}); err != nil {
+			t.Fatalf("%s: UpsertAssetQuote: %v", tc.name, err)
+		}
+		got, err := pricedToday(ctx, conn, asset.ID, today)
+		if err != nil || got != tc.want {
+			t.Errorf("%s: pricedToday = %v, %v; want %v", tc.name, got, err, tc.want)
+		}
+	}
+
+	// An older market price does not make today priced.
+	asset := mustCreateQuotedAsset(t, ctx, conn, "Ontem", "Criptoativo", string(marketdata.MarketCrypto), "OLD")
+	if err := investments.UpsertAssetQuote(ctx, conn, investments.AssetQuote{
+		AssetID: asset.ID, QuotedOn: today.AddDate(0, 0, -1), Price: decimal.NewFromInt(10),
+		Source: marketdata.ProviderYahoo, Origin: investments.QuoteOriginMarket,
+	}); err != nil {
+		t.Fatalf("UpsertAssetQuote: %v", err)
+	}
+	if got, err := pricedToday(ctx, conn, asset.ID, today); err != nil || got {
+		t.Errorf("yesterday's price: pricedToday = %v, %v; want false", got, err)
+	}
+}
+
+func TestRefreshMissingStillAsksWhenOnlyTheSyncPricedTheDay(t *testing.T) {
+	ctx := context.Background()
+	conn := newJobTestConn(t)
+	asset := mustCreateQuotedAsset(t, ctx, conn, "Bitcoin", "Criptoativo", string(marketdata.MarketCrypto), "BTC")
+	mustCreateManualPosition(t, ctx, conn, "Corretora A", asset, 1)
+	today := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
+	if err := investments.UpsertAssetQuote(ctx, conn, investments.AssetQuote{
+		AssetID: asset.ID, QuotedOn: today, Price: decimal.NewFromInt(95000),
+		Source: investments.QuoteSourcePluggy, Origin: investments.QuoteOriginSync,
+	}); err != nil {
+		t.Fatalf("UpsertAssetQuote: %v", err)
+	}
+
+	fake := &fakeConnector{prices: map[string]decimal.Decimal{"BTC": decimal.NewFromInt(100000)}}
+	summary, err := RefreshMissing(ctx, conn, marketdata.New(fake), today)
+	if err != nil {
+		t.Fatalf("RefreshMissing: %v", err)
+	}
+	if summary.AssetsConsidered != 1 || len(fake.asked) != 1 {
+		t.Fatalf("summary = %+v, asked = %v; want the market price asked for", summary, fake.asked)
+	}
+	if stored := quotesOf(t, ctx, conn, asset.ID); len(stored) != 1 || stored[0].Origin != investments.QuoteOriginSync || stored[0].Price.String() != "95000" {
+		t.Fatalf("series = %+v, want the sync's price kept", stored)
+	}
+
+	// Once the market has priced another asset's day, it costs no request.
+	other := mustCreateQuotedAsset(t, ctx, conn, "Ether", "Criptoativo", string(marketdata.MarketCrypto), "ETH")
+	mustCreateManualPosition(t, ctx, conn, "Corretora B", other, 1)
+	if err := investments.UpsertConnectorQuotes(ctx, conn, []investments.AssetQuote{{
+		AssetID: other.ID, QuotedOn: today, Price: decimal.NewFromInt(5000),
+		Source: marketdata.ProviderYahoo, Origin: investments.QuoteOriginMarket,
+	}}); err != nil {
+		t.Fatalf("UpsertConnectorQuotes: %v", err)
+	}
+	fake.asked = nil
+	if _, err := RefreshMissing(ctx, conn, marketdata.New(fake), today); err != nil {
+		t.Fatalf("RefreshMissing: %v", err)
+	}
+	for _, symbol := range fake.asked {
+		if symbol == "ETH" {
+			t.Errorf("asked for ETH, already market-priced today")
 		}
 	}
 }

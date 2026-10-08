@@ -244,8 +244,9 @@ export function InvestmentOperationFields({
       {(error ?? submitError) && <Alert type="error" showIcon message={error ?? submitError} />}
       {draft.kind === "valuation" && (
         <p className="form-field-hint">
-          Cotação manual: marca o valor atual desta posição nesta data. A rentabilidade permanece desconhecida se não
-          houver base suficiente.
+          Cotação manual: marca o valor atual desta posição nesta data. Em ativos com cotação automática, uma cotação
+          de mercado mais nova passa por cima dela. A rentabilidade permanece desconhecida se não houver base
+          suficiente.
         </p>
       )}
       <FormField label="Conta de investimento" htmlFor="investment-operation-account">

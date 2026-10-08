@@ -611,3 +611,205 @@ func TestUpdatePositionRefusesAnotherAssetsIdentity(t *testing.T) {
 		t.Fatalf("rename keeping the ticker: %v", err)
 	}
 }
+
+// quotedAsset registers an asset a market connector prices.
+func (f *bookFixture) quotedAsset(name, ticker string) investments.Asset {
+	f.t.Helper()
+	source := "crypto"
+	asset, err := investments.CreateAsset(context.Background(), f.conn, investments.AssetInput{
+		Name: name, Ticker: &ticker, AssetType: "Criptoativo", CurrencyCode: "BRL", QuoteSource: &source,
+	})
+	if err != nil {
+		f.t.Fatalf("CreateAsset: %v", err)
+	}
+	return asset
+}
+
+func (f *bookFixture) quoteOn(assetID, day, price string) {
+	f.t.Helper()
+	on, err := time.Parse(investments.DateLayout, day)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	if err := investments.UpsertAssetQuote(context.Background(), f.conn, investments.AssetQuote{
+		AssetID: assetID, QuotedOn: on, Price: bookDec(price), Source: "yahoo", Origin: investments.QuoteOriginMarket,
+	}); err != nil {
+		f.t.Fatalf("UpsertAssetQuote: %v", err)
+	}
+}
+
+// openQuoted opens a position of quantity units bought on 2026-09-01.
+func (f *bookFixture) openQuoted(accountID string, asset investments.Asset, quantity, unitCost string) investments.Position {
+	f.t.Helper()
+	position, err := investments.CreatePosition(context.Background(), f.conn, investments.PositionInput{
+		AccountID: accountID, AssetID: &asset.ID, Name: asset.Name, AssetType: asset.AssetType,
+		InitialQuantity: bookDec(quantity), InitialUnitCost: bookDec(unitCost),
+		OccurredOn: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		f.t.Fatalf("CreatePosition: %v", err)
+	}
+	return position
+}
+
+func (f *bookFixture) position(id string) investments.Position {
+	f.t.Helper()
+	position, err := investments.GetPosition(context.Background(), f.conn, id)
+	if err != nil {
+		f.t.Fatalf("GetPosition: %v", err)
+	}
+	return position
+}
+
+// A manual holding of an asset a connector prices is worth quantity × the
+// latest price, derived on every read and rounded to cents; no operation backs
+// it, and the cost basis stays what was paid.
+func TestManualPositionOfAQuotedAssetIsValuedAtItsLatestQuote(t *testing.T) {
+	f := newBookFixture(t)
+	asset := f.quotedAsset("Bitcoin", "BTC")
+	position := f.openQuoted(f.addManualAccount("Corretora"), asset, "3", "30")
+
+	if p := f.position(position.ID); p.ValuationBasis != investments.ValuationBasisCostBasis || p.CurrentValue.String() != "90" {
+		t.Fatalf("without a quote = %+v, want the cost", p)
+	}
+
+	f.quoteOn(asset.ID, "2026-09-03", "30")
+	f.quoteOn(asset.ID, "2026-09-10", "33.3333")
+	got := f.position(position.ID)
+	if got.ValuationBasis != investments.ValuationBasisMarketQuote || got.CurrentValue.String() != "100" {
+		t.Fatalf("basis = %s, value = %s; want market_quote and 3 × 33.3333 rounded to 100", got.ValuationBasis, got.CurrentValue)
+	}
+	if bookDecimalString(got.CurrentUnitPrice) != "33.3333" || got.ValuedOn == nil || got.ValuedOn.Format(investments.DateLayout) != "2026-09-10" {
+		t.Fatalf("unit price = %s, valued on = %v; want the latest quote and its day", bookDecimalString(got.CurrentUnitPrice), got.ValuedOn)
+	}
+	if bookDecimalString(got.TotalCost) != "90" || bookDecimalString(got.AverageCost) != "30" {
+		t.Fatalf("cost = %s (average %s), want it untouched by the quote", bookDecimalString(got.TotalCost), bookDecimalString(got.AverageCost))
+	}
+	if ops, err := investments.ListOperations(context.Background(), f.conn, investments.OperationFilter{PositionID: &position.ID}); err != nil || len(ops) != 1 {
+		t.Fatalf("operations = %+v, %v; want only the opening balance", ops, err)
+	}
+	if listed := f.positions(investments.PositionFilter{}); len(listed) != 1 || !reflect.DeepEqual(listed[0], got) {
+		t.Fatalf("list = %+v, want the same derivation as GetPosition: %+v", listed, got)
+	}
+	if summary := f.summary(); summary.ManualValue.String() != "100" || summary.UnrealizedGain.String() != "10" {
+		t.Fatalf("summary = %+v, want the quoted value to feed the totals", summary)
+	}
+
+	// A newer price moves the value with no write to the position.
+	f.quoteOn(asset.ID, "2026-09-11", "40")
+	if p := f.position(position.ID); p.CurrentValue.String() != "120" {
+		t.Fatalf("after a newer quote = %s, want 120", p.CurrentValue)
+	}
+	// And so does a change in the units held.
+	f.addOperation(position.AccountID, position.ID, "sell", "2026-09-12", "40", "1")
+	if p := f.position(position.ID); p.Quantity.String() != "2" || p.CurrentValue.String() != "80" {
+		t.Fatalf("after selling a unit = %+v, want 2 × 40", p)
+	}
+}
+
+// The most recent statement about the price wins; on the same day the typed
+// valuation does.
+func TestQuotedManualPositionFollowsTheMostRecentPriceStatement(t *testing.T) {
+	f := newBookFixture(t)
+	asset := f.quotedAsset("Bitcoin", "BTC")
+	position := f.openQuoted(f.addManualAccount("Corretora"), asset, "10", "25")
+	f.quoteOn(asset.ID, "2026-09-05", "30")
+
+	// Valued by a person after the last quote: the valuation stands.
+	f.addOperation(position.AccountID, position.ID, "valuation", "2026-09-08", "400", "")
+	got := f.position(position.ID)
+	if got.ValuationBasis != investments.ValuationBasisManualValuation || got.CurrentValue.String() != "400" ||
+		got.ValuedOn == nil || got.ValuedOn.Format(investments.DateLayout) != "2026-09-08" {
+		t.Fatalf("valuation after the quote = %+v, want the typed 400", got)
+	}
+
+	// A quote the same day as the valuation does not displace it.
+	f.quoteOn(asset.ID, "2026-09-08", "50")
+	if p := f.position(position.ID); p.ValuationBasis != investments.ValuationBasisManualValuation || p.CurrentValue.String() != "400" {
+		t.Fatalf("tie = %+v, want the typed valuation", p)
+	}
+
+	// A later quote does: the valuation is now the older statement.
+	f.quoteOn(asset.ID, "2026-09-09", "60")
+	got = f.position(position.ID)
+	if got.ValuationBasis != investments.ValuationBasisMarketQuote || got.CurrentValue.String() != "600" ||
+		got.ValuedOn == nil || got.ValuedOn.Format(investments.DateLayout) != "2026-09-09" {
+		t.Fatalf("quote after the valuation = %+v, want 10 × 60 from the 9th", got)
+	}
+
+	// A valuation typed later still outranks that quote.
+	f.addOperation(position.AccountID, position.ID, "valuation", "2026-09-10", "650", "")
+	if p := f.position(position.ID); p.ValuationBasis != investments.ValuationBasisManualValuation || p.CurrentValue.String() != "650" {
+		t.Fatalf("valuation after the quote = %+v, want the typed 650", p)
+	}
+}
+
+// Only an asset with a quote connector is valued from its series: prices that
+// happen to sit there for any other asset, and holdings with no units, are not
+// the holder's to be priced by.
+func TestPositionsOutsideAConnectorKeepTheirOwnValue(t *testing.T) {
+	f := newBookFixture(t)
+	accountID := f.addManualAccount("Corretora")
+
+	plain, err := investments.CreatePosition(context.Background(), f.conn, investments.PositionInput{
+		AccountID: accountID, Name: "CDB", AssetType: "Renda fixa",
+		InitialQuantity: bookDec("2"), InitialUnitCost: bookDec("50"),
+		OccurredOn: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("CreatePosition: %v", err)
+	}
+	f.quoteOn(*plain.AssetID, "2026-09-05", "70")
+	if p := f.position(plain.ID); p.ValuationBasis != investments.ValuationBasisCostBasis || p.CurrentValue.String() != "100" || p.ValuedOn != nil {
+		t.Fatalf("asset without a connector = %+v, want the cost", p)
+	}
+
+	asset := f.quotedAsset("Bitcoin", "BTC")
+	f.quoteOn(asset.ID, "2026-09-05", "70")
+	soldOut := f.openQuoted(accountID, asset, "2", "50")
+	f.addOperation(accountID, soldOut.ID, "sell", "2026-09-06", "140", "2")
+	if p := f.position(soldOut.ID); !p.Closed || p.ValuationBasis == investments.ValuationBasisMarketQuote || !p.CurrentValue.IsZero() {
+		t.Fatalf("sold out = %+v, want closed and worth nothing", p)
+	}
+
+	empty, err := investments.CreatePosition(context.Background(), f.conn, investments.PositionInput{
+		AccountID: f.addManualAccount("Outra"), AssetID: &asset.ID, Name: asset.Name, AssetType: asset.AssetType,
+	})
+	if err != nil {
+		t.Fatalf("CreatePosition (empty): %v", err)
+	}
+	if p := f.position(empty.ID); p.ValuationBasis == investments.ValuationBasisMarketQuote || !p.CurrentValue.IsZero() {
+		t.Fatalf("empty = %+v, want no value", p)
+	}
+}
+
+// Each position is valued by its own asset's quote: two assets held in one
+// account, and one asset held in two accounts, do not share a price by
+// accident of the account or the order they are listed in.
+func TestQuotedPositionsAreValuedByTheirOwnAssetsQuote(t *testing.T) {
+	f := newBookFixture(t)
+	account := f.addManualAccount("Corretora")
+	other := f.addManualAccount("Outra corretora")
+	bitcoin := f.quotedAsset("Bitcoin", "BTC")
+	ether := f.quotedAsset("Ether", "ETH")
+	inBitcoin := f.openQuoted(account, bitcoin, "2", "10")
+	inEther := f.openQuoted(account, ether, "3", "10")
+	bitcoinElsewhere := f.openQuoted(other, bitcoin, "5", "10")
+	f.quoteOn(bitcoin.ID, "2026-09-10", "100")
+	f.quoteOn(ether.ID, "2026-09-10", "7")
+
+	for _, tc := range []struct {
+		position investments.Position
+		want     string
+	}{{inBitcoin, "200"}, {inEther, "21"}, {bitcoinElsewhere, "500"}} {
+		if got := f.position(tc.position.ID); got.CurrentValue.String() != tc.want {
+			t.Errorf("%s value = %s, want %s", got.Name, got.CurrentValue, tc.want)
+		}
+	}
+	for _, listed := range f.positions(investments.PositionFilter{}) {
+		want := map[string]string{inBitcoin.ID: "200", inEther.ID: "21", bitcoinElsewhere.ID: "500"}[listed.ID]
+		if listed.CurrentValue.String() != want {
+			t.Errorf("listed %s value = %s, want %s", listed.Name, listed.CurrentValue, want)
+		}
+	}
+}

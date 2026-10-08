@@ -492,11 +492,11 @@ func TestRefreshAllResolvesTheSymbolFromTheTickerToo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RefreshAll: %v", err)
 	}
-	if summary.PricesFetched != 1 || summary.PositionsCreated != 1 {
-		t.Fatalf("summary = %+v, want the spot price for PETR4 fetched and valued", summary)
+	if summary.PricesFetched != 1 {
+		t.Fatalf("summary = %+v, want the spot price for PETR4 fetched", summary)
 	}
-	if valuation := onlyValuation(t, listPositionOperations(t, ctx, conn, position.ID)); valuation == nil || valuation.Amount.String() != "500" {
-		t.Errorf("valuation = %+v, want 10 units at 50", valuation)
+	if got, err := investments.GetPosition(ctx, conn, position.ID); err != nil || got.CurrentValue.String() != "500" {
+		t.Errorf("position = %+v, %v; want 10 units at 50", got, err)
 	}
 }
 
@@ -534,7 +534,8 @@ func TestRefreshMissingPricesOnlyWhatHasNoPriceToday(t *testing.T) {
 
 	// The daily run priced PETR4 this morning.
 	if err := investments.UpsertAssetQuote(ctx, conn, investments.AssetQuote{
-		AssetID: priced.ID, QuotedOn: today, Price: decimal.NewFromInt(49), Source: marketdata.ProviderYahoo,
+		AssetID: priced.ID, QuotedOn: today, Price: decimal.NewFromInt(49),
+		Source: marketdata.ProviderYahoo, Origin: investments.QuoteOriginMarket,
 	}); err != nil {
 		t.Fatalf("UpsertAssetQuote: %v", err)
 	}

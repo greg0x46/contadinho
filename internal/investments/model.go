@@ -43,6 +43,9 @@ const (
 	ValuationBasisManualValuation ValuationBasis = "manual_valuation"
 	ValuationBasisCostBasis       ValuationBasis = "cost_basis"
 	ValuationBasisProviderBalance ValuationBasis = "provider_balance"
+	// ValuationBasisMarketQuote is a manual holding valued at its asset's
+	// latest price in the quote series, derived on read.
+	ValuationBasisMarketQuote ValuationBasis = "market_quote"
 )
 
 type OperationKind string

@@ -70,6 +70,19 @@ func (p *positionLedger) valuationUnitPrice() decimal.Decimal {
 	return p.valuationTotal.Div(p.valuedQuantity)
 }
 
+// valuedDay is the day of the last manual valuation, nil while the holding
+// was never valued.
+func (p *positionLedger) valuedDay() (*time.Time, error) {
+	if p.valuedOn == nil {
+		return nil, nil
+	}
+	day, err := parseDate(p.valuedOn.value)
+	if err != nil {
+		return nil, err
+	}
+	return &day, nil
+}
+
 // removeUnits lowers the quantity and the proportional share of the cost
 // basis, so what remains is still an exact total rather than a re-multiplied
 // unit cost.

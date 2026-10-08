@@ -24,7 +24,9 @@ reprocessam o histórico e rejeitam caixa ou quantidade negativos. Avaliações
 são manuais e datadas; quando indisponíveis, o custo é identificado como custo,
 sem inventar uma cotação ou rentabilidade. O livro guarda o custo total e o
 valor total avaliado; custo médio e cotação unitária são derivados só para
-exibição, de modo que valor e ganho não sofrem deriva decimal.
+exibição, de modo que valor e ganho não sofrem deriva decimal. Em ativos com
+cotação automática o valor vem da série de preços (`market_quote`), calculado
+na leitura: o job de cotações não grava operações no livro.
 
 ## Transferências e relatórios
 
@@ -161,8 +163,7 @@ do mercado falham por limite de taxa o ativo é adiado: fica para a próxima
 execução e nada é marcado como consultado.
 
 Cada preço gravado (`investment_asset_quotes.source`) registra o provedor que o
-serviu (`yahoo`, `brapi` ou `coingecko`), e a nota da avaliação automática diz
-`conector=<provedor>`. A cotação do dia fica 10 minutos em cache em memória por
+serviu (`yahoo`, `brapi` ou `coingecko`). A cotação do dia fica 10 minutos em cache em memória por
 instrumento. Na CoinGecko, o código (`BTC`) é resolvido para o id da moeda
 (`bitcoin`) pela busca dela (vale a moeda de maior market cap com aquele
 código); essa resolução fica em memória durante a vida do processo e não é
@@ -225,16 +226,65 @@ requisições, serializa-as e pausa o provedor quando ele pede (`429` com
 pausa longa não é esperada com a requisição aberta: o provedor pausado é pulado
 e o próximo do mercado é tentado.
 
+### Origem e precedência dos preços
+
+Cada linha da série (`investment_asset_quotes`, um preço por ativo por dia) tem
+`source`, quem a gravou (`pluggy`, `issue`, `yahoo`, `brapi`, `coingecko`), só
+para exibição e auditoria, e `origin`, o tipo de afirmação que o preço faz,
+que é o que decide quem pode substituir quem:
+
+| `origin` | O que é | Quem grava | Quem pode substituí-lo |
+| --- | --- | --- | --- |
+| `sync` | preço que o Open Finance informou na sincronização | `UpsertAssetQuote` (snapshot da Pluggy, inclusive o refeito dos `raw_imports`) | outra sincronização |
+| `issue` | PU de emissão de um título de renda fixa, derivado da compra | `insertAssetQuoteIfAbsent` | só uma sincronização; nunca preenche um dia já preenchido |
+| `market` | cotação (spot ou fechamento) de um provedor de mercado | `UpsertConnectorQuotes` (execução diária e backfill) | outro preço `market`, de qualquer provedor, ou uma sincronização |
+
+A migration classifica as linhas existentes pelo `source` (`pluggy` vira `sync`,
+`issue` vira `issue`, o restante vira `market`). Os escritores recusam `origin`
+vazio ou desconhecido (`ErrInvalidInput`), e `UpsertConnectorQuotes` só aceita
+`market`. O job considera um ativo já cotado no dia (`RefreshMissing`) só quando
+há preço `market` de hoje: o preço que a sincronização informou não evita a
+consulta ao mercado, que por sua vez não o substitui.
+
 ### Rendimento
 
-Uma posição manual cujo ativo tem cotação automática é avaliada em qualquer dia
-por `quantidade mantida no fim do dia × preço do dia` (último preço até 10 dias
-antes), de modo que o rendimento de qualquer período dentro do histórico não
-depende de existir uma avaliação datada nas pontas. Uma avaliação digitada por
-uma pessoa continua valendo no dia dela; a avaliação automática do job nunca
-sobrepõe a série. Ativos sem cotação automática seguem avaliados só pelas
-avaliações do livro. A série não grava nada derivado: o valor histórico é
-sempre calculado na leitura.
+`investment_asset_quotes` (a série de preço diário do ativo) é a **única fonte
+de preço**: o Open Finance grava nela a cada sincronização, a execução diária
+do job de cotações grava o preço do dia dos ativos com cotação automática que
+alguma posição manual mantém com quantidade positiva, e o backfill grava o
+histórico. O job **não grava operações** `valuation` no livro: o preço do dia só
+entra na série.
+
+O valor de uma posição manual cujo ativo tem cotação automática é **derivado na
+leitura** (`Position.CurrentValue`, de onde saem totais, metas e patrimônio):
+`quantidade × último preço da série`, arredondado a centavos, com
+`valuation_basis = market_quote`, `current_unit_price` igual ao preço e
+`valued_on` igual ao dia dele. Nada disso é persistido; uma cotação velha
+continua valendo para o valor exibido, e `valued_on` mostra a idade dela.
+
+A regra é "a afirmação mais recente sobre o preço vence; no empate de dia, a
+avaliação digitada vence": a cotação só vale se a posição tem quantidade
+positiva e não há avaliação digitada, ou a última avaliação é de um dia anterior
+ao da cotação. Do contrário vale a avaliação (`manual_valuation`), que
+continua valendo até chegar uma cotação mais nova. Ativos sem cotação
+automática seguem avaliados só pelas avaliações do livro (ou pelo custo, com
+`cost_basis`).
+
+O rendimento usa a mesma regra em qualquer dia: uma posição manual cujo ativo
+tem cotação automática é avaliada por `quantidade mantida no fim do dia × preço
+do dia` (último preço até 10 dias antes, arredondado a centavos como o de uma
+posição sincronizada), a menos que a última avaliação digitada até aquele dia
+seja igual ou mais recente que esse preço. Assim o rendimento de qualquer
+período dentro do histórico não depende de existir uma avaliação datada nas
+pontas. A série não grava nada derivado: o valor histórico é sempre calculado
+na leitura.
+
+O teto de 10 dias vale só para o rendimento. O valor atual da posição usa a
+última cotação de qualquer idade (`valued_on` mostra de que dia ela é), para o
+valor exibido não saltar numa queda de provedor. Quando a última cotação é mais
+velha que 10 dias e mais nova que a última avaliação digitada, o rendimento
+daquele dia fica indisponível (`saldo_indisponivel`): não volta a uma avaliação
+que a cotação já substituiu.
 
 ## Ações combinadas, revisão e filtros
 
@@ -285,8 +335,9 @@ automaticamente.
 Posições aceitam filtros `account_id`, `portfolio_id`, `source`, `source_id`
 e `include_closed`. Operações aceitam `account_id`, `position_id`,
 `portfolio_id`, `source`, `source_id`, `from`, `to` e `reconciliation_state`
-(`linked`, `unlinked`). As avaliações são operações `valuation` datadas,
-consultáveis pelo mesmo histórico de operações.
+(`linked`, `unlinked`). As avaliações digitadas são operações `valuation`
+datadas, consultáveis pelo mesmo histórico de operações; o job de cotações
+nunca as cria.
 
 O total da área de investimentos inclui o caixa efetivo das contas vinculadas.
 No patrimônio esse mesmo caixa já está na parcela bancária, portanto não é

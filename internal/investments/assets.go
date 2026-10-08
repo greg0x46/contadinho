@@ -225,19 +225,42 @@ func resolveAsset(ctx context.Context, q Querier, in PositionInput) (Asset, erro
 	return ensureAsset(ctx, q, in.Name, in.Ticker, in.AssetType, "BRL")
 }
 
-func ensureAsset(ctx context.Context, q Querier, rawName string, rawTicker *string, rawKind, rawCurrency string) (Asset, error) {
-	name, kind := strings.TrimSpace(rawName), strings.TrimSpace(rawKind)
+// normalizeAssetIdentity trims an instrument's name and kind and derives the
+// key the catalog knows it by. Find-or-create and the read-only lookup both go
+// through it, so they always agree on which asset a holding is.
+func normalizeAssetIdentity(rawName string, rawTicker *string, rawKind string) (name string, ticker *string, kind, key string, err error) {
+	name, kind = strings.TrimSpace(rawName), strings.TrimSpace(rawKind)
 	if name == "" || kind == "" {
-		return Asset{}, ErrInvalidInput
+		return "", nil, "", "", ErrInvalidInput
 	}
-	ticker := trimOptional(rawTicker)
-	key := assetCanonicalKey(name, ticker, kind)
+	ticker = trimOptional(rawTicker)
+	return name, ticker, kind, assetCanonicalKey(name, ticker, kind), nil
+}
+
+// findAssetByKey is the lookup half of ensureAsset: it never writes.
+func findAssetByKey(ctx context.Context, q Querier, key string) (Asset, bool, error) {
 	asset, err := scanAsset(q.QueryRowContext(ctx, `SELECT `+assetColumns+` FROM investment_assets WHERE canonical_key = ?`, key))
-	if err == nil {
-		return asset, nil
+	switch {
+	case err == nil:
+		return asset, true, nil
+	case errors.Is(err, sql.ErrNoRows):
+		return Asset{}, false, nil
+	default:
+		return Asset{}, false, err
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
+}
+
+func ensureAsset(ctx context.Context, q Querier, rawName string, rawTicker *string, rawKind, rawCurrency string) (Asset, error) {
+	name, ticker, kind, key, err := normalizeAssetIdentity(rawName, rawTicker, rawKind)
+	if err != nil {
 		return Asset{}, err
+	}
+	asset, found, err := findAssetByKey(ctx, q, key)
+	if err != nil {
+		return Asset{}, err
+	}
+	if found {
+		return asset, nil
 	}
 	currency := strings.ToUpper(strings.TrimSpace(rawCurrency))
 	if currency == "" {
