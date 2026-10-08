@@ -102,7 +102,7 @@ export function useAccountDetail(accountId: string) {
   const transactionsQuery = useQuery({
     queryKey:
       timezone === null
-        ? ["transactions", "invalid-timezone", accountId]
+        ? queryKeys.transactionsInvalidTimezoneFor(accountId)
         : transactionQueryKey(recentTransactionsQuery(accountId, timezone)),
     queryFn: ({ signal }) => queryTransactions(recentTransactionsQuery(accountId, timezone!), signal),
     enabled: timezone !== null,

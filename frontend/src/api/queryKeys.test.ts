@@ -53,6 +53,8 @@ describe("queryKeys values", () => {
     expect(queryKeys.syncRunsList).toEqual(["sync-runs", "list"]);
     expect(queryKeys.syncRunDetail("r1")).toEqual(["sync-runs", "detail", "r1"]);
     expect(queryKeys.dataSourcesList).toEqual(["data-sources", "list"]);
+    expect(queryKeys.transactionsInvalidTimezoneFor("a1")).toEqual(["transactions", "invalid-timezone", "a1"]);
+    expect(queryKeys.authSession).toEqual(["auth-session"]);
     expect(queryKeys.timeline).toEqual(["timeline"]);
     expect(queryKeys.timelineDataRange).toEqual(["timeline-data-range"]);
     expect(queryKeys.netWorth).toEqual(["netWorth"]);

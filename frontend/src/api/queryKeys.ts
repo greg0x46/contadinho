@@ -76,6 +76,8 @@ export const queryKeys = {
   timelineFor: (params: TimelineParams) => [...roots.timeline, params] as const,
   transactionsFor: (query: TransactionQuery) => [...roots.transactions, query] as const,
   transactionsInvalidTimezone: [...roots.transactions, "invalid-timezone"] as const,
+  transactionsInvalidTimezoneFor: (accountId: string) =>
+    [...roots.transactions, "invalid-timezone", accountId] as const,
   categoryBreakdown: (timezone: string | null, period: unknown, classification: unknown) =>
     [...roots.transactions, "category-breakdown", timezone, period, classification] as const,
   spendingByCategory: (timezone: string | null) =>
@@ -97,7 +99,8 @@ const projectionViews: readonly QueryKey[] = [roots.timeline, roots.timelineData
 
 /*
  * Policies. Each returns a promise that settles when the invalidated queries
- * have refetched; callers that must not wait simply don't await it.
+ * have refetched (markTransactionsStale excepted: it only marks them stale);
+ * callers that must not wait simply don't await it.
  */
 
 /** A scenario write changes what the projector includes. */
