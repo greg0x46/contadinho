@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"contadinho-go/internal/investments"
 	"contadinho-go/internal/marketdata"
 	"contadinho-go/internal/settings"
 )
@@ -39,7 +40,7 @@ func RequestBackfill() {
 // back up, the same catch-up behavior EnqueueDue gives the sync schedule. The
 // daily run's own same-day dedupe is what makes running it an extra time (at
 // startup, or from a second process restart the same day) harmless, and the
-// history scan asks nothing of a connector for a range it has already asked
+// history scan asks nothing of a provider for a range it has already asked
 // about.
 //
 // Between daily runs the loop also wakes for RequestBackfill and prices what
@@ -53,16 +54,20 @@ func RunSchedule(ctx context.Context, conn *sql.DB, service *marketdata.Service,
 	nextDaily := time.Now()
 	for {
 		now := time.Now()
+		// "Today" is the Brazilian calendar day, like everywhere rendimento
+		// reads the price series, whatever zone the host runs in: a quote
+		// stamped with the host's day could land after the day it is read on.
+		today := investments.ProviderDay(now)
 		if !now.Before(nextDaily) {
-			if _, err := RefreshAll(ctx, conn, service, now); err != nil {
+			if _, err := RefreshAll(ctx, conn, service, today); err != nil {
 				log.Printf("quote_refresh_failed: %v", err)
 			}
 			nextDaily = schedule.Next(now)
-		} else if _, err := RefreshMissing(ctx, conn, service, now); err != nil && ctx.Err() == nil {
+		} else if _, err := RefreshMissing(ctx, conn, service, today); err != nil && ctx.Err() == nil {
 			// Woken by a save: price what has no price today yet.
 			log.Printf("quote_refresh_failed: %v", err)
 		}
-		if _, err := RefreshHistory(ctx, conn, service, now); err != nil && ctx.Err() == nil {
+		if _, err := RefreshHistory(ctx, conn, service, today); err != nil && ctx.Err() == nil {
 			log.Printf("quote_history_failed: %v", err)
 		}
 

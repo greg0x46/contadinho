@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -28,7 +27,8 @@ import (
 // quote on or before d, from investment_asset_quotes), which is the gross
 // value — IR/IOF the institution provisions stay for the caller to deduct.
 // For a manual one V(d) is the ledger replayed through d, valued at the last
-// manual or automatic valuation.
+// typed valuation — or, when its asset has a price series, at quantity(d) ×
+// the price on d, unless a valuation as recent as that price was typed.
 
 // Reasons a yield cannot be stated. They match the API's
 // yield_unavailable_reason vocabulary.
@@ -82,11 +82,19 @@ type valueSeries interface {
 // PositionYield is the rendimento of a holding between from and to. A nil
 // from means since inception.
 func PositionYield(ctx context.Context, q Querier, positionID string, from *time.Time, to time.Time) (YieldResult, error) {
-	series, err := loadSeries(ctx, q, positionID)
+	return PositionYieldWith(ctx, q, nil, positionID, from, to)
+}
+
+// PositionYieldWith is PositionYield reading price series through cache, so
+// the holdings of one request that share an asset load its series once. A nil
+// cache loads every time.
+func PositionYieldWith(ctx context.Context, q Querier, cache *YieldCache, positionID string, from *time.Time, to time.Time) (YieldResult, error) {
+	to = Day(to)
+	series, err := loadSeries(ctx, q, cache, positionID, to)
 	if err != nil {
 		return YieldResult{}, err
 	}
-	return yieldOver(series, from, Day(to))
+	return yieldOver(series, from, to)
 }
 
 func yieldOver(series valueSeries, from *time.Time, to time.Time) (YieldResult, error) {
@@ -129,7 +137,7 @@ func yieldOver(series valueSeries, from *time.Time, to time.Time) (YieldResult, 
 // both itself and the day before. Days without one are left out rather than
 // reported as zero.
 func DailyYield(ctx context.Context, q Querier, positionID string, from, to time.Time) ([]DayYield, error) {
-	series, err := loadSeries(ctx, q, positionID)
+	series, err := loadSeries(ctx, q, nil, positionID, Day(to))
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +160,9 @@ func dailyOver(series valueSeries, from, to time.Time) []DayYield {
 	return days
 }
 
-func loadSeries(ctx context.Context, q Querier, positionID string) (valueSeries, error) {
+// loadSeries builds the value series of a holding. A synced holding's prices
+// later than until are never read, so its series is loaded only through it.
+func loadSeries(ctx context.Context, q Querier, cache *YieldCache, positionID string, until time.Time) (valueSeries, error) {
 	var row syncedHoldingRow
 	err := q.QueryRowContext(ctx, `SELECT `+syncedHoldingColumns+` FROM financial_investments fi WHERE fi.id = ?`, positionID).
 		Scan(row.dests()...)
@@ -162,7 +172,7 @@ func loadSeries(ctx context.Context, q Querier, positionID string) (valueSeries,
 		if err != nil {
 			return nil, err
 		}
-		return loadSyncedSeries(ctx, q, positionID, holding)
+		return loadSyncedSeries(ctx, q, cache, positionID, holding, until)
 	case errors.Is(err, sql.ErrNoRows):
 		return loadManualSeries(ctx, q, positionID)
 	default:
@@ -195,13 +205,28 @@ func sumFlows(events []flowEvent, from, to time.Time) decimal.Decimal {
 // whole accrual as that period's rendimento.
 const maxQuoteAge = 10 * 24 * time.Hour
 
-// priceOn is the last quote on or before d, if recent enough to price d.
-func priceOn(quotes []AssetQuote, d time.Time) (decimal.Decimal, bool) {
+// latestQuoteOn is the last quote on or before d, however old.
+func latestQuoteOn(quotes []AssetQuote, d time.Time) (AssetQuote, bool) {
 	i := sort.Search(len(quotes), func(i int) bool { return quotes[i].QuotedOn.After(d) })
-	if i == 0 || d.Sub(quotes[i-1].QuotedOn) > maxQuoteAge {
-		return decimal.Zero, false
+	if i == 0 {
+		return AssetQuote{}, false
 	}
-	return quotes[i-1].Price, true
+	return quotes[i-1], true
+}
+
+// quoteOn is the last quote on or before d, if recent enough to price d.
+func quoteOn(quotes []AssetQuote, d time.Time) (AssetQuote, bool) {
+	quote, ok := latestQuoteOn(quotes, d)
+	if !ok || d.Sub(quote.QuotedOn) > maxQuoteAge {
+		return AssetQuote{}, false
+	}
+	return quote, true
+}
+
+// priceOn is the price of quoteOn.
+func priceOn(quotes []AssetQuote, d time.Time) (decimal.Decimal, bool) {
+	quote, ok := quoteOn(quotes, d)
+	return quote.Price, ok
 }
 
 // syncedSeries values a provider holding from its asset's quotes. The
@@ -221,14 +246,18 @@ type syncedSeries struct {
 	movements int
 }
 
-func loadSyncedSeries(ctx context.Context, q Querier, id string, holding SyncedHolding) (*syncedSeries, error) {
-	asset, err := ResolveSyncedAsset(ctx, q, holding)
+func loadSyncedSeries(ctx context.Context, q Querier, cache *YieldCache, id string, holding SyncedHolding, until time.Time) (*syncedSeries, error) {
+	// Reading never creates the asset: a holding whose asset does not exist
+	// yet has no quotes, which yieldOver reports as no price.
+	var quotes []AssetQuote
+	asset, found, err := FindSyncedAsset(ctx, q, holding)
 	if err != nil {
 		return nil, err
 	}
-	quotes, err := ListAssetQuotes(ctx, q, asset.ID, nil)
-	if err != nil {
-		return nil, err
+	if found {
+		if quotes, err = cache.assetQuotes(ctx, q, asset.ID, until); err != nil {
+			return nil, err
+		}
 	}
 	s := &syncedSeries{quotes: quotes, complete: true}
 	if holding.Quantity != nil {
@@ -401,20 +430,21 @@ type manualSeries struct {
 	// day that has one; valued is false while no valuation priced it.
 	checkpoints []manualCheckpoint
 	// quotes is the asset's price series, loaded only when the asset has a
-	// quote connector configured: a holding the user asked to be priced
+	// quote market configured: a holding the user asked to be priced
 	// automatically is valued on any day from quantity × that day's price,
-	// not only on the days a valuation operation happens to exist.
+	// not only on the days a valuation operation happens to exist. A valuation
+	// a person typed on the quote's day or later outranks the quote (see
+	// quotedValue).
 	quotes   []AssetQuote
 	timeline quantityTimeline
-	// humanValuations are the days a person typed a valuation, which a
-	// connector's price never overrides.
-	humanValuations map[string]bool
 }
 
 type manualCheckpoint struct {
 	day    time.Time
 	value  decimal.Decimal
 	valued bool
+	// valuedOn is the day of the last typed valuation as of this checkpoint.
+	valuedOn *time.Time
 }
 
 func loadManualSeries(ctx context.Context, q Querier, positionID string) (*manualSeries, error) {
@@ -447,7 +477,7 @@ func loadManualSeries(ctx context.Context, q Querier, positionID string) (*manua
 		return nil, err
 	}
 
-	s := &manualSeries{humanValuations: map[string]bool{}}
+	s := &manualSeries{}
 	ledger := newAccountLedger()
 	for i, op := range operations {
 		if err := applyOperation(&ledger, op); err != nil {
@@ -457,9 +487,6 @@ func loadManualSeries(ctx context.Context, q Querier, positionID string) (*manua
 			if event, ok := manualFlow(op); ok {
 				s.events = append(s.events, event)
 			}
-			if op.Kind == OperationValuation && !isAutoQuoteNote(op.Notes) {
-				s.humanValuations[formatDate(op.OccurredOn)] = true
-			}
 		}
 		lastOfDay := i == len(operations)-1 || !operations[i+1].OccurredOn.Equal(op.OccurredOn)
 		if !lastOfDay {
@@ -468,6 +495,9 @@ func loadManualSeries(ctx context.Context, q Querier, positionID string) (*manua
 		checkpoint := manualCheckpoint{day: Day(op.OccurredOn), valued: true}
 		if state := ledger.positions[positionID]; state != nil && state.quantity.IsPositive() {
 			checkpoint.value, checkpoint.valued = state.valuedValue(), state.valuationTotal != nil
+			if checkpoint.valuedOn, err = state.valuedDay(); err != nil {
+				return nil, err
+			}
 		}
 		s.checkpoints = append(s.checkpoints, checkpoint)
 	}
@@ -480,10 +510,6 @@ func loadManualSeries(ctx context.Context, q Querier, positionID string) (*manua
 		s.timeline = newQuantityTimeline(s.events)
 	}
 	return s, nil
-}
-
-func isAutoQuoteNote(notes *string) bool {
-	return notes != nil && strings.HasPrefix(*notes, AutoQuoteMarker)
 }
 
 // manualFlow is the money an operation moved into (+) or out of (−) the
@@ -510,34 +536,61 @@ func manualFlow(op Operation) (flowEvent, bool) {
 }
 
 func (s *manualSeries) value(d time.Time) (decimal.Decimal, bool) {
-	if value, ok := s.quotedValue(d); ok {
-		return value, true
-	}
 	i := sort.Search(len(s.checkpoints), func(i int) bool { return s.checkpoints[i].day.After(d) })
 	if i == 0 {
 		return decimal.Zero, true
 	}
 	checkpoint := s.checkpoints[i-1]
+	switch value, verdict := s.quotedValue(d, checkpoint); verdict {
+	case quoteUsed:
+		return value, true
+	case quoteStale:
+		return decimal.Zero, false
+	}
 	return checkpoint.value, checkpoint.valued
 }
 
-// quotedValue is the units held at the end of d times the asset's price that
-// day. It declines — and the ledger's own valuation answers instead — when
-// the asset has no price series, a person valued the holding on d, nothing
-// was held, or no quote is recent enough to price d.
-func (s *manualSeries) quotedValue(d time.Time) (decimal.Decimal, bool) {
-	if len(s.quotes) == 0 || s.humanValuations[formatDate(d)] {
-		return decimal.Zero, false
+// quoteVerdict is what the asset's price series says about a day.
+type quoteVerdict int
+
+const (
+	// quoteDeclined: the series does not price the day, and the ledger's own
+	// valuation answers instead.
+	quoteDeclined quoteVerdict = iota
+	// quoteUsed: the day is priced at quantity × the quote.
+	quoteUsed
+	// quoteStale: a quote is the latest word on the price but too old to
+	// price the day. The day is left unpriced rather than answered by a
+	// valuation that is older than the quote.
+	quoteStale
+)
+
+// quotedValue is the units held at the end of d times the asset's price,
+// rounded to cents like a synced holding's. The latest statement about the
+// price wins, and on the same day a valuation a person typed does: it
+// declines when the asset has no price series, nothing was held, no quote
+// precedes d, or the typed valuation is as recent as the latest quote. When
+// the latest quote is more than maxQuoteAge old it prices nothing, and the
+// day is stale. checkpoint is the ledger's state as of d.
+func (s *manualSeries) quotedValue(d time.Time, checkpoint manualCheckpoint) (decimal.Decimal, quoteVerdict) {
+	if len(s.quotes) == 0 {
+		return decimal.Zero, quoteDeclined
 	}
 	held := s.timeline.at(d)
 	if !held.IsPositive() {
-		return decimal.Zero, false
+		return decimal.Zero, quoteDeclined
 	}
-	price, ok := priceOn(s.quotes, d)
+	quote, ok := latestQuoteOn(s.quotes, d)
 	if !ok {
-		return decimal.Zero, false
+		return decimal.Zero, quoteDeclined
 	}
-	return held.Mul(price), true
+	if checkpoint.valuedOn != nil && !checkpoint.valuedOn.Before(quote.QuotedOn) {
+		return decimal.Zero, quoteDeclined
+	}
+	if d.Sub(quote.QuotedOn) > maxQuoteAge {
+		return decimal.Zero, quoteStale
+	}
+	return held.Mul(quote.Price).Round(2), quoteUsed
 }
 
 func (s *manualSeries) flows(from, to time.Time) decimal.Decimal { return sumFlows(s.events, from, to) }
@@ -552,3 +605,37 @@ func (s *manualSeries) inception() (time.Time, bool) {
 }
 
 func (s *manualSeries) missingInception() string { return YieldReasonNoHistory }
+
+// quantityTimeline is how many units a position held at the end of each day
+// it moved, from its own operations: what a price on a later day multiplies.
+type quantityTimeline struct {
+	days []time.Time
+	held []decimal.Decimal
+}
+
+func newQuantityTimeline(events []flowEvent) quantityTimeline {
+	var timeline quantityTimeline
+	running := decimal.Zero
+	for _, event := range events {
+		running = running.Add(event.quantity)
+		if n := len(timeline.days); n > 0 && timeline.days[n-1].Equal(event.day) {
+			timeline.held[n-1] = running
+			continue
+		}
+		timeline.days = append(timeline.days, event.day)
+		timeline.held = append(timeline.held, running)
+	}
+	return timeline
+}
+
+// at is the quantity held at the end of day d.
+func (t quantityTimeline) at(d time.Time) decimal.Decimal {
+	held := decimal.Zero
+	for i, day := range t.days {
+		if day.After(d) {
+			break
+		}
+		held = t.held[i]
+	}
+	return held
+}

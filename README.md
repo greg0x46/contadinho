@@ -303,7 +303,10 @@ manualmente) depois do horário do dia não é repetida. Vazio desabilita.
 ### Cotações automáticas
 
 Ativos de investimento com cotação automática habilitada têm o preço
-das posições manuais buscado automaticamente. A busca é opt-in: defina
+das posições manuais buscado automaticamente e guardado na série de preços do
+ativo. O valor da posição é calculado a cada leitura (quantidade × último
+preço); uma avaliação manual de data igual ou posterior ao último preço vale
+mais que ele. A busca é opt-in: defina
 `CONTADINHO_QUOTES_SCHEDULE` (mesmo formato da sincronização) para rodar uma vez
 por dia e na subida do processo. Os provedores são tentados em ordem, com
 fallback automático; `CONTADINHO_QUOTES_PROVIDERS` define a ordem (separada por

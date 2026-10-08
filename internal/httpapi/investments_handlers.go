@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -219,30 +220,37 @@ func historyCovers(info contributionInfo, investmentType *string) bool {
 // nothing holds it leaves the yield nil and says why, so the UI can
 // distinguish a holding that simply has no movements yet from one whose
 // history the provider only half sent.
-func applyYield(ctx context.Context, conn *sql.DB, d *investmentDTO, contributed map[string]contributionInfo) error {
+//
+// The yield is display data, so it never fails the response: an unexpected
+// error from the price series is logged and the holding falls back to its
+// transaction history, as it did before price series existed.
+func applyYield(ctx context.Context, conn *sql.DB, cache *investments.YieldCache, d *investmentDTO, contributed map[string]contributionInfo) {
 	if d.AmountProfit != nil {
 		informado := "informado"
 		d.YieldValue, d.YieldSource = d.AmountProfit, &informado
-		return nil
+		return
 	}
-	result, err := investments.PositionYield(ctx, conn, d.ID, nil, investments.ProviderDay(time.Now()))
+	result, err := investments.PositionYieldWith(ctx, conn, cache, d.ID, nil, investments.ProviderDay(time.Now()))
 	var reason *investments.YieldUnavailableError
 	switch {
 	case err == nil:
 		value := money.CanonicalDecimal(result.Value)
 		calculado := "calculado"
 		d.YieldValue, d.YieldSource = &value, &calculado
-		return nil
+		return
 	case !errors.As(err, &reason):
-		return err
+		// A cancelled request has nobody left to read the answer; one line
+		// per holding of it would only be noise.
+		if ctx.Err() == nil {
+			log.Printf("investment_yield_failed investment_id=%s: %v", d.ID, err)
+		}
 	case reason.Reason != investments.YieldReasonNoPrice:
 		// The history itself cannot reach the purchase; netting the same
 		// history below would only restate that less carefully.
 		d.YieldUnavailableReason = &reason.Reason
-		return nil
+		return
 	}
 	applyHistoryYield(d, contributed)
-	return nil
 }
 
 // applyHistoryYield is the fallback for a holding the price series does not
@@ -316,11 +324,10 @@ func handleListInvestments(conn *sql.DB) http.HandlerFunc {
 			writeProblem(w, 503, "investments-unavailable", "Investimentos temporariamente indisponíveis", "Tente novamente em instantes.")
 			return
 		}
+		// One cache per request: holdings of the same asset share its series.
+		cache := investments.NewYieldCache()
 		for i := range result {
-			if err := applyYield(r.Context(), conn, &result[i], contributed); err != nil {
-				writeProblem(w, 503, "investments-unavailable", "Investimentos temporariamente indisponíveis", "Tente novamente em instantes.")
-				return
-			}
+			applyYield(r.Context(), conn, cache, &result[i], contributed)
 		}
 		writeJSON(w, http.StatusOK, result)
 	}
@@ -348,10 +355,7 @@ func handleGetInvestment(conn *sql.DB) http.HandlerFunc {
 			writeProblem(w, 503, "investments-unavailable", "Investimentos temporariamente indisponíveis", "Tente novamente em instantes.")
 			return
 		}
-		if err := applyYield(r.Context(), conn, &d, contributed); err != nil {
-			writeProblem(w, 503, "investments-unavailable", "Investimentos temporariamente indisponíveis", "Tente novamente em instantes.")
-			return
-		}
+		applyYield(r.Context(), conn, nil, &d, contributed)
 		writeJSON(w, http.StatusOK, d)
 	}
 }

@@ -3,6 +3,7 @@ package investments
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"time"
 	"unicode"
@@ -13,8 +14,10 @@ import (
 	"contadinho-go/internal/money"
 )
 
-// Quote sources written by investments. Market data provider names are also
-// stored as sources; those names are defined in internal/marketdata.
+// Quote sources written by investments: who wrote a price, kept for display
+// and audit. Market data provider names are also stored as sources; those
+// names are defined in internal/marketdata. Which price may replace which is
+// not decided by the source but by the origin.
 const (
 	QuoteSourcePluggy = "pluggy"
 	// QuoteSourceIssue is the unit price a fixed income title was bought at
@@ -23,6 +26,31 @@ const (
 	// inception without any movement history.
 	QuoteSourceIssue = "issue"
 )
+
+// QuoteOrigin is the kind of statement a price makes, which is what decides
+// precedence between two writers of the same day: a market data provider's
+// price never replaces one the Open Finance sync observed or one derived from
+// a title's purchase.
+type QuoteOrigin string
+
+const (
+	// QuoteOriginSync is a price the provider reported on a sync.
+	QuoteOriginSync QuoteOrigin = "sync"
+	// QuoteOriginIssue is the PU a fixed income title was bought at, derived
+	// from the holding rather than observed.
+	QuoteOriginIssue QuoteOrigin = "issue"
+	// QuoteOriginMarket is a price from a market data provider (spot or close).
+	QuoteOriginMarket QuoteOrigin = "market"
+)
+
+// Valid reports whether o is one of the known origins.
+func (o QuoteOrigin) Valid() bool {
+	switch o {
+	case QuoteOriginSync, QuoteOriginIssue, QuoteOriginMarket:
+		return true
+	}
+	return false
+}
 
 // providerZone is the wall clock provider instants are read in. Pluggy dates
 // Nubank holdings as Brazilian midnights (issueDate 2024-09-06T03:00Z) and
@@ -35,39 +63,50 @@ func ProviderDay(t time.Time) time.Time { return Day(t.In(providerZone)) }
 
 // AssetQuote is one dated unit price of an asset.
 type AssetQuote struct {
-	AssetID     string
-	QuotedOn    time.Time
-	Price       decimal.Decimal
-	Source      string
+	AssetID  string
+	QuotedOn time.Time
+	Price    decimal.Decimal
+	// Source is who wrote the price (pluggy, issue, a market data provider).
+	Source string
+	// Origin is the kind of statement it makes; writers must set it.
+	Origin      QuoteOrigin
 	RawImportID *string
 }
 
 // UpsertAssetQuote stores the asset's price for the day, replacing whatever
 // another writer stored that day: one price per asset per day, last writer
-// wins, with source recording who that was.
+// wins, with source recording who that was and origin what kind of price it
+// is. It is the Open Finance sync's writer; market data providers go through
+// UpsertConnectorQuotes, which spares what the sync observed.
 func UpsertAssetQuote(ctx context.Context, q Querier, quote AssetQuote) error {
+	if !quote.Origin.Valid() {
+		return ErrInvalidInput
+	}
 	now := db.FormatTime(time.Now())
 	_, err := q.ExecContext(ctx, `
-		INSERT INTO investment_asset_quotes (asset_id, quoted_on, price, source, raw_import_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO investment_asset_quotes (asset_id, quoted_on, price, source, origin, raw_import_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (asset_id, quoted_on) DO UPDATE SET
-			price = excluded.price, source = excluded.source,
+			price = excluded.price, source = excluded.source, origin = excluded.origin,
 			raw_import_id = excluded.raw_import_id, updated_at = excluded.updated_at`,
-		quote.AssetID, formatDate(quote.QuotedOn), money.CanonicalDecimal(quote.Price), quote.Source,
+		quote.AssetID, formatDate(quote.QuotedOn), money.CanonicalDecimal(quote.Price), quote.Source, string(quote.Origin),
 		nullableString(quote.RawImportID), now, now)
 	return err
 }
 
 // insertAssetQuoteIfAbsent stores a derived price only where nothing observed
 // exists for the day: an issue PU must never replace a quote the provider or
-// a connector actually reported.
+// a market data provider actually reported.
 func insertAssetQuoteIfAbsent(ctx context.Context, q Querier, quote AssetQuote) error {
+	if !quote.Origin.Valid() {
+		return ErrInvalidInput
+	}
 	now := db.FormatTime(time.Now())
 	_, err := q.ExecContext(ctx, `
-		INSERT INTO investment_asset_quotes (asset_id, quoted_on, price, source, raw_import_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO investment_asset_quotes (asset_id, quoted_on, price, source, origin, raw_import_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (asset_id, quoted_on) DO NOTHING`,
-		quote.AssetID, formatDate(quote.QuotedOn), money.CanonicalDecimal(quote.Price), quote.Source,
+		quote.AssetID, formatDate(quote.QuotedOn), money.CanonicalDecimal(quote.Price), quote.Source, string(quote.Origin),
 		nullableString(quote.RawImportID), now, now)
 	return err
 }
@@ -75,7 +114,7 @@ func insertAssetQuoteIfAbsent(ctx context.Context, q Querier, quote AssetQuote) 
 // ListAssetQuotes returns the asset's quotes up to and including the given
 // day (nil for all), oldest first.
 func ListAssetQuotes(ctx context.Context, q Querier, assetID string, until *time.Time) ([]AssetQuote, error) {
-	query := `SELECT asset_id, quoted_on, price, source, raw_import_id FROM investment_asset_quotes WHERE asset_id = ?`
+	query := assetQuoteSelect + ` WHERE asset_id = ?`
 	args := []any{assetID}
 	if until != nil {
 		query += ` AND quoted_on <= ?`
@@ -88,27 +127,54 @@ func ListAssetQuotes(ctx context.Context, q Querier, assetID string, until *time
 	defer rows.Close()
 	quotes := []AssetQuote{}
 	for rows.Next() {
-		var (
-			quote           AssetQuote
-			quotedOn, price string
-			rawImportID     sql.NullString
-		)
-		if err := rows.Scan(&quote.AssetID, &quotedOn, &price, &quote.Source, &rawImportID); err != nil {
+		quote, err := scanAssetQuote(rows)
+		if err != nil {
 			return nil, err
-		}
-		if quote.QuotedOn, err = parseDate(quotedOn); err != nil {
-			return nil, err
-		}
-		if quote.Price, err = decimal.NewFromString(price); err != nil {
-			return nil, err
-		}
-		if rawImportID.Valid {
-			v := rawImportID.String
-			quote.RawImportID = &v
 		}
 		quotes = append(quotes, quote)
 	}
 	return quotes, rows.Err()
+}
+
+// LatestAssetQuote is the asset's most recent quote, nil while its series is
+// empty. It carries no age limit: the caller decides how stale a price may be.
+func LatestAssetQuote(ctx context.Context, q Querier, assetID string) (*AssetQuote, error) {
+	quote, err := scanAssetQuote(q.QueryRowContext(ctx,
+		assetQuoteSelect+` WHERE asset_id = ? ORDER BY quoted_on DESC LIMIT 1`, assetID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &quote, nil
+}
+
+const assetQuoteSelect = `SELECT asset_id, quoted_on, price, source, origin, raw_import_id FROM investment_asset_quotes`
+
+func scanAssetQuote(row interface{ Scan(...any) error }) (AssetQuote, error) {
+	var (
+		quote           AssetQuote
+		quotedOn, price string
+		origin          string
+		rawImportID     sql.NullString
+	)
+	if err := row.Scan(&quote.AssetID, &quotedOn, &price, &quote.Source, &origin, &rawImportID); err != nil {
+		return AssetQuote{}, err
+	}
+	quote.Origin = QuoteOrigin(origin)
+	var err error
+	if quote.QuotedOn, err = parseDate(quotedOn); err != nil {
+		return AssetQuote{}, err
+	}
+	if quote.Price, err = decimal.NewFromString(price); err != nil {
+		return AssetQuote{}, err
+	}
+	if rawImportID.Valid {
+		v := rawImportID.String
+		quote.RawImportID = &v
+	}
+	return quote, nil
 }
 
 // SyncedHolding is what a provider holding says about its own identity and
@@ -287,7 +353,8 @@ func ResolveSyncedAsset(ctx context.Context, q Querier, h SyncedHolding) (Asset,
 	if present(h.CurrencyCode) {
 		currency = *h.CurrencyCode
 	}
-	return ensureAsset(ctx, q, h.DisplayName(), h.Ticker(), h.AssetType(), currency)
+	name, ticker, kind := h.assetIdentity()
+	return ensureAsset(ctx, q, name, ticker, kind, currency)
 }
 
 // unitPrice is the holding's price per unit on its as-of day. amount ÷
@@ -340,14 +407,15 @@ func RecordSyncedQuotes(ctx context.Context, q Querier, h SyncedHolding, rawImpo
 	if priced && h.AsOfDate != nil {
 		if err := UpsertAssetQuote(ctx, q, AssetQuote{
 			AssetID: asset.ID, QuotedOn: ProviderDay(*h.AsOfDate), Price: price,
-			Source: QuoteSourcePluggy, RawImportID: rawImportID,
+			Source: QuoteSourcePluggy, Origin: QuoteOriginSync, RawImportID: rawImportID,
 		}); err != nil {
 			return err
 		}
 	}
 	if issued {
 		if err := insertAssetQuoteIfAbsent(ctx, q, AssetQuote{
-			AssetID: asset.ID, QuotedOn: boughtOn, Price: issue, Source: QuoteSourceIssue,
+			AssetID: asset.ID, QuotedOn: boughtOn, Price: issue,
+			Source: QuoteSourceIssue, Origin: QuoteOriginIssue,
 		}); err != nil {
 			return err
 		}
@@ -358,7 +426,7 @@ func RecordSyncedQuotes(ctx context.Context, q Querier, h SyncedHolding, rawImpo
 // PruneUnusedSyncedAssets removes the name-keyed assets fixed income
 // holdings resolved to before they had a per-title code: every CDB of an
 // issuer used to share one, which nothing resolves to any more. Only an
-// asset nothing references — no manual position, no quote, no connector — is
+// asset nothing references — no manual position, no quote, no quote market — is
 // removed, so one the user adopted for a manual holding stays.
 func PruneUnusedSyncedAssets(ctx context.Context, q Querier) (int, error) {
 	rows, err := q.QueryContext(ctx, `SELECT `+syncedHoldingColumns+` FROM financial_investments fi`)

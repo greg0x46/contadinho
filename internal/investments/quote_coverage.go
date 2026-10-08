@@ -6,16 +6,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/shopspring/decimal"
-
 	"contadinho-go/internal/db"
 	"contadinho-go/internal/money"
 )
-
-// AutoQuoteMarker prefixes Notes on every valuation operation internal/quotes
-// writes. A valuation without it was typed by a person, and rendimento never
-// lets a connector's price override one on the same day.
-const AutoQuoteMarker = "[cotação automática]"
 
 // QuoteCoverage is the interval of days an asset's price series has already
 // been asked for a market and canonical symbol. A day inside it with no quote is a day the market did not
@@ -76,9 +69,11 @@ func SaveQuoteCoverage(ctx context.Context, q Querier, coverage QuoteCoverage) e
 	return err
 }
 
-// UpsertConnectorQuotes stores market price history in one transaction. A
-// market close replaces a spot from any market data provider, including when
-// fallback changes the provider. Pluggy quotes and issue prices stay intact.
+// UpsertConnectorQuotes stores market data provider prices in one transaction.
+// A market close replaces a spot from any market data provider, including when
+// fallback changes the provider: it replaces a row of origin market and never
+// one the sync observed or one derived from a title's purchase. Every quote
+// must be of origin market.
 func UpsertConnectorQuotes(ctx context.Context, conn *sql.DB, quotes []AssetQuote) error {
 	if len(quotes) == 0 {
 		return nil
@@ -90,16 +85,17 @@ func UpsertConnectorQuotes(ctx context.Context, conn *sql.DB, quotes []AssetQuot
 	defer tx.Rollback()
 	now := db.FormatTime(time.Now())
 	for _, quote := range quotes {
-		if quote.AssetID == "" || quote.Source == "" || !quote.Price.IsPositive() {
+		if quote.AssetID == "" || quote.Source == "" || quote.Origin != QuoteOriginMarket || !quote.Price.IsPositive() {
 			return ErrInvalidInput
 		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO investment_asset_quotes (asset_id, quoted_on, price, source, raw_import_id, created_at, updated_at)
-			VALUES (?, ?, ?, ?, NULL, ?, ?)
+			INSERT INTO investment_asset_quotes (asset_id, quoted_on, price, source, origin, raw_import_id, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
 			ON CONFLICT (asset_id, quoted_on) DO UPDATE SET
 				price = excluded.price, source = excluded.source, updated_at = excluded.updated_at
-			WHERE investment_asset_quotes.source NOT IN (?, ?)`,
-			quote.AssetID, formatDate(quote.QuotedOn), money.CanonicalDecimal(quote.Price), quote.Source, now, now, QuoteSourcePluggy, QuoteSourceIssue); err != nil {
+			WHERE investment_asset_quotes.origin = ?`,
+			quote.AssetID, formatDate(quote.QuotedOn), money.CanonicalDecimal(quote.Price), quote.Source, string(quote.Origin), now, now,
+			string(QuoteOriginMarket)); err != nil {
 			return err
 		}
 	}
@@ -128,38 +124,4 @@ func AssetHeldFrom(ctx context.Context, q Querier, assetID string) (*time.Time, 
 		return nil, err
 	}
 	return &day, nil
-}
-
-// quantityTimeline is how many units a position held at the end of each day
-// it moved, from its own operations: what a price on a later day multiplies.
-type quantityTimeline struct {
-	days []time.Time
-	held []decimal.Decimal
-}
-
-func newQuantityTimeline(events []flowEvent) quantityTimeline {
-	var timeline quantityTimeline
-	running := decimal.Zero
-	for _, event := range events {
-		running = running.Add(event.quantity)
-		if n := len(timeline.days); n > 0 && timeline.days[n-1].Equal(event.day) {
-			timeline.held[n-1] = running
-			continue
-		}
-		timeline.days = append(timeline.days, event.day)
-		timeline.held = append(timeline.held, running)
-	}
-	return timeline
-}
-
-// at is the quantity held at the end of day d.
-func (t quantityTimeline) at(d time.Time) decimal.Decimal {
-	held := decimal.Zero
-	for i, day := range t.days {
-		if day.After(d) {
-			break
-		}
-		held = t.held[i]
-	}
-	return held
 }

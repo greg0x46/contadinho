@@ -158,6 +158,7 @@ func RefreshHistory(ctx context.Context, conn *sql.DB, service *marketdata.Servi
 			}
 			quotes = append(quotes, investments.AssetQuote{
 				AssetID: asset.ID, QuotedOn: price.Day, Price: price.Price, Source: history.Provider,
+				Origin: investments.QuoteOriginMarket,
 			})
 		}
 		if err := investments.UpsertConnectorQuotes(ctx, conn, quotes); err != nil {

@@ -119,7 +119,7 @@ func (s positionScope) where(column string) (string, []any) {
 func listManualPositions(ctx context.Context, q Querier, scope positionScope) ([]Position, error) {
 	where, args := scope.where("p.id")
 	rows, err := q.QueryContext(ctx, `
-		SELECT p.id, p.account_id, p.asset_id, a.name, a.ticker, a.asset_type, p.notes,
+		SELECT p.id, p.account_id, p.asset_id, a.name, a.ticker, a.asset_type, a.quote_source, p.notes,
 		       p.created_at, p.updated_at, pp.portfolio_id
 		FROM investment_positions p
 		JOIN investment_assets a ON a.id = p.asset_id
@@ -132,17 +132,20 @@ func listManualPositions(ctx context.Context, q Querier, scope positionScope) ([
 	defer rows.Close()
 
 	positions := []Position{}
+	// quoted marks the assets whose price series values their holdings.
+	quoted := map[string]bool{}
 	for rows.Next() {
 		var (
-			position                   Position
-			ticker, notes, portfolioID sql.NullString
-			createdAtRaw, updatedAtRaw string
+			position                                Position
+			ticker, quoteSource, notes, portfolioID sql.NullString
+			createdAtRaw, updatedAtRaw              string
 		)
 		var assetID string
 		if err := rows.Scan(&position.ID, &position.AccountID, &assetID, &position.Name, &ticker, &position.AssetType,
-			&notes, &createdAtRaw, &updatedAtRaw, &portfolioID); err != nil {
+			&quoteSource, &notes, &createdAtRaw, &updatedAtRaw, &portfolioID); err != nil {
 			return nil, err
 		}
+		quoted[assetID] = quoteSource.Valid && quoteSource.String != ""
 		position.Source = PositionSourceManual
 		position.AssetID = &assetID
 		position.ValuationBasis = ValuationBasisCostBasis
@@ -175,6 +178,7 @@ func listManualPositions(ctx context.Context, q Querier, scope positionScope) ([
 	}
 
 	ledgers := map[string]accountLedger{}
+	latest := map[string]*AssetQuote{} // per asset: one lookup however many accounts hold it
 	for i := range positions {
 		ledger, ok := ledgers[positions[i].AccountID]
 		if !ok {
@@ -183,7 +187,16 @@ func listManualPositions(ctx context.Context, q Querier, scope positionScope) ([
 			}
 			ledgers[positions[i].AccountID] = ledger
 		}
-		if err := applyLedgerState(&positions[i], ledger.positions[positions[i].ID]); err != nil {
+		var quote *AssetQuote
+		if assetID := *positions[i].AssetID; quoted[assetID] {
+			if quote, ok = latest[assetID]; !ok {
+				if quote, err = LatestAssetQuote(ctx, q, assetID); err != nil {
+					return nil, err
+				}
+				latest[assetID] = quote
+			}
+		}
+		if err := applyLedgerState(&positions[i], ledger.positions[positions[i].ID], quote); err != nil {
 			return nil, err
 		}
 	}
@@ -191,10 +204,17 @@ func listManualPositions(ctx context.Context, q Querier, scope positionScope) ([
 }
 
 // applyLedgerState copies the replayed holding onto the position. Without a
-// dated valuation the holding is reported at cost and identified as such,
-// rather than carrying an invented quote. Values come from the ledger's exact
-// totals; the unit figures are derived for display and never multiplied back.
-func applyLedgerState(position *Position, state *positionLedger) error {
+// dated valuation or a market quote the holding is reported at cost and
+// identified as such, rather than carrying an invented quote. Values come from
+// the ledger's exact totals; the unit figures are derived for display and never
+// multiplied back.
+//
+// quote is the latest price in the series of an asset that has a quote
+// market, nil otherwise. The most recent statement about the price wins: a
+// quote dated after the last typed valuation values the holding at quantity ×
+// price, derived on every read, and on the same day the typed valuation wins.
+// An old quote keeps valuing the holding, and ValuedOn says how old it is.
+func applyLedgerState(position *Position, state *positionLedger, quote *AssetQuote) error {
 	if state == nil {
 		return nil
 	}
@@ -203,6 +223,18 @@ func applyLedgerState(position *Position, state *positionLedger) error {
 	position.AverageCost = &averageCost
 	position.TotalCost = &totalCost
 	position.Closed = quantity.IsZero()
+	valuedDay, err := state.valuedDay()
+	if err != nil {
+		return err
+	}
+	if quote != nil && quantity.IsPositive() && (valuedDay == nil || valuedDay.Before(quote.QuotedOn)) {
+		unitPrice, quotedOn := quote.Price, quote.QuotedOn
+		position.ValuationBasis = ValuationBasisMarketQuote
+		position.CurrentValue = quantity.Mul(unitPrice).Round(2)
+		position.CurrentUnitPrice = &unitPrice
+		position.ValuedOn = &quotedOn
+		return nil
+	}
 	if state.valuationTotal == nil {
 		position.CurrentValue = totalCost
 		return nil
@@ -213,13 +245,7 @@ func applyLedgerState(position *Position, state *positionLedger) error {
 		unitPrice := state.valuationUnitPrice()
 		position.CurrentUnitPrice = &unitPrice
 	}
-	if state.valuedOn != nil {
-		valuedOn, err := parseDate(state.valuedOn.value)
-		if err != nil {
-			return err
-		}
-		position.ValuedOn = &valuedOn
-	}
+	position.ValuedOn = valuedDay
 	return nil
 }
 

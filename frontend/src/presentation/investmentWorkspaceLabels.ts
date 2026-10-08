@@ -29,4 +29,5 @@ export const investmentValuationBasisLabel: Record<InvestmentValuationBasis, str
   manual_valuation: "Cotação manual",
   cost_basis: "Custo médio",
   provider_balance: "Saldo informado pela instituição",
+  market_quote: "Cotação de mercado",
 };
