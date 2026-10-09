@@ -3,7 +3,9 @@
 // or migration files at runtime. SQLite is the zero-config default; a
 // "postgres://" or "postgresql://" DSN opts into Postgres instead, for
 // deployments that run several julius instances against one shared
-// database — see README "Rodando com Postgres".
+// database — see README "Rodando com Postgres". Postgres migrations are
+// serialized with an advisory lock so instances starting together apply each
+// migration exactly once.
 package db
 
 import (
@@ -17,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3/lock"
 	_ "modernc.org/sqlite"
 )
 
@@ -90,7 +93,10 @@ func openSQLite(path string) (*sql.DB, error) {
 // postgres.go, so callers keep writing the same `?` placeholders they use
 // for SQLite. Unlike SQLite, Postgres has a real concurrent-writer story —
 // exactly what lets several julius instances share one database — so
-// the pool isn't pinned to a single connection.
+// the pool isn't pinned to a single connection. Migrations run under a
+// Postgres session advisory lock, so when several instances start at once
+// only one applies pending migrations; the others wait (polling every second
+// for up to ~5 minutes) and then find nothing left to apply.
 func openPostgres(dsn string) (*sql.DB, error) {
 	connector, err := newPGConnector(dsn)
 	if err != nil {
@@ -99,7 +105,12 @@ func openPostgres(dsn string) (*sql.DB, error) {
 	conn := sql.OpenDB(connector)
 	conn.SetMaxOpenConns(10)
 
-	if err := migrate(conn, goose.DialectPostgres, postgresMigrationsFS, "migrations/postgres"); err != nil {
+	locker, err := lock.NewPostgresSessionLocker(lock.WithLockTimeout(1, 300))
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("create migration locker: %w", err)
+	}
+	if err := migrate(conn, goose.DialectPostgres, postgresMigrationsFS, "migrations/postgres", goose.WithSessionLocker(locker)); err != nil {
 		conn.Close()
 		return nil, err
 	}
@@ -111,12 +122,14 @@ func Migrate(conn *sql.DB) error {
 	return migrate(conn, goose.DialectSQLite3, sqliteMigrationsFS, "migrations/sqlite")
 }
 
-func migrate(conn *sql.DB, dialect goose.Dialect, migrationsFS embed.FS, root string) error {
+// migrate applies every pending migration under root. SQLite callers pass no
+// options: goose rejects a session locker on a pool capped at one connection.
+func migrate(conn *sql.DB, dialect goose.Dialect, migrationsFS embed.FS, root string, opts ...goose.ProviderOption) error {
 	migrations, err := fs.Sub(migrationsFS, root)
 	if err != nil {
 		return fmt.Errorf("root migrations fs: %w", err)
 	}
-	provider, err := goose.NewProvider(dialect, conn, migrations)
+	provider, err := goose.NewProvider(dialect, conn, migrations, opts...)
 	if err != nil {
 		return fmt.Errorf("create migration provider: %w", err)
 	}
