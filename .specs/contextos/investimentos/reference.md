@@ -18,6 +18,16 @@ inicialmente pela conexão. Objetivos e conciliações são escolhas locais. Um
 caixa de corretora já presente em `financial_accounts` pode ser vinculado,
 sem adicionar novamente seu saldo ao patrimônio.
 
+Uma conta integrada também aceita posições manuais (por exemplo, um
+criptoativo que o Open Finance não expõe), criadas, editadas e excluídas como
+numa conta manual e listadas lado a lado com as posições do provedor, que
+continuam somente leitura. O livro de uma conta integrada reproduz só as
+operações com posição: nunca calcula caixa, que continua sendo apenas o
+informado pela instituição. A sincronização grava somente os dados do
+provedor e as cotações da série, então nunca altera quantidade, custo, origem,
+objetivo ou avaliações das posições manuais. Na interface, as linhas manuais
+de uma conta integrada levam o marcador “Manual”.
+
 Operações manuais usam reais e aritmética decimal. Compras incorporam custos
 ao custo médio ponderado; vendas baixam custo proporcional. Correções
 reprocessam o histórico e rejeitam caixa ou quantidade negativos. Avaliações
@@ -58,7 +68,9 @@ bancários manuais mantêm a regra de não modificar o saldo informado pelo banc
 
 O patrimônio soma posições sincronizadas uma única vez, posições manuais e
 caixa manual de investimento ainda não representado numa conta financeira
-vinculada. Carteiras por objetivo não entram novamente na soma. Não são
+vinculada. Posições manuais em conta integrada entram como as demais posições
+manuais (inclusive em `ManualNetWorth`), sem dupla contagem com as posições do
+provedor. Carteiras por objetivo não entram novamente na soma. Não são
 inventadas valorizações para snapshots históricos sem dados.
 
 Esta versão registra operações; não executa ordens ou transferências no banco.
@@ -296,9 +308,13 @@ A interface oferece aporte com compra e rendimento reinvestido. Quantidade e
 preço calculam o valor bruto em decimal quando `amount` não é informado.
 
 Contas integradas aceitam registros locais de aporte, resgate, rendimento,
-taxa e imposto. Esses registros alimentam relatórios e conciliação; nunca
-recalculam saldos ou posições do provedor. Compra, venda, saldo inicial e
-cotação de posições integradas continuam sendo dados da instituição.
+taxa e imposto, sem posição. Esses registros alimentam relatórios e
+conciliação; nunca recalculam saldos ou posições do provedor. Compra, venda,
+saldo inicial com posição e cotação manual valem só para as posições manuais
+da própria conta; compra e venda não alteram o caixa da instituição. Saldo
+inicial só de caixa é recusado, e transferência entre custódias continua
+restrita a contas manuais (`ErrIntegratedReadOnly`). Compra, venda, saldo e
+cotação das posições do provedor continuam sendo dados da instituição.
 
 Um lançamento bancário também pode ser conciliado diretamente com um movimento
 importado de conta integrada, sem registro manual: `POST
