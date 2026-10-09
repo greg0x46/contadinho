@@ -283,8 +283,9 @@ An invalid value makes startup (and any `-db` command) fail with an error
 naming the variable, instead of silently falling back to the default.
 
 Several instances can share one Postgres database: each sync run is claimed
-atomically by exactly one instance, which heartbeats it while running, and
-only that owner can finish it. A run whose owner stops heartbeating for 90
+atomically by exactly one instance, which heartbeats it while running. Only
+that owner can persist sync data or finish the run. A separate recovery loop
+continues while other runs execute. A run whose owner stops heartbeating for 90
 seconds is marked failed (`interrupted`) and not retried; the next scheduled
 or manual sync starts a new one. After a crash, an interrupted run is
 therefore recovered up to ~90 seconds after restart rather than immediately.

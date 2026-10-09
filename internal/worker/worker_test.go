@@ -336,3 +336,81 @@ func TestRunClaimsAndHeartbeatsPendingRun(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+func TestRunRecoversStaleClaimWhileProcessingAnotherRun(t *testing.T) {
+	conn := newTestConn(t)
+	_, activeRunID := insertSourceAndRun(t, conn, "item-active", "in_progress", time.Now())
+	session := setPluggyCredentials(t, conn)
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/auth" {
+			_, _ = w.Write([]byte(`{"apiKey":"test-key"}`))
+			return
+		}
+		if r.URL.Path == "/items/item-active" {
+			close(entered)
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer provider.Close()
+	defer close(release)
+
+	cfg := worker.Config{
+		PollInterval: 10 * time.Millisecond, HeartbeatInterval: 10 * time.Millisecond,
+		LeaseTimeout: 100 * time.Millisecond, Pluggy: pluggy.DefaultConfig(),
+	}
+	cfg.Pluggy.BaseURL = provider.URL
+	cfg.Pluggy.MaxAttempts = 1
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		worker.Run(ctx, conn, session, cfg)
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("active run never reached the provider")
+	}
+
+	_, staleRunID := insertSourceAndRun(t, conn, "item-stale", "in_progress", time.Now().Add(-time.Hour))
+	if _, err := conn.Exec(`UPDATE sync_runs SET worker_id = 'dead-worker', heartbeat_at = ? WHERE id = ?`,
+		db.FormatTime(time.Now().Add(-time.Hour)), staleRunID); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var staleStatus, activeStatus string
+		if err := conn.QueryRow(`SELECT status FROM sync_runs WHERE id = ?`, staleRunID).Scan(&staleStatus); err != nil {
+			t.Fatal(err)
+		}
+		if err := conn.QueryRow(`SELECT status FROM sync_runs WHERE id = ?`, activeRunID).Scan(&activeStatus); err != nil {
+			t.Fatal(err)
+		}
+		if staleStatus == "failed" {
+			if activeStatus != "in_progress" {
+				t.Fatalf("active run status = %s, want in_progress", activeStatus)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("stale run remained %s while another run was processing", staleStatus)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

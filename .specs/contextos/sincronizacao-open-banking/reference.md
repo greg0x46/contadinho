@@ -46,10 +46,13 @@ aplicação Pluggy — e cada sync run pertence a exatamente uma conexão.
   - Lease: o dono atualiza `heartbeat_at` a cada 15s; se o heartbeat não
     encontra mais a run como sua, a execução é cancelada
     (`sync_run_claim_lost`).
-  - Conclusão restrita ao dono: `finalize`, `failGeneral` e `FailRun` só
-    mudam o status se `worker_id` for o do chamador; caso contrário
-    `syncsvc.ErrClaimLost`. Run já terminal é no-op (sem conclusão dupla).
-  - Recuperação: no início e a cada ~45s, runs reivindicadas sem heartbeat
+  - Gravações restritas ao dono: importações brutas e cada transação de
+    persistência verificam a posse da run na mesma transação que grava os
+    dados. `finalize`, `failGeneral` e `FailRun` também exigem o dono;
+    caso contrário retornam `syncsvc.ErrClaimLost`. Run já terminal é no-op
+    (sem conclusão dupla).
+  - Recuperação: no início e a cada ~45s, independentemente da execução de
+    outra sync, runs reivindicadas sem heartbeat
     há 90s viram `failed` com `general_error_code = 'interrupted'`, por
     compare-and-set (uma única falha registrada mesmo com recuperações
     concorrentes). Não há retry automático; o agendamento diário ou

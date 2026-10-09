@@ -195,7 +195,7 @@ func ProcessClaim(ctx context.Context, conn *sql.DB, secrets *settings.Secrets, 
 	pluggyConfig.ClientSecret = clientSecret
 	pluggyConfig.ItemID = source.ExternalItemID
 
-	writer := &syncsvc.RawImportWriter{DB: conn, SyncRunID: syncRunID, SourceID: sourceID}
+	writer := &syncsvc.RawImportWriter{DB: conn, SyncRunID: syncRunID, SourceID: sourceID, WorkerID: workerID}
 	adapter := pluggy.NewAdapter(pluggyConfig, writer, &http.Client{Timeout: pluggyConfig.ConnectTimeout + pluggyConfig.ReadTimeout})
 	service := &syncsvc.Service{
 		DB: conn, Provider: adapter, SyncRunID: syncRunID, SourceID: sourceID,
@@ -215,25 +215,33 @@ func recoverStale(ctx context.Context, conn *sql.DB, lease time.Duration) {
 }
 
 // Run mirrors run_worker: loops claiming and executing runs until ctx is
-// cancelled, recovering runs with an expired lease at startup and then every
-// half lease.
+// cancelled. Lease recovery runs independently so a long sync cannot delay it.
 func Run(ctx context.Context, conn *sql.DB, secrets *settings.Secrets, cfg Config) {
 	cfg = cfg.withDefaults()
 	workerID := WorkerID()
 	recoveryEvery := cfg.LeaseTimeout / 2
 	recoverStale(ctx, conn, cfg.LeaseTimeout)
-	lastRecovery := time.Now()
+	recoveryDone := make(chan struct{})
+	go func() {
+		defer close(recoveryDone)
+		ticker := time.NewTicker(recoveryEvery)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				recoverStale(ctx, conn, cfg.LeaseTimeout)
+			}
+		}
+	}()
+	defer func() { <-recoveryDone }()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
-		}
-
-		if time.Since(lastRecovery) >= recoveryEvery {
-			recoverStale(ctx, conn, cfg.LeaseTimeout)
-			lastRecovery = time.Now()
 		}
 
 		// Check credentials before claiming: a run claimed here but blocked
