@@ -328,8 +328,12 @@ func (s *Service) processInvestments(ctx context.Context) error {
 					return err
 				}
 				txExtID := txRecord.ExternalID
+				code := "internal_error"
+				if errors.Is(err, errInvestmentMismatch) {
+					code = "unsafe_investment_association"
+				}
 				if rerr := s.recordInvestmentRejection(ctx, pluggy.RejectedRecord{
-					EntityType: "investment_transaction", ExternalID: &txExtID, Code: "internal_error", SafeMessage: SafeMessage("internal_error"),
+					EntityType: "investment_transaction", ExternalID: &txExtID, Code: code, SafeMessage: SafeMessage(code),
 				}, txPage.RawImportID, &investmentID, &extID); rerr != nil {
 					return rerr
 				}
@@ -863,6 +867,8 @@ func (s *Service) upsertInvestment(ctx context.Context, snapshot pluggy.Investme
 	return investmentID, tx.Commit()
 }
 
+var errInvestmentMismatch = errors.New("investment transaction external id belongs to another investment")
+
 // upsertInvestmentTransaction mirrors upsertTransaction, minus the
 // categories.ApplyAutomatic/OnTransactionUpserted hooks: those are
 // spending-transaction-specific domain logic, and an investment movement
@@ -895,10 +901,13 @@ func (s *Service) upsertInvestmentTransaction(ctx context.Context, investmentID 
 		return err
 	}
 
-	var transactionID, existingHash string
-	if err := tx.QueryRowContext(ctx, `SELECT id, normalized_hash FROM financial_investment_transactions WHERE source_id = ? AND external_id = ?`,
-		s.SourceID, snapshot.ExternalID).Scan(&transactionID, &existingHash); err != nil {
+	var transactionID, existingHash, existingInvestmentID string
+	if err := tx.QueryRowContext(ctx, `SELECT id, normalized_hash, investment_id FROM financial_investment_transactions WHERE source_id = ? AND external_id = ?`,
+		s.SourceID, snapshot.ExternalID).Scan(&transactionID, &existingHash, &existingInvestmentID); err != nil {
 		return err
+	}
+	if existingInvestmentID != investmentID {
+		return errInvestmentMismatch
 	}
 
 	outcome := "unchanged"

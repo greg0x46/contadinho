@@ -345,6 +345,80 @@ func TestSyncSameExternalIDUnderAnotherAccountIsRejected(t *testing.T) {
 	})
 }
 
+// A provider must not rewrite a movement under another holding merely because
+// it reused the same transaction id. The rejected movement can be retried
+// under its original holding without changing its identity.
+func TestSyncSameInvestmentTransactionIDUnderAnotherInvestmentIsRejected(t *testing.T) {
+	dbtest.Each(t, func(t *testing.T, conn *sql.DB) {
+		f := newIngestion(t, conn, "item-1")
+		f.provider.source.SafeProducts["INVESTMENTS"] = true
+		run := func(records map[string][]pluggy.InvestmentTransactionSnapshot) string {
+			t.Helper()
+			runID := uuid.NewString()
+			if _, err := conn.Exec(`INSERT INTO sync_runs (id, source_id, status, started_at) VALUES (?, ?, 'in_progress', ?)`,
+				runID, f.sourceID, db.FormatTime(time.Now())); err != nil {
+				t.Fatal(err)
+			}
+			investmentRaw, transactionRaw := uuid.NewString(), uuid.NewString()
+			insertRawImport(t, conn, investmentRaw, runID, f.sourceID)
+			insertRawImport(t, conn, transactionRaw, runID, f.sourceID)
+			f.provider.investmentsPage = pluggy.InvestmentsPage{
+				RawImportID: investmentRaw,
+				Investments: []pluggy.InvestmentSnapshot{{ExternalID: "inv-1"}, {ExternalID: "inv-2"}},
+			}
+			f.provider.investmentTransactions = map[string]pluggy.InvestmentTransactionsPage{}
+			for investmentID, movements := range records {
+				f.provider.investmentTransactions[investmentID] = pluggy.InvestmentTransactionsPage{
+					RawImportID: transactionRaw, Transactions: movements,
+				}
+			}
+			if err := (&syncsvc.Service{DB: conn, Provider: f.provider, SyncRunID: runID, SourceID: f.sourceID}).Execute(context.Background()); err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			return runID
+		}
+		original := pluggy.InvestmentTransactionSnapshot{
+			ExternalID: "movement-1", ExternalInvestmentID: "inv-1", Amount: amountP("100"),
+		}
+		run(map[string][]pluggy.InvestmentTransactionSnapshot{"inv-1": {original}})
+		before := rows(t, conn, `SELECT t.id, t.investment_id, t.amount, t.normalized_hash, t.current_raw_import_id
+			FROM financial_investment_transactions t WHERE t.external_id = 'movement-1'`)
+
+		conflicting := original
+		conflicting.ExternalInvestmentID = "inv-2"
+		conflicting.Amount = amountP("999")
+		sibling := pluggy.InvestmentTransactionSnapshot{
+			ExternalID: "movement-2", ExternalInvestmentID: "inv-2", Amount: amountP("20"),
+		}
+		rejectedRun := run(map[string][]pluggy.InvestmentTransactionSnapshot{"inv-2": {conflicting, sibling}})
+		if after := rows(t, conn, `SELECT t.id, t.investment_id, t.amount, t.normalized_hash, t.current_raw_import_id
+			FROM financial_investment_transactions t WHERE t.external_id = 'movement-1'`); !reflect.DeepEqual(before, after) {
+			t.Fatalf("conflicting investment changed movement: %v -> %v", before, after)
+		}
+		if n := count(t, conn, `SELECT COUNT(*) FROM financial_investment_transactions WHERE external_id = 'movement-2'`); n != 1 {
+			t.Fatalf("sibling movement count = %d, want 1", n)
+		}
+		var code, status string
+		if err := conn.QueryRow(`SELECT error_code FROM sync_failures WHERE sync_run_id = ?`, rejectedRun).Scan(&code); err != nil {
+			t.Fatal(err)
+		}
+		if err := conn.QueryRow(`SELECT status FROM sync_runs WHERE id = ?`, rejectedRun).Scan(&status); err != nil {
+			t.Fatal(err)
+		}
+		if code != "unsafe_investment_association" || status != "completed_with_failures" {
+			t.Fatalf("rejection code/status = %s/%s", code, status)
+		}
+		if n := count(t, conn, `SELECT COUNT(*) FROM normalization_events WHERE sync_run_id = ? AND entity_type = 'investment_transaction' AND outcome = 'rejected'`, rejectedRun); n != 1 {
+			t.Fatalf("rejected normalization events = %d, want 1", n)
+		}
+		run(map[string][]pluggy.InvestmentTransactionSnapshot{"inv-1": {original}})
+		if after := rows(t, conn, `SELECT t.id, t.investment_id, t.amount, t.normalized_hash, t.current_raw_import_id
+			FROM financial_investment_transactions t WHERE t.external_id = 'movement-1'`); !reflect.DeepEqual(before, after) {
+			t.Fatalf("replay changed original movement: %v -> %v", before, after)
+		}
+	})
+}
+
 // PENDING -> POSTED (and any provider correction) keeps the transaction id and
 // rewrites provider fields only: manual category and inclusion, payable links
 // and realizations are left exactly as the user set them.

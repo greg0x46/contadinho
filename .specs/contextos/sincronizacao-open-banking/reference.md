@@ -89,6 +89,9 @@ aplicação Pluggy — e cada sync run pertence a exatamente uma conexão.
   registro é recusado (`unsafe_account_association`) e a linha existente,
   seu hash e as decisões do usuário ficam intactos; os demais registros da
   página continuam.
+- Movimentos de investimento seguem a mesma proteção: um `external_id` já
+  gravado sob outro investimento é recusado (`unsafe_investment_association`),
+  sem alterar o movimento existente; os demais movimentos continuam.
 - Coincidências entre Pluggy, lançamento manual e arquivo nunca são fundidas.
 - Cobertura: `internal/syncsvc/ingestion_test.go` e
   `transaction_retry_test.go` rodam em SQLite e, com
