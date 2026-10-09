@@ -90,14 +90,19 @@ func openSQLite(path string) (*sql.DB, error) {
 // postgres.go, so callers keep writing the same `?` placeholders they use
 // for SQLite. Unlike SQLite, Postgres has a real concurrent-writer story —
 // exactly what lets several julius instances share one database — so
-// the pool isn't pinned to a single connection.
+// the pool isn't pinned to a single connection. Its limits and lifetimes
+// come from the JULIUS_DB_* variables in pool.go, with defaults when unset.
 func openPostgres(dsn string) (*sql.DB, error) {
+	pool, err := poolConfigFromEnv(os.Getenv)
+	if err != nil {
+		return nil, fmt.Errorf("postgres pool config: %w", err)
+	}
 	connector, err := newPGConnector(dsn)
 	if err != nil {
 		return nil, err
 	}
 	conn := sql.OpenDB(connector)
-	conn.SetMaxOpenConns(10)
+	pool.apply(conn)
 
 	if err := migrate(conn, goose.DialectPostgres, postgresMigrationsFS, "migrations/postgres"); err != nil {
 		conn.Close()
