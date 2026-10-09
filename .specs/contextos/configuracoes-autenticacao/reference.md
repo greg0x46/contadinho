@@ -49,6 +49,8 @@ recuperável pela senha; rotação da chave não está implementada. Instruçõe
 | POST /api/auth/logout | Revoga cookie atual, retorna authenticated=false |
 | PUT /api/auth/password | Recebe current_password/password, revoga todas, retorna authenticated=false |
 | PUT /api/settings/pluggy | Grava pluggy_client_id/pluggy_client_secret criptografados; pluggy_item_id opcional cria conexão na mesma transação; retorna saved=true |
+| GET /api/settings/quotes | Retorna apenas enabled, time e timezone; nunca retorna o token |
+| PUT /api/settings/quotes | Atualiza parcialmente enabled/time/timezone e brapi_token opcional, atomicamente; retorna saved=true |
 | GET/PUT /api/preferences | Preferências existentes, agora autenticadas |
 
 Todas as rotas /api são privadas por padrão, exceto os dois endpoints de
@@ -77,3 +79,17 @@ reinício, cookies, CSRF, rate limiting, falhas de banco e cancelamento/cache.
 Postgres usa JULIUS_TEST_POSTGRES_DSN com schema isolado por teste de auth.
 Uma instância; sem coordenação distribuída de worker/rate limit, múltiplos
 usuários, MFA ou recuperação por e-mail. Hospedagem e provisionamento ficam externos.
+
+## Configuração de cotações
+
+`enabled` é booleano, `time` exige `HH:MM` canônico (00:00–23:59) e
+`timezone` exige zona carregável, como `America/Sao_Paulo`. Campos omitidos
+preservam seus valores; `enabled: false` desabilita e `brapi_token: ""`
+limpa o token. O token permanece criptografado e somente para escrita.
+Uma atualização só de horário não exige nem altera a chave/token. Dados
+inválidos recebem 422 e falhas de banco/chave recebem 503, sem gravação parcial.
+GET e PUT exigem sessão; PUT mantém a proteção CSRF das demais escritas.
+O padrão é habilitado, 19:00, America/Sao_Paulo. As alterações são aplicadas
+pelo agendador em execução, inclusive a suspensão do backfill; a inicialização
+legada e persistência estão descritas em Investimentos. A interface mantém
+somente o formulário existente do token, sem novos controles de agendamento.
