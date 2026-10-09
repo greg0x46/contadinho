@@ -143,8 +143,8 @@ A atualização é habilitada por padrão, diariamente às `19:00` em
 `America/Sao_Paulo`. `enabled`, `time` e `timezone` ficam juntos na tabela
 `settings` e são lidos pelo agendador sem reiniciar o processo. Alterar horário
 ou fuso reagenda a próxima execução; desabilitar suspende também o backfill.
-Uma chamada de provedor já em andamento pode terminar, mas o próximo estágio
-não começa após detectar a desabilitação.
+O lote de cotações do dia já em andamento pode terminar; a desabilitação é
+conferida antes do estágio de histórico e dos próximos ciclos de trabalho.
 
 Na subida e ao reabilitar, busca só preços de hoje e histórico que faltam;
 reiniciar não repete consultas já persistidas. A execução diária atualiza os

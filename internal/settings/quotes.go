@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/greg0x46/julius/internal/db"
 	"time"
+
+	"github.com/greg0x46/julius/internal/db"
 )
 
 // KeyBrapiToken stores the optional brapi.dev API token the brapi provider
@@ -30,9 +31,8 @@ func SetBrapiToken(ctx context.Context, q Querier, token string, unlockKey []byt
 const KeyQuoteRefresh = "quotes.refresh"
 
 type QuoteRefreshSettings struct {
-	Enabled bool   `json:"enabled"`
-	Time    string `json:"time"
- "github.com/greg0x46/julius/internal/db"`
+	Enabled  bool   `json:"enabled"`
+	Time     string `json:"time"`
 	Timezone string `json:"timezone"`
 }
 

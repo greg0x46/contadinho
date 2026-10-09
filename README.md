@@ -325,7 +325,8 @@ valuation dated on or after the latest price takes precedence over it. Fetching
 is enabled by default at 19:00 America/Sao_Paulo. The backend persists
 `enabled`, `time` and `timezone` and applies changes without a restart.
 Startup and re-enabling fetch missing prices and history; disabling also stops
-backfill. A provider call already in progress may finish. Providers are tried in order,
+backfill. The active spot batch may finish; disabling prevents the following
+history stage and later work cycles. Providers are tried in order,
 with automatic fallback; `JULIUS_QUOTES_PROVIDERS` sets the order
 (comma-separated; an omitted provider is disabled; an unknown name prevents
 startup):
