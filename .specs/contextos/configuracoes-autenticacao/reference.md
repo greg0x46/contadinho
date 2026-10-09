@@ -75,5 +75,6 @@ Configurações contém troca de senha, Sair e formulário write-only da Pluggy.
 Testes cobrem migração/rollback nos dois dialetos, expiração, revogação,
 reinício, cookies, CSRF, rate limiting, falhas de banco e cancelamento/cache.
 Postgres usa JULIUS_TEST_POSTGRES_DSN com schema isolado por teste de auth.
-Uma instância; sem coordenação distribuída de worker/rate limit, múltiplos
-usuários, MFA ou recuperação por e-mail. Hospedagem e provisionamento ficam externos.
+A reivindicação de syncs pelo worker é coordenada entre instâncias via
+Postgres (ver sincronização open banking); o rate limit continua por
+instância. Sem múltiplos usuários, MFA ou recuperação por e-mail. Hospedagem e provisionamento ficam externos.

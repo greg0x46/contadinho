@@ -90,6 +90,9 @@ type Service struct {
 	SyncRunID             string
 	SourceID              string
 	OnTransactionUpserted TransactionUpsertedHook
+	// WorkerID is the claim owner; when set, finishing the run fails with
+	// ErrClaimLost if another worker owns it. Empty skips the check.
+	WorkerID string
 }
 
 // Execute mirrors SyncService.execute.
@@ -953,27 +956,21 @@ func (s *Service) failGeneral(ctx context.Context, provErr *pluggy.ProviderError
 	}
 	defer tx.Rollback()
 
-	var status string
-	if err := tx.QueryRowContext(ctx, `SELECT status FROM sync_runs WHERE id = ?`, s.SyncRunID).Scan(&status); err != nil {
+	message := SafeMessage(provErr.Code)
+	err = fencedTerminalUpdate(ctx, tx, s.SyncRunID, s.WorkerID,
+		`status = 'failed', finished_at = ?, general_error_code = ?, general_error_message = ?`,
+		now, provErr.Code, message)
+	if errors.Is(err, errRunFinished) {
+		return nil
+	}
+	if err != nil {
 		return err
 	}
-	if status != "in_progress" {
-		return tx.Commit()
-	}
-	message := SafeMessage(provErr.Code)
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO sync_failures (id, sync_run_id, raw_import_id, external_account_id, stage, error_code, safe_message, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		uuid.NewString(), s.SyncRunID, provErr.RawImportID, provErr.ExternalAccountID, string(provErr.Stage), provErr.Code, message, now,
 	); err != nil {
-		return err
-	}
-	_, err = tx.ExecContext(ctx, `
-		UPDATE sync_runs SET status = 'failed', finished_at = ?, general_error_code = ?, general_error_message = ?
-		WHERE id = ?`,
-		now, provErr.Code, message, s.SyncRunID,
-	)
-	if err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -987,14 +984,6 @@ func (s *Service) finalize(ctx context.Context) error {
 	}
 	defer tx.Rollback()
 
-	var status string
-	if err := tx.QueryRowContext(ctx, `SELECT status FROM sync_runs WHERE id = ?`, s.SyncRunID).Scan(&status); err != nil {
-		return err
-	}
-	if status != "in_progress" {
-		return tx.Commit()
-	}
-
 	var failureCount, safeCount int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sync_failures WHERE sync_run_id = ?`, s.SyncRunID).Scan(&failureCount); err != nil {
 		return err
@@ -1003,7 +992,11 @@ func (s *Service) finalize(ctx context.Context) error {
 		return err
 	}
 	finalStatus := selectFinalStatus(failureCount > 0, safeCount > 0, false)
-	if _, err := tx.ExecContext(ctx, `UPDATE sync_runs SET status = ?, finished_at = ? WHERE id = ?`, finalStatus, now, s.SyncRunID); err != nil {
+	err = fencedTerminalUpdate(ctx, tx, s.SyncRunID, s.WorkerID, `status = ?, finished_at = ?`, finalStatus, now)
+	if errors.Is(err, errRunFinished) {
+		return nil
+	}
+	if err != nil {
 		return err
 	}
 	log.Printf("sync_run_completed run_id=%s status=%s", s.SyncRunID, finalStatus)

@@ -282,9 +282,14 @@ The Postgres connection pool can be tuned through environment variables
 An invalid value makes startup (and any `-db` command) fail with an error
 naming the variable, instead of silently falling back to the default.
 
-The background sync worker assumes only one instance runs it at a time — it
-does not currently coordinate claiming sync runs across multiple
-processes/instances.
+Several instances can share one Postgres database: each sync run is claimed
+atomically by exactly one instance, which heartbeats it while running, and
+only that owner can finish it. A run whose owner stops heartbeating for 90
+seconds is marked failed (`interrupted`) and not retried; the next scheduled
+or manual sync starts a new one. After a crash, an interrupted run is
+therefore recovered up to ~90 seconds after restart rather than immediately.
+SQLite supports a single process only; do not share a SQLite file between
+instances.
 
 #### Documenting the schema with SchemaSpy
 
