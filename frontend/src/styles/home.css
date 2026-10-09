@@ -100,10 +100,20 @@
   gap: 1rem;
 }
 
+.daily-allowance-value,
+.daily-allowance-note {
+  margin: 0;
+}
+
 .daily-allowance-unit {
   color: var(--color-text-secondary);
   font-size: var(--fs-body);
   white-space: nowrap;
+}
+
+.daily-allowance-note {
+  color: var(--color-text-secondary);
+  font-size: var(--fs-caption);
 }
 
 /* ---- Evolução do saldo ------------------------------------------------- */

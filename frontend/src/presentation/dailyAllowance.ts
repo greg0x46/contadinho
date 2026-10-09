@@ -1,18 +1,17 @@
-import type { Dayjs } from "dayjs";
-
-import { divideBRLFloor } from "./money";
-
-/** Days left in today's month, today included: 1 on the last day. */
-export function daysRemainingInMonth(today: Dayjs): number {
-  return today.endOf("month").startOf("day").diff(today.startOf("day"), "day") + 1;
-}
+import type { TimelineDayPoint } from "../api/contracts";
+import { clampBRLAtZero, divideBRLFloor, minBRL } from "./money";
 
 /**
- * How much can be spent per day until month-end without the projected balance
- * dipping below zero: the lowest projected balance from today on, split over
- * the days left. A negative or zero low point leaves nothing to spend.
+ * The most that can be spent every day, from the first point on, without the
+ * projected balance dipping below zero. Spending d a day leaves B_k - k*d on
+ * day k, so the answer is the minimum over k of B_k / k, floored to the cent:
+ * a low point early in the window weighs far more than the same low point at
+ * the end. A day whose balance is negative leaves nothing to spend.
+ *
+ * `points` is one point per day, the first being today and the last the end of
+ * the month. Spending is assumed to land at the end of each day.
  */
-export function dailyAllowance(lowestBalance: string, today: Dayjs): string {
-  const available = lowestBalance.trim().startsWith("-") ? "0.00" : lowestBalance;
-  return divideBRLFloor(available, daysRemainingInMonth(today));
+export function dailyAllowance(points: Pick<TimelineDayPoint, "balance">[]): string {
+  if (points.length === 0) return "0.00";
+  return minBRL(points.map((point, index) => divideBRLFloor(clampBRLAtZero(point.balance), index + 1)));
 }

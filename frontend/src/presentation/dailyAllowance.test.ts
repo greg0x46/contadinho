@@ -1,59 +1,40 @@
-import dayjs from "dayjs";
 import { describe, expect, it } from "vitest";
 
-import { dailyAllowance, daysRemainingInMonth } from "./dailyAllowance";
-import { divideBRLFloor } from "./money";
+import { dailyAllowance } from "./dailyAllowance";
 
-describe("daysRemainingInMonth", () => {
-  it("counts today", () => {
-    expect(daysRemainingInMonth(dayjs("2026-10-01T09:00:00"))).toBe(31);
-    expect(daysRemainingInMonth(dayjs("2026-11-01T23:59:00"))).toBe(30);
-    expect(daysRemainingInMonth(dayjs("2026-10-20T15:30:00"))).toBe(12);
-  });
-
-  it("is 1 on the last day of the month", () => {
-    expect(daysRemainingInMonth(dayjs("2026-01-31T00:00:00"))).toBe(1);
-    expect(daysRemainingInMonth(dayjs("2026-02-28T23:59:00"))).toBe(1);
-    expect(daysRemainingInMonth(dayjs("2028-02-29T12:00:00"))).toBe(1);
-    expect(daysRemainingInMonth(dayjs("2028-02-28T12:00:00"))).toBe(2);
-  });
-});
+// One point per day, today first.
+const days = (...balances: string[]) => balances.map((balance) => ({ balance }));
 
 describe("dailyAllowance", () => {
-  it("splits a positive low point over the days left, flooring to the cent", () => {
-    const today = dayjs("2026-10-20T10:00:00");
-    expect(dailyAllowance("1000.00", today)).toBe("83.33");
-    expect(dailyAllowance("10.00", dayjs("2026-10-29T10:00:00"))).toBe("3.33");
-    expect(dailyAllowance("855.00", dayjs("2026-10-22T10:00:00"))).toBe("85.50");
+  it("splits a flat balance over the days, flooring to the cent", () => {
+    expect(dailyAllowance(days("1000.00", "1000.00", "1000.00"))).toBe("333.33");
+    expect(dailyAllowance(days("855.00", "855.00", "855.00", "855.00", "855.00", "855.00", "855.00", "855.00", "855.00", "855.00"))).toBe("85.50");
   });
 
-  it("is zero when the low point is zero or negative", () => {
-    const today = dayjs("2026-10-20T10:00:00");
-    expect(dailyAllowance("0.00", today)).toBe("0.00");
-    expect(dailyAllowance("-200.00", today)).toBe("0.00");
+  it("weighs a low point by how early it falls, not by the days left in the month", () => {
+    // Low of 100 on the second of 31 days: only two days can draw on it, so
+    // 50 a day, not 100 / 31.
+    const flat = Array.from({ length: 29 }, () => "5000.00");
+    expect(dailyAllowance(days("5000.00", "100.00", ...flat))).toBe("50.00");
+    // The same low on the last day is spread over every day.
+    expect(dailyAllowance(days(...Array.from({ length: 30 }, () => "5000.00"), "310.00"))).toBe("10.00");
   });
 
-  it("is the whole low point on the last day of the month", () => {
-    expect(dailyAllowance("123.45", dayjs("2026-01-31T08:00:00"))).toBe("123.45");
-    expect(dailyAllowance("123.45", dayjs("2026-02-28T08:00:00"))).toBe("123.45");
-    expect(dailyAllowance("123.45", dayjs("2028-02-29T08:00:00"))).toBe("123.45");
+  it("is capped by an early dip even when the end of the month is rich", () => {
+    expect(dailyAllowance(days("90.00", "10000.00", "10000.00"))).toBe("90.00");
   });
 
-  it("includes today on the first day of the month", () => {
-    expect(dailyAllowance("3100.00", dayjs("2026-10-01T08:00:00"))).toBe("100.00");
-    expect(dailyAllowance("3000.00", dayjs("2026-11-01T08:00:00"))).toBe("100.00");
-  });
-});
-
-describe("divideBRLFloor", () => {
-  it("drops the leftover fraction of a cent", () => {
-    expect(divideBRLFloor("10.00", 3)).toBe("3.33");
-    expect(divideBRLFloor("0.05", 2)).toBe("0.02");
-    expect(divideBRLFloor("1234567.89", 1)).toBe("1234567.89");
+  it("is zero when any day ends at zero or below", () => {
+    expect(dailyAllowance(days("100.00", "0.00", "500.00"))).toBe("0.00");
+    expect(dailyAllowance(days("100.00", "-200.00", "500.00"))).toBe("0.00");
+    expect(dailyAllowance(days("-0.00"))).toBe("0.00");
   });
 
-  it("rejects a non-positive or fractional divisor", () => {
-    expect(() => divideBRLFloor("10.00", 0)).toThrow(RangeError);
-    expect(() => divideBRLFloor("10.00", 1.5)).toThrow(RangeError);
+  it("is the whole balance on a window of one day", () => {
+    expect(dailyAllowance(days("123.45"))).toBe("123.45");
+  });
+
+  it("is zero without points", () => {
+    expect(dailyAllowance([])).toBe("0.00");
   });
 });
