@@ -79,9 +79,10 @@ Testes: Vitest + Testing Library cobrem o frontend hoje (colocalizados,
 `src/test/setup.dom.ts`) para `*.test.tsx` e os `.ts` listados em
 `domTsTests` no `vite.config.ts`, e `node` (sem DOM) para os demais
 `*.test.ts`. Teste `.ts` novo que precise do DOM deve entrar em
-`domTsTests` (ou virar `.tsx`); detalhes em `frontend/TESTING.md`. Playwright está scaffolded no `package.json`
-(`test:e2e`) mas sem `playwright.config.*` nem testes — não rode
-`npm run test:e2e` esperando que funcione.
+`domTsTests` (ou virar `.tsx`); detalhes em `frontend/TESTING.md`.
+Playwright está scaffolded no `package.json` (`test:e2e`) mas sem
+`playwright.config.*` nem testes — não rode `npm run test:e2e` esperando
+que funcione.
 
 ## Convenção para trabalho novo
 

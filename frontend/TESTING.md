@@ -38,12 +38,14 @@ npx vitest --run --project dom
 flag does not override it; use `VITEST_MAX_WORKERS=<n> npm test -- --run`
 to try another value.
 
-With 3 or more workers, `src/components/investments/InvestmentPositionForm.test.tsx`
-fails in most runs: under CPU contention its first `findByRole` exceeds
-Testing Library's default 1 s wait while antd renders the drawer. With 2
-workers it passed in every run below, and 2 already gives most of the gain.
-Raising the count needs that test (and any other timing-sensitive one)
-made robust first.
+With Testing Library's default 1 s `asyncUtilTimeout`,
+`src/components/investments/InvestmentPositionForm.test.tsx` failed in most
+runs at 3 or more workers (table below): under CPU contention its first
+`findByRole` timed out while antd rendered the drawer. `setup.dom.ts` now
+raises `asyncUtilTimeout` to 5 s for every `findBy*`/`waitFor`, so slow
+renders on a loaded runner wait longer instead of failing. The table was
+measured before that change. 2 workers gives most of the gain and stays the
+default.
 
 ## Benchmark
 
@@ -65,6 +67,7 @@ alone saves about 8 s of jsdom setup (Vitest's `environment` time drops from
 config also passed an extra run under concurrent lint/build load (117.53 s,
 not counted in the table).
 
-GitHub Actions numbers come from the PR's own CI runs (`frontend` job,
-`npm test -- --run` on `ubuntu-24.04`, 4 vCPU); no separate benchmark
-workflow was added.
+With the 5 s timeout, the 2-worker config passed again locally (108.59 s).
+Only local numbers were measured; GitHub Actions timings (`frontend` job on
+`ubuntu-24.04`, 4 vCPU) are not recorded here and no benchmark workflow was
+added.
