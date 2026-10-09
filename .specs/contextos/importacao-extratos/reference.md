@@ -27,11 +27,20 @@ nome do arquivo não determina o período.
 - A prévia não grava dados. A confirmação reenvia o arquivo e confere SHA-256,
   formato, versão e classificação das linhas; uma mudança exige nova prévia.
 - A identidade de cada movimento é derivada de conta, instante, descrição,
-  valor, meio e ordinal entre linhas iguais. Isso evita duplicatas ao reenviar
-  o arquivo ou enviar períodos sobrepostos: a repetição grava só uma nova
-  execução e um novo registro de importação, sem lançamentos, decisões ou
-  mudança de saldo. Saldo diferente para um movimento já importado é avisado
-  para revisão; o lançamento anterior não é alterado.
+  valor, meio, saldo final e ordinal entre linhas iguais. Isso evita duplicatas
+  ao reenviar o arquivo ou enviar períodos sobrepostos: a repetição grava só
+  uma nova execução e um novo registro de importação, sem lançamentos,
+  decisões ou mudança de saldo. Uma linha com os mesmos dados textuais, mas
+  saldo final diferente, é marcada como ambígua e exige decisão; a linha
+  anterior não é alterada. O saldo da conta não avança nessa importação
+  ambígua. A identidade antiga, sem saldo, ainda é reconhecida em reenvios de
+  movimentos já importados quando o saldo coincide.
+- Se uma linha idêntica (inclusive saldo) já veio de outro arquivo, a prévia
+  marca a coincidência como ambígua. A confirmação exige uma escolha por linha:
+  ignorar como repetição ou importar como outra compra. A nova identidade usa
+  o arquivo e o número da linha, portanto reenviar o arquivo após essa escolha
+  não cria outra compra. Se a classificação mudar entre prévia e confirmação,
+  é exigida uma nova prévia.
 - Linhas idênticas no mesmo arquivo são movimentos distintos (ordinal 1, 2,
   ...). Limite conhecido: um arquivo posterior com mais linhas idênticas do
   que o anterior importa só as excedentes.

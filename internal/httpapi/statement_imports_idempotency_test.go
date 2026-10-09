@@ -46,16 +46,21 @@ func TestStatementImportReplayIsIdempotent(t *testing.T) {
 		balance, asOf := accountBalance(t, conn, accountID)
 		fields := map[string]string{"account_id": accountID}
 		for _, c := range []struct {
-			name string
-			file string
-			dups int
+			name     string
+			file     string
+			dups     int
+			decision string
 		}{
-			{"same file", validFlash, 2},
-			{"same file again", validFlash, 2},
-			{"overlapping period", flashFile(rowCafe), 1},
+			{"same file", validFlash, 2, ""},
+			{"same file again", validFlash, 2, ""},
+			{"overlapping period", flashFile(rowCafe), 1, "ignore"},
 		} {
 			before := statementCounts(t, conn)
+			if c.decision != "" {
+				fields["ambiguous_line_2"] = c.decision
+			}
 			_, counts := importStatementFile(t, conn, c.file, fields)
+			delete(fields, "ambiguous_line_2")
 			if counts.New != 0 || counts.Duplicate != c.dups {
 				t.Fatalf("%s: counts %+v", c.name, counts)
 			}
@@ -93,11 +98,102 @@ func TestStatementIdenticalLinesAreNotCollapsed(t *testing.T) {
 		if _, counts = importStatementFile(t, conn, twice, fields); counts.New != 0 || counts.Duplicate != 2 {
 			t.Fatalf("reimport %+v", counts)
 		}
+		fields["ambiguous_line_2"] = "ignore"
+		fields["ambiguous_line_3"] = "ignore"
 		if _, counts = importStatementFile(t, conn, flashFile(rowCafe, rowCafe, rowCafe), fields); counts.New != 1 || counts.Duplicate != 2 {
 			t.Fatalf("three identical lines %+v", counts)
 		}
 		if n := countWhere(t, conn, `SELECT COUNT(*) FROM financial_transactions WHERE account_id = ?`, accountID); n != 3 {
 			t.Fatalf("%d transactions, want 3", n)
+		}
+	})
+}
+
+// Flash records time only to the minute. A later statement can contain a
+// different purchase with the same description, amount and payment method;
+// the resulting balance distinguishes it from a replay of the first purchase.
+func TestStatementSameTextDifferentBalanceIsNotSilentlyDeduplicated(t *testing.T) {
+	dbtest.Each(t, func(t *testing.T, conn *sql.DB) {
+		firstFile := flashFile(rowCafe)
+		accountID, counts := importStatementFile(t, conn, firstFile, map[string]string{"new_account_name": "Flash refeições"})
+		if counts.New != 1 {
+			t.Fatalf("first import %+v", counts)
+		}
+		fields := map[string]string{"account_id": accountID}
+		secondFile := flashFile(`09/09/2026,12:00,Café,"-R$ 10,00",Cartão,"R$ 80,00"`)
+		preview := previewStatementFile(t, conn, secondFile, fields)
+		if preview.Counts.Ambiguous != 1 || preview.Counts.Duplicate != 0 || !preview.hasWarning(warnBalanceDiffers) {
+			t.Fatalf("same-looking purchase with different balance: %+v", preview)
+		}
+		fields["ambiguous_line_2"] = "import"
+		if _, counts = importStatementFile(t, conn, secondFile, fields); counts.New != 1 || counts.Duplicate != 0 {
+			t.Fatalf("second purchase %+v", counts)
+		}
+		delete(fields, "ambiguous_line_2")
+		if n := countWhere(t, conn, `SELECT COUNT(DISTINCT external_id) FROM financial_transactions WHERE account_id=? AND description='Café'`, accountID); n != 2 {
+			t.Fatalf("%d distinct purchases, want 2", n)
+		}
+		for _, file := range []string{firstFile, secondFile} {
+			if _, counts = importStatementFile(t, conn, file, fields); counts.New != 0 || counts.Duplicate != 1 {
+				t.Fatalf("replay %+v", counts)
+			}
+		}
+		if n := countWhere(t, conn, `SELECT COUNT(*) FROM financial_transactions WHERE account_id=?`, accountID); n != 2 {
+			t.Fatalf("%d rows after both replays, want 2", n)
+		}
+	})
+}
+
+func TestStatementSameBalanceFromAnotherFileNeedsLineDecision(t *testing.T) {
+	dbtest.Each(t, func(t *testing.T, conn *sql.DB) {
+		accountID, counts := importStatementFile(t, conn, validFlash, map[string]string{"new_account_name": "Flash refeições"})
+		if counts.New != 2 {
+			t.Fatalf("first import %+v", counts)
+		}
+		file := flashFile(rowCafe)
+		fields := map[string]string{"account_id": accountID}
+		preview := previewStatementFile(t, conn, file, fields)
+		if preview.Counts.Ambiguous != 1 || preview.Counts.Duplicate != 0 || !preview.hasWarning(warnOtherFileMatch) {
+			t.Fatalf("cross-file preview %+v", preview)
+		}
+		requireProblem(t, confirmStatementFile(t, conn, file, preview, fields), 422, "ambiguous-row")
+		if n := countWhere(t, conn, `SELECT COUNT(*) FROM financial_transactions WHERE account_id=?`, accountID); n != 2 {
+			t.Fatalf("missing decision changed %d rows", n)
+		}
+		fields["ambiguous_line_2"] = "ignore"
+		if _, counts = importStatementFile(t, conn, file, fields); counts.New != 0 || counts.Duplicate != 1 {
+			t.Fatalf("ignored match %+v", counts)
+		}
+		fields["ambiguous_line_2"] = "import"
+		stale := previewStatementFile(t, conn, file, map[string]string{"account_id": accountID})
+		if _, counts = importStatementFile(t, conn, file, fields); counts.New != 1 || counts.Duplicate != 0 {
+			t.Fatalf("distinct same-balance purchase %+v", counts)
+		}
+		requireProblem(t, confirmStatementFile(t, conn, file, stale, fields), 409, "preview-changed")
+		if n := countWhere(t, conn, `SELECT COUNT(*) FROM financial_transactions WHERE account_id=?`, accountID); n != 3 {
+			t.Fatalf("%d rows after explicit import, want 3", n)
+		}
+		delete(fields, "ambiguous_line_2")
+		if _, counts = importStatementFile(t, conn, file, fields); counts.New != 0 || counts.Duplicate != 1 {
+			t.Fatalf("replay of explicitly imported file %+v", counts)
+		}
+	})
+}
+
+func TestStatementLegacyIdentityWithMatchingBalanceStillReplays(t *testing.T) {
+	dbtest.Each(t, func(t *testing.T, conn *sql.DB) {
+		file := flashFile(rowCafe)
+		accountID, _ := importStatementFile(t, conn, file, map[string]string{"new_account_name": "Flash refeições"})
+		base := digest(cafeOccurredAt, "café", "-10.00", "cartão")
+		legacyID := digest("statement-v1", accountID, base, "1")
+		if _, err := conn.Exec(`UPDATE financial_transactions SET external_id=? WHERE account_id=?`, legacyID, accountID); err != nil {
+			t.Fatal(err)
+		}
+		if _, counts := importStatementFile(t, conn, file, map[string]string{"account_id": accountID}); counts.New != 0 || counts.Duplicate != 1 {
+			t.Fatalf("legacy replay %+v", counts)
+		}
+		if n := countWhere(t, conn, `SELECT COUNT(*) FROM financial_transactions WHERE account_id=?`, accountID); n != 1 {
+			t.Fatalf("%d rows after legacy replay", n)
 		}
 	})
 }

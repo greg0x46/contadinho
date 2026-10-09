@@ -558,15 +558,17 @@ func TestStatementRowOrderDoesNotChangeIdentity(t *testing.T) {
 				t.Fatalf("balance %v", balance)
 			}
 			p := previewStatementFile(t, conn, tc.again, map[string]string{"account_id": accountID})
-			if p.Counts.Duplicate != 2 || p.Counts.New != 0 {
+			if p.Counts.Ambiguous != 2 || p.Counts.New != 0 {
 				t.Fatalf("counts %+v", p.Counts)
 			}
 			for _, row := range p.Rows {
-				if row.Status != "duplicate" || len(row.Warnings) != 0 {
+				if row.Status != "ambiguous" || !p.hasWarning(warnOtherFileMatch) {
 					t.Fatalf("row %+v", row)
 				}
 			}
-			_, counts = importStatementFile(t, conn, tc.again, map[string]string{"account_id": accountID})
+			_, counts = importStatementFile(t, conn, tc.again, map[string]string{
+				"account_id": accountID, "ambiguous_line_2": "ignore", "ambiguous_line_3": "ignore",
+			})
 			if counts.New != 0 || counts.Duplicate != 2 {
 				t.Fatalf("second import %+v", counts)
 			}
