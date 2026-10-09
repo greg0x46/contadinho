@@ -92,6 +92,20 @@
   border-radius: 2px;
 }
 
+/* ---- Disponível por dia: stacked under the result in the same area. ---- */
+
+.dashboard-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.daily-allowance-unit {
+  color: var(--color-text-secondary);
+  font-size: var(--fs-body);
+  white-space: nowrap;
+}
+
 /* ---- Evolução do saldo ------------------------------------------------- */
 
 .projection-summary {

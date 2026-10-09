@@ -7,9 +7,11 @@
 ## O que é
 
 O painel inicial: saldo/entradas/saídas do período selecionado, a projeção
-de saldo (hoje, fim do horizonte, menor saldo) e o gasto por categoria. Os
-dois primeiros leem da mesma `Series` do backend, nunca recalculando
-localmente; o que muda entre eles é o campo que cada um consome.
+de saldo (hoje, fim do horizonte, menor saldo), o gasto diário disponível
+até o fim do mês e o gasto por categoria. Os três primeiros leem a `Series`
+do backend; o que muda entre eles é o campo que cada um consome. O gasto
+diário é a única conta feita no cliente, uma divisão sobre o menor saldo
+devolvido pelo servidor.
 
 Já existiu uma tela de retrospectiva mensal (`/relatorio-financeiro`, com
 quebra mês a mês, drill-down por categoria e comparativos); foi removida
@@ -77,6 +79,17 @@ Home (`/`):
 - `ProjectionSummaryCard` — saldo hoje, saldo no fim do horizonte, menor
   saldo, mais `ProjectionTimeline`. Horizonte selecionável (fim do mês, 3,
   6, 12 meses; 3 por padrão).
+- `DailyAllowanceCard` — gasto diário disponível ("R$ X / dia"), abaixo do
+  resultado do período. Faz a própria consulta com `reference_date = from =
+  hoje` e `to = último dia do mês`, independente do período selecionado; com
+  `from` igual à referência, `base.lowest_balance` é o menor saldo previsto
+  de hoje (incluído) até o fim do mês, já com lançamentos reais, parcelas de
+  planos, recorrências não reconciliadas e faturas no vencimento. Valor =
+  `max(0, menor saldo) / dias restantes` (hoje incluído; 1 no último dia),
+  truncado no centavo (`presentation/dailyAllowance.ts`). "Hoje" vira à
+  meia-noite (`useToday`, compartilhado com `ProjectionSummaryCard`). Nada é
+  persistido: o valor acompanha qualquer invalidação de `timeline`. Não é
+  reserva nem orçamento.
 - `SpendingByCategoryCard` — gasto por categoria, lido de
   `GET /api/transactions/category-breakdown` (contexto Transações).
 

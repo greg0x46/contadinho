@@ -70,6 +70,12 @@ export function subtractBRL(minuend: string, subtrahend: string): string {
   return fromCents(toCents(minuend) - toCents(subtrahend));
 }
 
+/** Splits a non-negative amount into `divisor` shares, dropping the leftover fraction of a cent. */
+export function divideBRLFloor(value: string, divisor: number): string {
+  if (!Number.isInteger(divisor) || divisor <= 0) throw new RangeError("divisor must be a positive integer");
+  return fromCents(toCents(value) / BigInt(divisor));
+}
+
 /** How a figure reads: individual transaction, net result, stock balance, or plain. */
 export type MoneyToneKind = "flow" | "result" | "balance" | "neutral";
 
