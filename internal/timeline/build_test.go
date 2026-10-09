@@ -57,6 +57,25 @@ func TestBuildSeriesStartingBalanceExcludesCreditCards(t *testing.T) {
 	}
 }
 
+// TestBuildSeriesStartingBalanceIgnoresNonBRLCash pins that a USD account's
+// balance is not folded into the BRL anchor; there is no conversion.
+func TestBuildSeriesStartingBalanceIgnoresNonBRLCash(t *testing.T) {
+	f := newFixture(t)
+	f.addAccount("200.00")
+	usd := f.addAccount("100.00")
+	f.exec(`UPDATE financial_accounts SET currency_code = 'USD' WHERE id = ?`, usd)
+
+	series, err := timeline.BuildSeries(context.Background(), f.conn, timeline.BuildParams{
+		From: date(t, "2026-01-01"), To: date(t, "2026-12-31"), ReferenceDate: date(t, "2026-08-15"),
+	})
+	if err != nil {
+		t.Fatalf("BuildSeries: %v", err)
+	}
+	if series.StartingBalance.String() != "200" {
+		t.Errorf("StartingBalance = %s, want 200 (USD cash is not BRL)", series.StartingBalance.String())
+	}
+}
+
 func TestBuildSeriesCreditCardEntryProjectsToBillDueDate(t *testing.T) {
 	f := newFixture(t)
 	card := f.addCreditCardAccount("0")

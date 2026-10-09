@@ -63,7 +63,7 @@ func contains(list []string, value string) bool {
 // — a duplicate, a reversal — and such a row is not a distinct movement the
 // bank's reported balance counted either, so dropping it keeps the two
 // definitions aligned in the common case. The cost is the uncommon one: an
-// ignored row that *did* move money (transactions.CashOnHand's example of a
+// ignored row that *did* move money (transactions.CashOnHandByCurrency's example of a
 // transfer to an untracked account) leaves every past day before it short by
 // its amount. The anchor is unaffected — today's point is the reported
 // balance whatever the ledger says — so the error is confined to the shape of
@@ -216,8 +216,9 @@ func BuildSeries(ctx context.Context, q Querier, params BuildParams) (Series, er
 	from, to, reference := dates.Day(params.From), dates.Day(params.To), dates.Day(params.ReferenceDate)
 
 	// The t=today anchor: cash on hand, from the one implementation net
-	// worth's asset side also reads (see transactions.CashOnHand).
-	balance, err := transactions.CashOnHand(ctx, q, params.AccountIDs)
+	// worth's asset side also reads (see transactions.CashOnHandByCurrency).
+	// Non-BRL cash is not folded into the BRL anchor.
+	balance, err := transactions.CashOnHandIn(ctx, q, params.AccountIDs, money.BRL)
 	if err != nil {
 		return Series{}, err
 	}

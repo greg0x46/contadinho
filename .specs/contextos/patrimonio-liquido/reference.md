@@ -28,6 +28,13 @@ quantidade × a última cotação quando ela é mais recente que a avaliação
 (`market_quote`); na ausência de ambas o valor é o custo informado.
 O backfill continua sem inventar valorizações históricas dos investimentos.
 
+O caixa em conta vem de `transactions.CashOnHandIn(..., money.BRL)`, o
+mesmo número que ancora a Timeline. Só a parcela em BRL entra: caixa em
+moeda estrangeira fica fora do patrimônio BRL por ora (sem conversão;
+expor saldos por moeda é follow-up). Uma conta de caixa com saldo e
+`currency_code` ausente ou inválido faz o cálculo falhar com erro que
+nomeia a conta, em vez de ser tratada como BRL.
+
 ## Rotas HTTP
 
 `GET /api/net-worth`.

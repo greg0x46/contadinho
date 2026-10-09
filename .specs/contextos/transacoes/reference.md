@@ -53,11 +53,17 @@ duas vias em `.specs/motores-de-dominio.md` seção 1.
   `occurred_at`), `CreditAccountIDs`, `CardMetadataByTransaction` e
   `CreditCardTransactionTotal(At)` (o quanto se deve no ciclo aberto,
   calculado dos lançamentos elegíveis, nunca de `financial_accounts.balance`).
-- `balance.go` — `CashOnHand`: dinheiro em conta (soma dos saldos
-  reportados das contas não-crédito), a única implementação, usada pela
-  Timeline e pelo Patrimônio Líquido. Ver a nota sobre saldo em
-  `.specs/motores-de-dominio.md` seção 1 para por que uma transação
-  ignorada continua dentro do saldo.
+- `balance.go` — `CashOnHandByCurrency`: dinheiro em conta (soma dos
+  saldos reportados das contas não-crédito), separado por moeda em
+  `money.Balances` — saldos de moedas diferentes nunca são somados, e não
+  há conversão. `CashOnHandIn(..., moeda)` devolve o total de uma moeda
+  só; Timeline e Patrimônio Líquido usam só a parcela BRL. Uma conta
+  não-crédito com saldo e `currency_code` ausente, vazio ou fora do
+  formato de três letras maiúsculas (inclusive `brl`) é erro explícito
+  (`money.ErrMissingCurrency`/`ErrInvalidCurrency`, com o id da conta),
+  nunca vira BRL; contas de crédito e sem saldo são filtradas antes.
+  Ver a nota sobre saldo em `.specs/motores-de-dominio.md` seção 1 para
+  por que uma transação ignorada continua dentro do saldo.
 
 ## Rotas HTTP
 
@@ -106,7 +112,7 @@ dominio.md` seção 1. Criar uma conta 100% manual (sem nenhum vínculo com
 Pluggy) fica fora de escopo por ora — todo lançamento manual aponta para
 uma conta que já existe.
 
-O saldo de conta (`CashOnHand`, Patrimônio Líquido) nunca reflete um
+O saldo de conta (`CashOnHandByCurrency`, Patrimônio Líquido) nunca reflete um
 lançamento manual — só o que o provedor reporta em
 `financial_accounts.balance`. Um lançamento manual afeta o extrato e os
 totais de receita/despesa, mas nunca o saldo exibido da conta nem a

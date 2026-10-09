@@ -87,8 +87,15 @@ receita/despesa (as duas vias valem), e na dívida de cartão (só a via
 fatura vai me cobrar", que uma decisão de inclusão legitimamente molda, e
 por isso o total sai dos lançamentos elegíveis do ciclo e não do saldo
 reportado (`transactions.CreditCardTransactionTotal`). O caixa em conta
-vem de `transactions.CashOnHand`, uma implementação só, compartilhada pela
-Timeline (âncora de hoje) e pelo Patrimônio Líquido.
+vem de `transactions.CashOnHandByCurrency`, uma implementação só, que a
+Timeline (âncora de hoje) e o Patrimônio Líquido leem via
+`transactions.CashOnHandIn(..., money.BRL)`.
+
+Valores com moeda usam `money.Amount` (valor + código) e `money.Balances`
+(um total por moeda): somar ou subtrair moedas diferentes é erro
+(`ErrCurrencyMismatch`), e não há conversão nesta camada.
+`money.ParseCurrency` aceita só três letras ASCII maiúsculas; código ausente
+ou inválido é erro explícito, nunca vira BRL.
 
 ### 2. Motor de regras
 
