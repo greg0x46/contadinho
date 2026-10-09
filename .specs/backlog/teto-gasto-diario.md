@@ -2,7 +2,7 @@
 
 > Discussão salva para retomar depois. Nenhuma implementação foi feita.
 > Esse arquivo deve virar `.ideas/teto-gasto-diario.md` no repositório
-> `contadinho-go` quando sair do plan mode.
+> `github.com/greg0x46/julius` quando sair do plan mode.
 
 ## Motivação original
 

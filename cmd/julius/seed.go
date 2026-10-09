@@ -4,21 +4,17 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"os"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/investments"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/investments"
 )
 
 func seedCommand(args []string) error {
 	if len(args) == 0 || args[0] != "investment-assets" {
-		return fmt.Errorf("uso: contadinho seed investment-assets [-db caminho ou DSN]")
+		return fmt.Errorf("uso: julius seed investment-assets [-db caminho ou DSN]")
 	}
 	flags := flag.NewFlagSet("seed investment-assets", flag.ContinueOnError)
-	defaultDB := os.Getenv("CONTADINHO_DB")
-	if defaultDB == "" {
-		defaultDB = "contadinho.db"
-	}
+	defaultDB := db.DefaultPath()
 	path := flags.String("db", defaultDB, "arquivo SQLite ou DSN Postgres")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err

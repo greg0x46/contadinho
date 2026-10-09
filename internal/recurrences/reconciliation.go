@@ -3,9 +3,9 @@ package recurrences
 import (
 	"time"
 
-	"contadinho-go/internal/dates"
-	"contadinho-go/internal/rules"
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/dates"
+	"github.com/greg0x46/julius/internal/rules"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 // OverrideState is what a user decided about one occurrence.

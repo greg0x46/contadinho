@@ -93,8 +93,8 @@ pelo formulário. Tipos conhecidos incompatíveis com a classe são recusados.
 O catálogo inicial é opcional e pode ser criado com:
 
 ```sh
-go run ./cmd/contadinho seed investment-assets
-# Usa CONTADINHO_DB; também aceita -db caminho-ou-DSN depois de investment-assets.
+go run ./cmd/julius seed investment-assets
+# Usa JULIUS_DB; também aceita -db caminho-ou-DSN depois de investment-assets.
 ```
 
 A seed insere 27 ativos conhecidos: ações brasileiras, uma unit, FIIs, ETFs
@@ -139,13 +139,13 @@ orienta usar avaliações manuais ou valores da instituição integrada.
 Um código que não pode ser lido no formato do mercado é recusado ao salvar
 (`400`), com o motivo.
 
-A busca é opt-in: só roda com `CONTADINHO_QUOTES_SCHEDULE` definido
+A busca é opt-in: só roda com `JULIUS_QUOTES_SCHEDULE` definido
 (`HH:MM` ou `HH:MM Zona/IANA`), uma vez por dia e na subida do processo.
 
 ### Provedores
 
 `internal/marketdata` tenta os provedores em ordem de prioridade, com fallback
-automático. A ordem vem de `CONTADINHO_QUOTES_PROVIDERS` (nomes separados por
+automático. A ordem vem de `JULIUS_QUOTES_PROVIDERS` (nomes separados por
 vírgula; a ordem é a prioridade e um provedor omitido fica desligado), por
 padrão `yahoo,brapi,coingecko`. Um nome desconhecido impede a subida do
 processo. Cada provedor atende só os mercados que conhece, então no padrão:

@@ -9,7 +9,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/db"
 )
 
 // Rendimento is derived from one formula for every holding, manual or

@@ -10,11 +10,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/investments"
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/payables"
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/investments"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/payables"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 // Querier is satisfied by both *sql.DB and *sql.Tx — identical in shape to

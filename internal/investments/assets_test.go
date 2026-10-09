@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"contadinho-go/internal/investments"
+	"github.com/greg0x46/julius/internal/investments"
 )
 
 func assetStrPtr(v string) *string { return &v }

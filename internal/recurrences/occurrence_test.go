@@ -6,7 +6,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/recurrences"
+	"github.com/greg0x46/julius/internal/recurrences"
 )
 
 func date(t *testing.T, s string) time.Time {

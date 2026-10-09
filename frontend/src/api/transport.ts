@@ -19,7 +19,7 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
   const sessionSignal = pending.signal;
   const headers = new Headers(init.headers);
   const method = (init.method ?? "GET").toUpperCase();
-  if (!["GET", "HEAD", "OPTIONS"].includes(method)) headers.set("X-Contadinho-Request", "1");
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) headers.set("X-Julius-Request", "1");
   const signal = init.signal ? AbortSignal.any([init.signal, sessionSignal]) : sessionSignal;
   const response = await fetch(input, { ...init, headers, signal, credentials: "same-origin" });
   const assertCurrent = () => {

@@ -10,9 +10,9 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/payables"
-	"contadinho-go/internal/scenarios"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/payables"
+	"github.com/greg0x46/julius/internal/scenarios"
 )
 
 func dec(t *testing.T, s string) decimal.Decimal {

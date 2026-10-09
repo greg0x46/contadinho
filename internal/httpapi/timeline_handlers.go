@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/timeline"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/timeline"
 )
 
 func timelineUnavailableProblem(w http.ResponseWriter) {

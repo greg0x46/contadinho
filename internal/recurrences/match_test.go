@@ -3,10 +3,10 @@ package recurrences_test
 import (
 	"testing"
 
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/recurrences"
-	"contadinho-go/internal/rules"
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/recurrences"
+	"github.com/greg0x46/julius/internal/rules"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 func itemAt(t *testing.T, dateStr, amount string) transactions.Item {

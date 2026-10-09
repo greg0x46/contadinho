@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/investments"
-	"contadinho-go/internal/pluggy"
-	"contadinho-go/internal/syncsvc"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/investments"
+	"github.com/greg0x46/julius/internal/pluggy"
+	"github.com/greg0x46/julius/internal/syncsvc"
 )
 
 // investmentsPayload is a Pluggy /investments response as raw_imports keeps

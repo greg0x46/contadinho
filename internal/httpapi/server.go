@@ -9,13 +9,13 @@ import (
 	"path"
 	"strings"
 
-	"contadinho-go/internal/auth"
-	"contadinho-go/internal/investments"
-	"contadinho-go/internal/ledger"
-	"contadinho-go/internal/payables"
-	"contadinho-go/internal/recurrences"
-	"contadinho-go/internal/settings"
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/auth"
+	"github.com/greg0x46/julius/internal/investments"
+	"github.com/greg0x46/julius/internal/ledger"
+	"github.com/greg0x46/julius/internal/payables"
+	"github.com/greg0x46/julius/internal/recurrences"
+	"github.com/greg0x46/julius/internal/settings"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 // onIgnoredHook wires the "a transaction just became ignored" cleanup into

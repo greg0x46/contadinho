@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 // TestCashOnHandExcludesCreditAccounts covers the reason this figure is not

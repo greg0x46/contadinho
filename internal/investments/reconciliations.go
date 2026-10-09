@@ -11,8 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/money"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/money"
 )
 
 // The partial unique indexes that allow one bank line to be split between

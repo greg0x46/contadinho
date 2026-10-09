@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/db"
 )
 
 // insertCardPaymentLeg is insertTransactionOnAccount plus the three

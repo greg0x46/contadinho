@@ -1,4 +1,4 @@
-module contadinho-go
+module github.com/greg0x46/julius
 
 go 1.26.9
 

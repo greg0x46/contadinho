@@ -1,7 +1,7 @@
 import type { Investment, InvestmentTransaction, YieldUnavailableReason } from "../api/contracts";
 
 // Pluggy's investment "type"/"subtype"/movement "type" fields are free text
-// from the provider (not a closed enum contadinho-go validates), so these
+// from the provider (not a closed enum github.com/greg0x46/julius validates), so these
 // maps only translate the values we've actually seen — anything else falls
 // back to the raw string instead of failing.
 const investmentTypeLabels: Record<string, string> = {

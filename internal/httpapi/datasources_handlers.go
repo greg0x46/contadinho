@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"contadinho-go/internal/datasources"
+	"github.com/greg0x46/julius/internal/datasources"
 )
 
 // connectionNameColumn is DataSource.Name expressed in SQL, for the queries
@@ -116,7 +116,7 @@ func handleCreateDataSource(conn *sql.DB) http.HandlerFunc {
 		source, err := datasources.Create(r.Context(), conn, datasources.ProviderPluggy, itemID, trimmedLabel(req.Label))
 		if errors.Is(err, datasources.ErrDuplicate) {
 			writeProblem(w, 409, "data-source-exists", "Conexão já cadastrada",
-				"Esse Item ID já está sincronizando neste Contadinho.")
+				"Esse Item ID já está sincronizando neste Julius.")
 			return
 		}
 		if err != nil {

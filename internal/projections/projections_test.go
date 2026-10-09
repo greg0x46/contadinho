@@ -11,11 +11,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/payables"
-	"contadinho-go/internal/projections"
-	"contadinho-go/internal/recurrences"
-	"contadinho-go/internal/scenarios"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/payables"
+	"github.com/greg0x46/julius/internal/projections"
+	"github.com/greg0x46/julius/internal/recurrences"
+	"github.com/greg0x46/julius/internal/scenarios"
 )
 
 const projectionCategoryID = "000433b6-3094-5a9c-87df-465b70574a4b"

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"contadinho-go/internal/investments"
+	"github.com/greg0x46/julius/internal/investments"
 )
 
 func (f *ledgerFixture) assetOf(positionID string) string {

@@ -6,7 +6,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/dates"
+	"github.com/greg0x46/julius/internal/dates"
 )
 
 // PlanInstallment is one payable-plan installment that still represents

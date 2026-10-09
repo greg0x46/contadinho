@@ -9,9 +9,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/payables"
-	"contadinho-go/internal/scenarios"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/payables"
+	"github.com/greg0x46/julius/internal/scenarios"
 )
 
 // linkFixture creates the minimal sync-schema chain plus one

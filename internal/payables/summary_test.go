@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"contadinho-go/internal/payables"
+	"github.com/greg0x46/julius/internal/payables"
 )
 
 // payment returns a txSpec for an outflow that can settle a debt, dated at

@@ -6,9 +6,9 @@ import (
 	"log"
 	"time"
 
-	"contadinho-go/internal/investments"
-	"contadinho-go/internal/marketdata"
-	"contadinho-go/internal/settings"
+	"github.com/greg0x46/julius/internal/investments"
+	"github.com/greg0x46/julius/internal/marketdata"
+	"github.com/greg0x46/julius/internal/settings"
 )
 
 // backfillRequests carries "something that changes what needs pricing was
@@ -24,7 +24,7 @@ const backfillDebounce = 2 * time.Second
 // RequestBackfill asks the running scheduler to look for price history that is
 // missing — after a position or an operation was saved with an earlier date,
 // an asset got a quote source, and so on. It never blocks and never fails: when
-// quoting is not scheduled (no CONTADINHO_QUOTES_SCHEDULE) nothing is listening
+// quoting is not scheduled (no JULIUS_QUOTES_SCHEDULE) nothing is listening
 // and the request is dropped, so a fresh install does not start market requests.
 func RequestBackfill() {
 	select {

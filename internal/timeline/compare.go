@@ -5,7 +5,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/scenarios"
+	"github.com/greg0x46/julius/internal/scenarios"
 )
 
 // Comparison is Base vs. Simulation (Base + active scenarios), compared

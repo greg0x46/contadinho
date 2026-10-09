@@ -10,13 +10,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/automation"
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/pluggy"
-	"contadinho-go/internal/syncsvc"
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/automation"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/pluggy"
+	"github.com/greg0x46/julius/internal/syncsvc"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 // retryFixture runs an account-only sync, then supplies distinct run/import

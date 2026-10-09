@@ -7,18 +7,18 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/db"
 )
 
-// openPostgresTest skips unless CONTADINHO_TEST_POSTGRES_DSN points at a
+// openPostgresTest skips unless JULIUS_TEST_POSTGRES_DSN points at a
 // reachable Postgres server (see README "Rodando com Postgres" for a local
 // docker one-liner). It wipes the public schema before opening so every test
 // function starts from a clean, freshly migrated database.
 func openPostgresTest(t *testing.T) *sql.DB {
 	t.Helper()
-	dsn := os.Getenv("CONTADINHO_TEST_POSTGRES_DSN")
+	dsn := os.Getenv("JULIUS_TEST_POSTGRES_DSN")
 	if dsn == "" {
-		t.Skip("CONTADINHO_TEST_POSTGRES_DSN not set; skipping Postgres integration test")
+		t.Skip("JULIUS_TEST_POSTGRES_DSN not set; skipping Postgres integration test")
 	}
 
 	raw, err := sql.Open("pgx", dsn)
@@ -67,7 +67,7 @@ func TestPostgresMigrateAppliesAllTables(t *testing.T) {
 func TestPostgresMigrateIsIdempotent(t *testing.T) {
 	openPostgresTest(t) // first Open already applied every migration once
 
-	dsn := os.Getenv("CONTADINHO_TEST_POSTGRES_DSN")
+	dsn := os.Getenv("JULIUS_TEST_POSTGRES_DSN")
 	conn2, err := db.Open(dsn)
 	if err != nil {
 		t.Fatalf("second Open: %v", err)

@@ -10,10 +10,10 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/dates"
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/payables"
-	"contadinho-go/internal/scenarios"
+	"github.com/greg0x46/julius/internal/dates"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/payables"
+	"github.com/greg0x46/julius/internal/scenarios"
 )
 
 func scenariosUnavailableProblem(w http.ResponseWriter) {

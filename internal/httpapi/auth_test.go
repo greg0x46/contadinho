@@ -12,9 +12,9 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"contadinho-go/internal/auth"
-	"contadinho-go/internal/httpapi"
-	"contadinho-go/internal/settings"
+	"github.com/greg0x46/julius/internal/auth"
+	"github.com/greg0x46/julius/internal/httpapi"
+	"github.com/greg0x46/julius/internal/settings"
 )
 
 func TestBrowserAuthentication(t *testing.T) {
@@ -23,7 +23,7 @@ func TestBrowserAuthentication(t *testing.T) {
 		t.Helper()
 		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
 		req.Header.Set("Origin", origin)
-		req.Header.Set("X-Contadinho-Request", csrf)
+		req.Header.Set("X-Julius-Request", csrf)
 		req.Header.Set("Content-Type", "application/json")
 		if cookie != nil {
 			req.AddCookie(cookie)
@@ -105,7 +105,7 @@ func TestAuthLimitsAndDatabaseFailure(t *testing.T) {
 	}
 	resp.Body.Close()
 	req, _ := http.NewRequest("GET", srv.URL+"/api/categories", nil)
-	req.AddCookie(&http.Cookie{Name: "contadinho_session", Value: strings.Repeat("A", 43)})
+	req.AddCookie(&http.Cookie{Name: "julius_session", Value: strings.Repeat("A", 43)})
 	resp, err := srv.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +122,7 @@ func TestAuthenticationFeatureFlagCannotBypassEnabledMode(t *testing.T) {
 		t.Helper()
 		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
 		req.Header.Set("Origin", origin)
-		req.Header.Set("X-Contadinho-Request", csrf)
+		req.Header.Set("X-Julius-Request", csrf)
 		req.Header.Set("Content-Type", "application/json")
 		if cookie != nil {
 			req.AddCookie(cookie)
@@ -166,14 +166,14 @@ func TestProductionCookieAndServerRestart(t *testing.T) {
 	handler := httpapi.NewServer(conn, fstest.MapFS{"index.html": {Data: []byte("spa")}}, keys, auth.Config{PublicURL: "https://finance.example"})
 	req := httptest.NewRequest("POST", "https://finance.example/api/auth/login", strings.NewReader(`{"email":"owner@example.com","password":"`+testPassword+`"}`))
 	req.Header.Set("Origin", "https://finance.example")
-	req.Header.Set("X-Contadinho-Request", "1")
+	req.Header.Set("X-Julius-Request", "1")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, req)
 	if response.Code != 200 {
 		t.Fatal(response.Body.String())
 	}
 	cookie := response.Result().Cookies()[0]
-	if !cookie.Secure || cookie.Name != "__Host-contadinho_session" {
+	if !cookie.Secure || cookie.Name != "__Host-julius_session" {
 		t.Fatal(cookie)
 	}
 	// Recreate both encryption holder and HTTP server: browser auth is in the DB.

@@ -3,7 +3,7 @@ package db_test
 import (
 	"testing"
 
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/db"
 )
 
 // TestInClauseEmptyYieldsNothingToBuildWith pins the contract every batched

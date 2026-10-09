@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/marketdata"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/marketdata"
 )
 
 // This is a starter catalog, not a portfolio or an investment recommendation.

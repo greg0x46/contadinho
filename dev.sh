@@ -5,7 +5,7 @@ set -Eeuo pipefail
 repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$repo_dir"
 
-# Optional untracked local config (KEY=value lines), e.g. CONTADINHO_DB or ports.
+# Optional untracked local config (KEY=value lines), e.g. JULIUS_DB or ports.
 if [[ -f "$repo_dir/.env.local" ]]; then
   set -a
   # shellcheck source=/dev/null
@@ -13,11 +13,11 @@ if [[ -f "$repo_dir/.env.local" ]]; then
   set +a
 fi
 
-backend_addr="${CONTADINHO_DEV_ADDR:-localhost:8000}"
+backend_addr="${JULIUS_DEV_ADDR:-localhost:8000}"
 frontend_host="${VITE_DEV_HOST:-127.0.0.1}"
 frontend_port="${VITE_DEV_PORT:-5173}"
 backend_url="http://${backend_addr}"
-export CONTADINHO_PUBLIC_URL="${CONTADINHO_PUBLIC_URL:-http://${frontend_host}:${frontend_port}}"
+export JULIUS_PUBLIC_URL="${JULIUS_PUBLIC_URL:-http://${frontend_host}:${frontend_port}}"
 
 if ! command -v go >/dev/null 2>&1; then
   echo "Erro: Go não está instalado ou não está no PATH." >&2
@@ -80,13 +80,13 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 echo "Backend:  http://${backend_addr}"
-echo "Frontend: ${CONTADINHO_PUBLIC_URL}"
+echo "Frontend: ${JULIUS_PUBLIC_URL}"
 echo "Pressione Ctrl-C para encerrar os dois processos."
 
-start_process go run ./cmd/contadinho -addr "$backend_addr"
+start_process go run ./cmd/julius -addr "$backend_addr"
 backend_pid="$last_pid"
 
-start_process env CONTADINHO_DEV_API_URL="$backend_url" npm --prefix "$repo_dir/frontend" run dev -- \
+start_process env JULIUS_DEV_API_URL="$backend_url" npm --prefix "$repo_dir/frontend" run dev -- \
   --host "$frontend_host" \
   --port "$frontend_port"
 frontend_pid="$last_pid"

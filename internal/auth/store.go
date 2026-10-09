@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"time"
 
-	"contadinho-go/internal/settings"
+	"github.com/greg0x46/julius/internal/settings"
 )
 
 var ErrCredentials = errors.New("e-mail ou senha incorretos")

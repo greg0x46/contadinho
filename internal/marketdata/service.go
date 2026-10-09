@@ -304,7 +304,7 @@ func chainFailure(instrument Instrument, failures []error) error {
 	return &chainError{instrument: instrument, errs: failures}
 }
 
-// ParseProviders reads CONTADINHO_QUOTES_PROVIDERS: provider names separated
+// ParseProviders reads JULIUS_QUOTES_PROVIDERS: provider names separated
 // by commas, in the order they are tried. Empty means DefaultProviders. A
 // provider left out is disabled.
 func ParseProviders(value string) ([]string, error) {
@@ -330,10 +330,10 @@ func checkProviderNames(names []string) error {
 	seen := map[string]bool{}
 	for _, name := range names {
 		if !IsProvider(name) {
-			return fmt.Errorf("CONTADINHO_QUOTES_PROVIDERS: fonte desconhecida %q (use %s)", name, strings.Join(knownProviders, ", "))
+			return fmt.Errorf("JULIUS_QUOTES_PROVIDERS: fonte desconhecida %q (use %s)", name, strings.Join(knownProviders, ", "))
 		}
 		if seen[name] {
-			return fmt.Errorf("CONTADINHO_QUOTES_PROVIDERS: fonte %q repetida", name)
+			return fmt.Errorf("JULIUS_QUOTES_PROVIDERS: fonte %q repetida", name)
 		}
 		seen[name] = true
 	}

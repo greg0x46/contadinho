@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/db"
 )
 
 func TestSyncRunsRejectFileSources(t *testing.T) {

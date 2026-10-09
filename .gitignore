@@ -1,4 +1,4 @@
-/contadinho
+/julius
 *.db
 *.db-shm
 *.db-wal
@@ -10,7 +10,7 @@ frontend/.vite-cache/
 internal/webui/dist/
 
 # Cross-compiled release binaries (built by hand, ~27 MB each).
-/contadinho-linux-*
+/julius-linux-*
 # npm run at the repo root instead of in frontend/.
 /node_modules/
 

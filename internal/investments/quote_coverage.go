@@ -6,8 +6,8 @@ import (
 	"errors"
 	"time"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/money"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/money"
 )
 
 // QuoteCoverage is the interval of days an asset's price series has already

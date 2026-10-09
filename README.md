@@ -1,6 +1,6 @@
-# Contadinho
+# Julius
 
-Contadinho is a self-hosted personal finance tracker, built for a single
+Julius is a self-hosted personal finance tracker, built for a single
 person to use locally or from an online installation. It syncs the activity of
 your bank account and credit card through the
 [Pluggy](#open-finance--pluggy) Open Finance API — which authorizes you to read
@@ -27,16 +27,16 @@ much as stale code does.
 
 ## Why a single binary
 
-Contadinho packs the application and the frontend into one binary, with
+Julius packs the application and the frontend into one binary, with
 authentication configuration that does not depend on the host:
 
 - **One file to run.** `go build` produces a single executable with the
   frontend already embedded. No Docker, no reverse proxy, no Node runtime in
   production (Node is only needed once, to build the frontend).
 - **One file as the database (by default).** With SQLite — the default — data
-  and sessions live in the `contadinho.db` file. Also keep the external
+  and sessions live in the `julius.db` file. Also keep the external
   encryption key when moving or restoring the installation. No database server
-  to install or keep running. To run several Contadinho instances sharing a
+  to install or keep running. To run several Julius instances sharing a
   database in the cloud, Postgres is an option — see
   [Running with Postgres](#running-with-postgres).
 - **Host-independent configuration.** The account is created from the
@@ -148,8 +148,8 @@ an invalid key.
 ### Publish and install a version
 
 Every push to `main` that passes CI publishes a GitHub release with the
-`contadinho-linux-amd64` binary, `SHA256SUMS` and the provenance attestation
-(`contadinho-linux-amd64.sigstore.json`), as long as there is something to
+`julius-linux-amd64` binary, `SHA256SUMS` and the provenance attestation
+(`julius-linux-amd64.sigstore.json`), as long as there is something to
 release. The version follows SemVer from the
 [Conventional Commits](https://www.conventionalcommits.org/) since the last
 tag: `feat` bumps the minor, `fix`/`perf` bump the patch, and a breaking change
@@ -169,17 +169,17 @@ Generate a 32-byte Base64 key **once**, in a file outside the repository. The
 example refuses to overwrite an existing file:
 
 ```sh
-mkdir -p "$HOME/.config/contadinho"
-(umask 077; set -C; openssl rand -base64 32 > "$HOME/.config/contadinho/master.key")
-export CONTADINHO_MASTER_KEY_FILE="$HOME/.config/contadinho/master.key"
-export CONTADINHO_PUBLIC_URL="http://localhost:4200"
+mkdir -p "$HOME/.config/julius"
+(umask 077; set -C; openssl rand -base64 32 > "$HOME/.config/julius/master.key")
+export JULIUS_MASTER_KEY_FILE="$HOME/.config/julius/master.key"
+export JULIUS_PUBLIC_URL="http://localhost:4200"
 ```
 
-Alternatively, provide the Base64 value in `CONTADINHO_MASTER_KEY` through your
+Alternatively, provide the Base64 value in `JULIUS_MASTER_KEY` through your
 host's secrets mechanism. Set exactly one of the two sources. Do not put the
 value in the repository, arguments, logs or `VITE_*` variables.
 
-`CONTADINHO_PUBLIC_URL` is the origin as seen by the browser, without a path or
+`JULIUS_PUBLIC_URL` is the origin as seen by the browser, without a path or
 trailing slash. For online use, use `https://your-hostname`; HTTP is only
 allowed on `localhost`, `127.0.0.1` or `::1`, for development. HTTPS may be
 terminated externally; the application does not trust proxy headers to choose
@@ -188,8 +188,8 @@ the cookie policy or the allowed origin.
 For a new database:
 
 ```sh
-./contadinho auth init -db ./contadinho.db
-./contadinho -db ./contadinho.db
+./julius auth init -db ./julius.db
+./julius -db ./julius.db
 ```
 
 The command asks for an email and a non-empty password in an interactive
@@ -199,11 +199,17 @@ Pluggy credentials under **Configurações** (settings); the optional Item ID
 registers a new connection. Additional connections remain available under
 **Open Banking**.
 
+When upgrading from Contadinho, replace its `CONTADINHO_*` environment
+variables with the corresponding `JULIUS_*` names. Julius does not read the old
+configuration names. If `julius.db` does not exist but `contadinho.db` does,
+Julius keeps using the existing database automatically; if both files exist,
+it uses `julius.db`. Existing browser sessions need a new login.
+
 To migrate your existing database:
 
 1. Stop the old version and take a consistent backup of the database.
 2. Configure and keep the new key.
-3. Run `./contadinho auth migrate -db ./contadinho.db`.
+3. Run `./julius auth migrate`.
 4. Enter the old unlock password, your email and the new login password.
 5. Start the application with the same key configured.
 
@@ -221,7 +227,7 @@ this version.
 To regain access from the terminal while keeping encryption:
 
 ```sh
-./contadinho auth reset-password -db ./contadinho.db
+./julius auth reset-password -db ./julius.db
 ```
 
 This command does not need the key, requires a new password and revokes every
@@ -233,7 +239,7 @@ Sessions last at most seven days, expire after 24 hours of inactivity, and
 survive restarts. Every private access is checked in the backend. Login accepts
 up to five attempts per minute per email and thirty per minute per process; the
 limit resets with the process. HTTP writes require an `Origin` equal to the
-configured origin and `X-Contadinho-Request: 1`.
+configured origin and `X-Julius-Request: 1`.
 
 Under **Configurações > Acesso**, the owner can disable authentication.
 Disabling it requires a valid session; after that, anyone who can reach the
@@ -247,18 +253,18 @@ configuration failure.
 ### Running with Postgres
 
 SQLite remains the default for local use. To run against a shared Postgres —
-for example, several Contadinho instances pointing at the same cloud database —
+for example, several Julius instances pointing at the same cloud database —
 pass a `postgres://` (or `postgresql://`) DSN to the `-db` flag instead of a
 file path:
 
 ```sh
-./contadinho -db "postgres://user:password@host:5432/contadinho?sslmode=require"
+./julius -db "postgres://user:password@host:5432/julius?sslmode=require"
 ```
 
 The driver is detected automatically from the DSN prefix. Postgres schema
 migrations are applied automatically, just like the SQLite ones. The
 `auth init`, `auth migrate` and `auth reset-password` commands accept the same
-DSN in the `-db` flag or in `CONTADINHO_DB`. Sessions and the account live in
+DSN in the `-db` flag or in `JULIUS_DB`. Sessions and the account live in
 the database; the encryption key stays outside it.
 
 The background sync worker assumes only one instance runs it at a time — it
@@ -271,7 +277,7 @@ processes/instances.
 a development Postgres reachable from the machine (`host.docker.internal`) and
 writes the HTML to `schemaspy/output/` (a git-ignored directory). It is not the
 application's compose file. The password is required; user, database and port
-default to `admin`, `contadinho` and `5432`:
+default to `admin`, `julius` and `5432`:
 
 ```sh
 SCHEMASPY_DB_PASSWORD=... docker compose -f docker-compose.schemaspy.yml up
@@ -283,12 +289,12 @@ Then open `schemaspy/output/index.html`.
 ### Scheduled sync
 
 Since the API routes require a browser session, an external cron can no longer
-trigger `POST /api/sync-runs`. Instead, set `CONTADINHO_SYNC_SCHEDULE` so the
+trigger `POST /api/sync-runs`. Instead, set `JULIUS_SYNC_SCHEDULE` so the
 process itself queues a sync of every active connection once a day:
 
 ```sh
-export CONTADINHO_SYNC_SCHEDULE="06:00"                  # process local time
-export CONTADINHO_SYNC_SCHEDULE="06:00 America/Sao_Paulo" # or with an explicit IANA time zone
+export JULIUS_SYNC_SCHEDULE="06:00"                  # process local time
+export JULIUS_SYNC_SCHEDULE="06:00 America/Sao_Paulo" # or with an explicit IANA time zone
 ```
 
 If the process is down at that time, the pending sync is queued as soon as it
@@ -301,15 +307,15 @@ Investment assets with automatic quotes enabled have the price of their manual
 positions fetched automatically and stored in the asset's price series. The
 position value is computed on every read (quantity × latest price); a manual
 valuation dated on or after the latest price takes precedence over it. Fetching
-is opt-in: set `CONTADINHO_QUOTES_SCHEDULE` (same format as the sync schedule)
+is opt-in: set `JULIUS_QUOTES_SCHEDULE` (same format as the sync schedule)
 to run once a day and when the process starts. Providers are tried in order,
-with automatic fallback; `CONTADINHO_QUOTES_PROVIDERS` sets the order
+with automatic fallback; `JULIUS_QUOTES_PROVIDERS` sets the order
 (comma-separated; an omitted provider is disabled; an unknown name prevents
 startup):
 
 ```sh
-export CONTADINHO_QUOTES_SCHEDULE="19:00 America/Sao_Paulo"
-export CONTADINHO_QUOTES_PROVIDERS="yahoo,brapi,coingecko" # default
+export JULIUS_QUOTES_SCHEDULE="19:00 America/Sao_Paulo"
+export JULIUS_QUOTES_PROVIDERS="yahoo,brapi,coingecko" # default
 ```
 
 By default Yahoo Finance is the primary source for both markets; brapi is the
@@ -325,17 +331,17 @@ prices.
 To load an optional starter catalog with 27 well-known assets:
 
 ```sh
-go run ./cmd/contadinho seed investment-assets
+go run ./cmd/julius seed investment-assets
 ```
 
-The command uses `CONTADINHO_DB` or accepts `-db path-or-DSN`. It can be run
+The command uses `JULIUS_DB` or accepts `-db path-or-DSN`. It can be run
 again without duplicating or overwriting entries, and it does not create
 positions or balances.
 
 ### Run for local development
 
 After configuring the key and preparing the account with
-`go run ./cmd/contadinho auth init` (or `auth migrate` for an old database),
+`go run ./cmd/julius auth init` (or `auth migrate` for an old database),
 the script below starts the backend and Vite together. The frontend gets hot
 reload and `/api` requests are forwarded to the backend automatically:
 
@@ -345,21 +351,21 @@ reload and `/api` requests are forwarded to the backend automatically:
 
 Open the URL the script prints on the `Frontend:` line (`http://127.0.0.1:5173`
 by default). The script uses exactly that origin as the default
-`CONTADINHO_PUBLIC_URL`, and the backend strictly compares the browser's
+`JULIUS_PUBLIC_URL`, and the backend strictly compares the browser's
 `Origin` header against it: opening `http://localhost:5173` instead, or having
-already exported another value in `CONTADINHO_PUBLIC_URL`, results in a 403
+already exported another value in `JULIUS_PUBLIC_URL`, results in a 403
 `invalid-origin` on login and on every POST/PUT/DELETE. If you prefer another
 host, change `VITE_DEV_HOST` (the script derives the origin from it) instead of
 exporting the URL by hand. `Ctrl-C` stops both processes. To override host and
 ports:
 
 ```sh
-CONTADINHO_DEV_ADDR=localhost:8100 VITE_DEV_HOST=localhost VITE_DEV_PORT=5174 ./dev.sh
+JULIUS_DEV_ADDR=localhost:8100 VITE_DEV_HOST=localhost VITE_DEV_PORT=5174 ./dev.sh
 ```
 
 For machine-specific configuration, create a `.env.local` at the repository
 root (ignored by git) with `KEY=value` lines; `dev.sh` loads that file before
-starting. E.g. `CONTADINHO_DB`, `CONTADINHO_MASTER_KEY_FILE`, ports and, to
+starting. E.g. `JULIUS_DB`, `JULIUS_MASTER_KEY_FILE`, ports and, to
 reach Vite through another domain, `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=<host>`.
 
 If the dependencies are not installed yet, run `cd frontend && npm install`
@@ -381,7 +387,7 @@ npm test
 ```
 
 The Postgres integration tests are skipped unless
-`CONTADINHO_TEST_POSTGRES_DSN` points at a disposable database. They reset its
+`JULIUS_TEST_POSTGRES_DSN` points at a disposable database. They reset its
 `public` schema, so run them with `go test -p 1 ./...`, as CI does.
 
 `npm run test:e2e` (Playwright) is declared in `package.json` but has no
@@ -391,7 +397,7 @@ The Postgres integration tests are skipped unless
 
 This project only exists thanks to Open Finance regulation in Brazil and to
 [Pluggy](https://pluggy.ai), the Open Finance infrastructure provider whose API
-Contadinho integrates with. Pluggy connects to more than 130 Brazilian
+Julius integrates with. Pluggy connects to more than 130 Brazilian
 financial institutions and, as a Payment Initiation Service Provider (ITP)
 regulated by the Central Bank, offers applications like this one a
 standardized, authorized way to read account balances, transactions and
@@ -409,7 +415,7 @@ during setup.
 ## Project structure
 
 ```
-cmd/contadinho/     entry point: wires the DB, HTTP server and background worker
+cmd/julius/     entry point: wires the DB, HTTP server and background worker
 internal/
   db/                SQLite/Postgres connection and migrations
   pluggy/             Pluggy API client and data mapping

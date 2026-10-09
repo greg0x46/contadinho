@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/money"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/money"
 )
 
 // learnedFixture is one account with a hand-categorized "reference"

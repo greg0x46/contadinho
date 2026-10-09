@@ -18,7 +18,7 @@ type Schedule struct {
 	Location     *time.Location
 }
 
-// ParseSchedule reads CONTADINHO_QUOTES_SCHEDULE: "HH:MM" in the process's
+// ParseSchedule reads JULIUS_QUOTES_SCHEDULE: "HH:MM" in the process's
 // local time, optionally followed by an IANA zone ("06:00 America/Sao_Paulo").
 // An empty value disables the schedule.
 func ParseSchedule(value string) (Schedule, bool, error) {
@@ -27,16 +27,16 @@ func ParseSchedule(value string) (Schedule, bool, error) {
 		return Schedule{}, false, nil
 	}
 	if len(fields) > 2 {
-		return Schedule{}, false, fmt.Errorf("CONTADINHO_QUOTES_SCHEDULE deve ser \"HH:MM\" ou \"HH:MM Zona/IANA\"")
+		return Schedule{}, false, fmt.Errorf("JULIUS_QUOTES_SCHEDULE deve ser \"HH:MM\" ou \"HH:MM Zona/IANA\"")
 	}
 	clock, err := time.Parse("15:04", fields[0])
 	if err != nil {
-		return Schedule{}, false, fmt.Errorf("CONTADINHO_QUOTES_SCHEDULE: horário inválido %q (use HH:MM)", fields[0])
+		return Schedule{}, false, fmt.Errorf("JULIUS_QUOTES_SCHEDULE: horário inválido %q (use HH:MM)", fields[0])
 	}
 	s := Schedule{Hour: clock.Hour(), Minute: clock.Minute(), Location: time.Local}
 	if len(fields) == 2 {
 		if s.Location, err = time.LoadLocation(fields[1]); err != nil {
-			return Schedule{}, false, fmt.Errorf("CONTADINHO_QUOTES_SCHEDULE: fuso inválido %q", fields[1])
+			return Schedule{}, false, fmt.Errorf("JULIUS_QUOTES_SCHEDULE: fuso inválido %q", fields[1])
 		}
 	}
 	return s, true, nil

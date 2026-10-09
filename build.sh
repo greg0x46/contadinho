@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds the frontend, embeds it into internal/webui/dist, then builds the
-# single contadinho binary. See README.md "Rodar a build de produção".
+# single julius binary. See README.md "Rodar a build de produção".
 set -eu
 
 cd "$(dirname "$0")"
@@ -11,6 +11,6 @@ rm -rf internal/webui/dist
 mkdir -p internal/webui/dist
 cp -r frontend/dist/* internal/webui/dist/
 
-go build -tags embedded_frontend -o contadinho ./cmd/contadinho
+go build -tags embedded_frontend -o julius ./cmd/julius
 
-echo "build ok: ./contadinho"
+echo "build ok: ./julius"

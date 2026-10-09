@@ -18,9 +18,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/ledger"
-	"contadinho-go/internal/statementimport"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/ledger"
+	"github.com/greg0x46/julius/internal/statementimport"
 )
 
 type importCounts struct {

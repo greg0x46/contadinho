@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/recurrences"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/recurrences"
 )
 
 func newTestDB(t *testing.T) *sql.DB {

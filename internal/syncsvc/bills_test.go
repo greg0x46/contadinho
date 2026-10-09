@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"contadinho-go/internal/pluggy"
-	"contadinho-go/internal/syncsvc"
+	"github.com/greg0x46/julius/internal/pluggy"
+	"github.com/greg0x46/julius/internal/syncsvc"
 )
 
 // TestExecuteUpsertsBillsForCreditAccount confirms a credit card account's

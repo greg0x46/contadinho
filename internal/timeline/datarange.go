@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"contadinho-go/internal/dates"
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/dates"
+	"github.com/greg0x46/julius/internal/db"
 )
 
 const dateOnlyLayout = "2006-01-02"

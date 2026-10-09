@@ -12,7 +12,7 @@ export function accountTypeLabel(type: AccountType | null): string {
 }
 
 // Pluggy's account subtype is free text from the provider, not a closed enum
-// contadinho-go validates, so this map only translates the values we've
+// github.com/greg0x46/julius validates, so this map only translates the values we've
 // actually seen — anything else falls back to the raw string.
 const accountSubtypeLabels: Record<string, string> = {
   CHECKING_ACCOUNT: "Conta corrente",

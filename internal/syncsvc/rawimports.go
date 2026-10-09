@@ -16,8 +16,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/pluggy"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/pluggy"
 )
 
 // allowedResponseHeaders and allowedQueryParameters mirror raw_imports.py's

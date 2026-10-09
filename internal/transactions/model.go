@@ -12,7 +12,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/money"
+	"github.com/greg0x46/julius/internal/money"
 )
 
 // Querier is satisfied by both *sql.DB and *sql.Tx.

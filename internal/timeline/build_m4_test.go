@@ -7,12 +7,12 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/automation"
-	"contadinho-go/internal/payables"
-	"contadinho-go/internal/recurrences"
-	"contadinho-go/internal/rules"
-	"contadinho-go/internal/scenarios"
-	"contadinho-go/internal/timeline"
+	"github.com/greg0x46/julius/internal/automation"
+	"github.com/greg0x46/julius/internal/payables"
+	"github.com/greg0x46/julius/internal/recurrences"
+	"github.com/greg0x46/julius/internal/rules"
+	"github.com/greg0x46/julius/internal/scenarios"
+	"github.com/greg0x46/julius/internal/timeline"
 )
 
 var testReconciliationConditions = []rules.Condition{

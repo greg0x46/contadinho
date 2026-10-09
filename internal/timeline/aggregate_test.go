@@ -5,7 +5,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/timeline"
+	"github.com/greg0x46/julius/internal/timeline"
 )
 
 func dec(t *testing.T, s string) decimal.Decimal {

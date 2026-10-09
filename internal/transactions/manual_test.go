@@ -8,9 +8,9 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 func TestCreateManualInsertsAnOriginManualRow(t *testing.T) {

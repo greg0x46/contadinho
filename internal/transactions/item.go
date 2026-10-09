@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"contadinho-go/internal/investments"
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/settings"
+	"github.com/greg0x46/julius/internal/investments"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/settings"
 )
 
 // GetItem loads one transaction as the very same Item the list paths produce

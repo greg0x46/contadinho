@@ -65,9 +65,9 @@ func TestDownUpRoundTrip(t *testing.T) {
 // TestPostgresDownUpRoundTrip is the same round trip on the other dialect,
 // where the drop migrations use ALTER TABLE instead of a table rebuild.
 func TestPostgresDownUpRoundTrip(t *testing.T) {
-	dsn := os.Getenv("CONTADINHO_TEST_POSTGRES_DSN")
+	dsn := os.Getenv("JULIUS_TEST_POSTGRES_DSN")
 	if dsn == "" {
-		t.Skip("CONTADINHO_TEST_POSTGRES_DSN not set; skipping Postgres integration test")
+		t.Skip("JULIUS_TEST_POSTGRES_DSN not set; skipping Postgres integration test")
 	}
 	// Open already applies the Postgres migrations, so the tree is fully
 	// migrated by the time the rollback below starts.

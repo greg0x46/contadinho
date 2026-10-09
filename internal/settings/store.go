@@ -7,7 +7,7 @@ import (
 	"errors"
 	"time"
 
-	"contadinho-go/internal/db"
+	"github.com/greg0x46/julius/internal/db"
 )
 
 // ErrLocked means that an encryption key was not supplied by the caller.

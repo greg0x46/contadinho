@@ -26,15 +26,15 @@ As funções de senha antiga em settings existem apenas para migração e testes
 
 ## Configuração e comandos
 
-- `CONTADINHO_PUBLIC_URL`: origem exata sem caminho, HTTPS em produção; HTTP
+- `JULIUS_PUBLIC_URL`: origem exata sem caminho, HTTPS em produção; HTTP
   somente para localhost/127.0.0.1/::1. Não deriva segurança de headers de proxy.
-- Exatamente uma de `CONTADINHO_MASTER_KEY` e `CONTADINHO_MASTER_KEY_FILE`:
+- Exatamente uma de `JULIUS_MASTER_KEY` e `JULIUS_MASTER_KEY_FILE`:
   chave aleatória de 32 bytes em Base64. Não há integração com nuvem.
-- `contadinho auth init [-db ...]`: cria conta em banco sem configuração legada.
-- `contadinho auth migrate [-db ...]`: com processo parado, pede senha antiga,
+- `julius auth init [-db ...]`: cria conta em banco sem configuração legada.
+- `julius auth migrate [-db ...]`: com processo parado, pede senha antiga,
   e-mail e nova senha; recriptografa todos os segredos, cria conta e remove
   verificador legado numa transação. Exige backup prévio; recusa repetição.
-- `contadinho auth reset-password [-db ...]`: redefine senha e revoga sessões;
+- `julius auth reset-password [-db ...]`: redefine senha e revoga sessões;
   não precisa da chave nem a modifica. Senhas são lidas sem eco em terminal.
 
 O servidor recusa configuração pendente/chave inválida. Chave perdida não é
@@ -54,7 +54,7 @@ recuperável pela senha; rotação da chave não está implementada. Instruçõe
 Todas as rotas /api são privadas por padrão, exceto os dois endpoints de
 login/status. Ausência de sessão: 401; falha de banco: 503. Arquivos estáticos
 e /health são públicos. Setup/unlock antigos não são registrados.
-Escritas, inclusive login, exigem Origin configurada e X-Contadinho-Request: 1
+Escritas, inclusive login, exigem Origin configurada e X-Julius-Request: 1
 (403 se inválidos), sem CORS. Respostas /api recebem Cache-Control: no-store.
 Login e troca de senha compartilham limites de cinco tentativas/minuto por
 e-mail e trinta globais, em memória limitada, e uma operação KDF simultânea.
@@ -74,6 +74,6 @@ Configurações contém troca de senha, Sair e formulário write-only da Pluggy.
 
 Testes cobrem migração/rollback nos dois dialetos, expiração, revogação,
 reinício, cookies, CSRF, rate limiting, falhas de banco e cancelamento/cache.
-Postgres usa CONTADINHO_TEST_POSTGRES_DSN com schema isolado por teste de auth.
+Postgres usa JULIUS_TEST_POSTGRES_DSN com schema isolado por teste de auth.
 Uma instância; sem coordenação distribuída de worker/rate limit, múltiplos
 usuários, MFA ou recuperação por e-mail. Hospedagem e provisionamento ficam externos.

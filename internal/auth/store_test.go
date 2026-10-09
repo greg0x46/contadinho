@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/settings"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/settings"
 	"github.com/google/uuid"
 )
 
@@ -25,9 +25,9 @@ func databases(t *testing.T, test func(*testing.T, *sql.DB)) {
 		t.Run(dialect, func(t *testing.T) {
 			dsn := filepath.Join(t.TempDir(), "auth.db")
 			if dialect == "postgres" {
-				base := os.Getenv("CONTADINHO_TEST_POSTGRES_DSN")
+				base := os.Getenv("JULIUS_TEST_POSTGRES_DSN")
 				if base == "" {
-					t.Skip("CONTADINHO_TEST_POSTGRES_DSN not set")
+					t.Skip("JULIUS_TEST_POSTGRES_DSN not set")
 				}
 				raw, err := sql.Open("pgx", base)
 				if err != nil {

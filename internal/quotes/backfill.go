@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"contadinho-go/internal/investments"
-	"contadinho-go/internal/marketdata"
+	"github.com/greg0x46/julius/internal/investments"
+	"github.com/greg0x46/julius/internal/marketdata"
 )
 
 // HistorySummary totals one RefreshHistory run, logged as a single line like

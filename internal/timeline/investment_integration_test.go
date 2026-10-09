@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/timeline"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/timeline"
 )
 
 func TestInvestmentReportingKeepsBankCurveAndAvoidsDoubleContributions(t *testing.T) {

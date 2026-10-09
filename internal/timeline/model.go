@@ -25,7 +25,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	timelinetypes "contadinho-go/internal/timeline/types"
+	timelinetypes "github.com/greg0x46/julius/internal/timeline/types"
 )
 
 // These aliases keep the public timeline API stable while allowing the

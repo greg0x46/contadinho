@@ -7,7 +7,7 @@ import (
 	"slices"
 	"time"
 
-	"contadinho-go/internal/automation"
+	"github.com/greg0x46/julius/internal/automation"
 )
 
 type actionDTO struct {

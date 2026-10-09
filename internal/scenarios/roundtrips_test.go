@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"testing"
 
-	"contadinho-go/internal/scenarios"
+	"github.com/greg0x46/julius/internal/scenarios"
 )
 
 // countingQuerier wraps a *sql.DB and counts round trips, so a test can

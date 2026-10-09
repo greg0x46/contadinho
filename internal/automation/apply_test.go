@@ -9,11 +9,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
-	"contadinho-go/internal/automation"
-	"contadinho-go/internal/categories"
-	"contadinho-go/internal/db"
-	"contadinho-go/internal/money"
-	"contadinho-go/internal/transactions"
+	"github.com/greg0x46/julius/internal/automation"
+	"github.com/greg0x46/julius/internal/categories"
+	"github.com/greg0x46/julius/internal/db"
+	"github.com/greg0x46/julius/internal/money"
+	"github.com/greg0x46/julius/internal/transactions"
 )
 
 // fixture mirrors the minimal sync-schema chain other packages' tests use,

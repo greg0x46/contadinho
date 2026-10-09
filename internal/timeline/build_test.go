@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"contadinho-go/internal/timeline"
+	"github.com/greg0x46/julius/internal/timeline"
 )
 
 func TestBuildSeriesStartingBalanceSumsAccounts(t *testing.T) {
