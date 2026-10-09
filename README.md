@@ -262,9 +262,11 @@ file path:
 ```
 
 The driver is detected automatically from the DSN prefix. Postgres schema
-migrations are applied automatically, just like the SQLite ones. The
-`auth init`, `auth migrate` and `auth reset-password` commands accept the same
-DSN in the `-db` flag or in `JULIUS_DB`. Sessions and the account live in
+migrations are applied automatically, just like the SQLite ones. Migrations
+take a Postgres advisory lock, so several instances can start at once: one
+applies the pending migrations, the others wait (up to about 5 minutes) and
+then skip them. The `auth init`, `auth migrate` and `auth reset-password`
+commands accept the same DSN in the `-db` flag or in `JULIUS_DB`. Sessions and the account live in
 the database; the encryption key stays outside it.
 
 The background sync worker assumes only one instance runs it at a time — it

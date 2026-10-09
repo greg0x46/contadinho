@@ -3,6 +3,8 @@ package db_test
 import (
 	"database/sql"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -10,11 +12,11 @@ import (
 	"github.com/greg0x46/julius/internal/db"
 )
 
-// openPostgresTest skips unless JULIUS_TEST_POSTGRES_DSN points at a
+// resetPostgresTestSchema skips unless JULIUS_TEST_POSTGRES_DSN points at a
 // reachable Postgres server (see README "Rodando com Postgres" for a local
-// docker one-liner). It wipes the public schema before opening so every test
-// function starts from a clean, freshly migrated database.
-func openPostgresTest(t *testing.T) *sql.DB {
+// docker one-liner). It wipes the public schema, leaving an empty database,
+// and returns the DSN.
+func resetPostgresTestSchema(t *testing.T) string {
 	t.Helper()
 	dsn := os.Getenv("JULIUS_TEST_POSTGRES_DSN")
 	if dsn == "" {
@@ -30,6 +32,14 @@ func openPostgresTest(t *testing.T) *sql.DB {
 		t.Fatalf("reset public schema: %v", err)
 	}
 	raw.Close()
+	return dsn
+}
+
+// openPostgresTest opens a clean, freshly migrated Postgres database so every
+// test function starts from the same state.
+func openPostgresTest(t *testing.T) *sql.DB {
+	t.Helper()
+	dsn := resetPostgresTestSchema(t)
 
 	conn, err := db.Open(dsn)
 	if err != nil {
@@ -73,6 +83,82 @@ func TestPostgresMigrateIsIdempotent(t *testing.T) {
 		t.Fatalf("second Open: %v", err)
 	}
 	conn2.Close()
+}
+
+// TestPostgresConcurrentOpenAppliesMigrationsOnce simulates several instances
+// starting against one empty database: the advisory lock must let exactly one
+// of them apply each migration while the others wait and then skip.
+func TestPostgresConcurrentOpenAppliesMigrationsOnce(t *testing.T) {
+	dsn := resetPostgresTestSchema(t)
+
+	const instances = 6
+	conns := make([]*sql.DB, instances)
+	errs := make([]error, instances)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range instances {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			conns[i], errs[i] = db.Open(dsn)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	t.Cleanup(func() {
+		for _, conn := range conns {
+			if conn != nil {
+				conn.Close()
+			}
+		}
+	})
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent Open #%d: %v", i, err)
+		}
+	}
+
+	conn := conns[0]
+	rows, err := conn.Query(
+		"SELECT version_id, COUNT(*) FROM goose_db_version WHERE version_id > ? GROUP BY version_id HAVING COUNT(*) > ?", 0, 1,
+	)
+	if err != nil {
+		t.Fatalf("query duplicate migrations: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var version int64
+		var count int
+		if err := rows.Scan(&version, &count); err != nil {
+			t.Fatalf("scan duplicate migration: %v", err)
+		}
+		t.Errorf("migration %d applied %d times, want once", version, count)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate duplicate migrations: %v", err)
+	}
+
+	entries, err := os.ReadDir("migrations/postgres")
+	if err != nil {
+		t.Fatalf("read postgres migrations dir: %v", err)
+	}
+	want := 0
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sql") {
+			want++
+		}
+	}
+
+	var applied int
+	if err := conn.QueryRow(
+		"SELECT COUNT(DISTINCT version_id) FROM goose_db_version WHERE version_id > ?", 0,
+	).Scan(&applied); err != nil {
+		t.Fatalf("count applied migrations: %v", err)
+	}
+	if applied != want {
+		t.Errorf("got %d applied migrations, want %d", applied, want)
+	}
 }
 
 func TestPostgresCategoriesAreSeeded(t *testing.T) {
