@@ -38,11 +38,31 @@ aplicação Pluggy — e cada sync run pertence a exatamente uma conexão.
   igual continuam `unchanged`, sem reaplicar categorias ou automação.
 - `internal/worker` — loop de polling em background (`ClaimNextRun`,
   `ProcessClaim`, `Run`). O item consultado vem do `source_id` da execução,
-  não de configuração global. Assume uma única instância do worker rodando
-  por vez — não coordena reivindicação de execuções entre múltiplos processos
-  (relevante ao rodar várias instâncias contra um Postgres compartilhado, ver
-  README raiz). Executa uma run por vez, então N conexões sincronizam em
-  série.
+  não de configuração global. Executa uma run por vez por instância, então
+  N conexões sincronizam em série.
+  - Reivindicação atômica: um único `UPDATE ... WHERE worker_id IS NULL
+    ... RETURNING` marca `worker_id`/`heartbeat_at`; com várias instâncias no
+    mesmo Postgres, exatamente uma vence cada run.
+  - Lease: o dono atualiza `heartbeat_at` a cada 15s; se o heartbeat não
+    encontra mais a run como sua, a execução é cancelada
+    (`sync_run_claim_lost`).
+  - Gravações restritas ao dono: importações brutas e cada transação de
+    persistência verificam a posse da run na mesma transação que grava os
+    dados. `finalize`, `failGeneral` e `FailRun` também exigem o dono;
+    caso contrário retornam `syncsvc.ErrClaimLost`. Run já terminal é no-op
+    (sem conclusão dupla).
+  - Recuperação: no início e a cada ~45s, independentemente da execução de
+    outra sync, runs reivindicadas sem heartbeat
+    há 90s viram `failed` com `general_error_code = 'interrupted'`, por
+    compare-and-set (uma única falha registrada mesmo com recuperações
+    concorrentes). Não há retry automático; o agendamento diário ou
+    "Sincronizar agora" cria uma nova. Runs ainda não reivindicadas
+    sobrevivem ao restart e são executadas depois. Com uma instância, a run
+    interrompida por crash só é recuperada quando o lease expira (até ~90s
+    após o restart), e até lá a conexão aparece como sincronizando.
+  - Limites: SQLite atende um único processo (uma conexão; compartilhar o
+    arquivo entre processos não é suportado). Múltiplas instâncias exigem
+    Postgres.
 
 ## Rotas HTTP
 
