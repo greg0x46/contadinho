@@ -10,12 +10,11 @@ import (
 	"github.com/greg0x46/julius/internal/timeline"
 )
 
-// TestBuildSeriesLowestBalanceFromTodayCombinesEverySource pins the contract
-// Home's daily allowance relies on: with From = ReferenceDate = today, the
-// series' LowestBalance is the low point from today to month-end over
-// recurring income and expenses, payable-plan installments and card bills
+// TestBuildSeriesFromTodayCombinesEverySource pins what Home's daily allowance
+// reads: with From = ReferenceDate = today, one point per day starting today,
+// over recurring income and expenses, payable-plan installments and card bills
 // re-dated to their due date, all together.
-func TestBuildSeriesLowestBalanceFromTodayCombinesEverySource(t *testing.T) {
+func TestBuildSeriesFromTodayCombinesEverySource(t *testing.T) {
 	f := newFixture(t)
 	f.addAccount("3000.00")
 	ctx := context.Background()
@@ -70,6 +69,11 @@ func TestBuildSeriesLowestBalanceFromTodayCombinesEverySource(t *testing.T) {
 	}
 	if sources[timeline.SourceRecurring] != 2 || sources[timeline.SourcePayablePlan] != 1 || sources[timeline.SourceReal] != 1 {
 		t.Fatalf("entries by source = %v, want 2 recurring, 1 payable plan, 1 real (the card bill)", sources)
+	}
+
+	if len(series.Points) != 22 || !series.Points[0].Date.Equal(date(t, "2026-10-10")) {
+		t.Fatalf("points = %d starting %s, want 22 starting 2026-10-10",
+			len(series.Points), series.Points[0].Date.Format("2006-01-02"))
 	}
 
 	// 3000 on the 10th, -1500 rent on the 12th (1500), -300 installment on

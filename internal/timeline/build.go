@@ -121,18 +121,12 @@ const noCategoryName = "Sem categoria"
 // it settles rather than the one still accruing, so it lands on the same
 // day as the purchases it cancels out instead of a full cycle later.
 //
-// The second return value is the set of EventKeys of the card entries whose
-// bill fell due before reference — the past half of the series, where the
-// re-dating is a substitute for a payment that is no longer hypothetical.
-// buildPoints must not walk those; see cashEntries. The third is the set
-// whose bill falls due on reference itself: whether it was paid yet is
-// unknown here, so they are walked like any future bill (a payment already
-// made shows as a real bank leg in cash plus a card leg that cancels the
-// purchases), but anchored as not-yet-in-cash; see awaitingCash.
-func realEntries(ctx context.Context, q Querier, items []transactions.Item, reference time.Time) ([]Entry, map[string]bool, map[string]bool, error) {
+// The second return value classifies the card entries by when their bill
+// falls due relative to reference; see billTiming.
+func realEntries(ctx context.Context, q Querier, items []transactions.Item, reference time.Time) ([]Entry, billTiming, error) {
 	creditAccounts, err := transactions.CreditAccountIDs(ctx, q)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, billTiming{}, err
 	}
 	transactionIDs := make([]string, 0, len(items))
 	for _, item := range items {
@@ -142,23 +136,22 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item, refe
 	}
 	cardSignals, err := transactions.CardTransactionSignals(ctx, q, transactionIDs)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, billTiming{}, err
 	}
 	var dueDates transactions.CardDueDates
 	if len(transactionIDs) > 0 {
 		dueDates, err = transactions.FetchCardDueDates(ctx, q)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, billTiming{}, err
 		}
 	}
 
 	entries := make([]Entry, 0, len(items))
-	settled := map[string]bool{}
-	dueOnReference := map[string]bool{}
+	bills := billTiming{settled: map[string]bool{}, dueOnReference: map[string]bool{}}
 	for _, item := range items {
 		amount, err := decimal.NewFromString(item.EffectiveMoney.Value)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("parse transaction amount %q: %w", item.EffectiveMoney.Value, err)
+			return nil, billTiming{}, fmt.Errorf("parse transaction amount %q: %w", item.EffectiveMoney.Value, err)
 		}
 		// Classification, not the raw value's sign, decides direction —
 		// mirrors currencyTotalsFor's Value.Abs() in transactions/query.go.
@@ -170,7 +163,7 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item, refe
 		if item.ReportableAmount != nil {
 			value, err := decimal.NewFromString(*item.ReportableAmount)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, billTiming{}, err
 			}
 			if item.Classification == money.Outflow {
 				value = value.Neg()
@@ -195,9 +188,9 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item, refe
 			date = dates.Day(dueDates.ProjectedEntryDate(item.Account.ID, *item.OccurredAt, signal.Metadata, signal.IsPaymentLeg))
 			tier = TierConfirmado
 			if date.Before(reference) {
-				settled[eventKey] = true
+				bills.settled[eventKey] = true
 			} else if date.Equal(reference) {
-				dueOnReference[eventKey] = true
+				bills.dueOnReference[eventKey] = true
 			}
 		}
 		entries = append(entries, Entry{
@@ -213,7 +206,19 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item, refe
 			EventKey:         eventKey,
 		})
 	}
-	return entries, settled, dueOnReference, nil
+	return entries, bills, nil
+}
+
+// billTiming holds the EventKeys of card entries by when their bill falls due.
+// settled: before reference — the past half of the series, where the re-dating
+// is a substitute for a payment that is no longer hypothetical; buildPoints
+// must not walk those (see cashEntries). dueOnReference: on reference itself —
+// whether it was paid yet is unknown here, so they are walked like any future
+// bill (a payment already made shows as a real bank leg in cash plus a card
+// leg that cancels the purchases) but anchored as not-yet-in-cash; see
+// awaitingCash.
+type billTiming struct {
+	settled, dueOnReference map[string]bool
 }
 
 // BuildSeries merges real transactions and the unified Scenario projection
@@ -245,7 +250,7 @@ func BuildSeries(ctx context.Context, q Querier, params BuildParams) (Series, er
 	if err != nil {
 		return Series{}, err
 	}
-	entries, settled, dueOnReference, err := realEntries(ctx, q, items, reference)
+	entries, bills, err := realEntries(ctx, q, items, reference)
 	if err != nil {
 		return Series{}, err
 	}
@@ -310,8 +315,8 @@ func BuildSeries(ctx context.Context, q Querier, params BuildParams) (Series, er
 
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Date.Before(entries[j].Date) })
 
-	points := buildPoints(cashEntries(entries, settled), balance, from, to, reference, func(e Entry) bool {
-		return awaitingCash(e, reference, dueOnReference)
+	points := buildPoints(cashEntries(entries, bills.settled), balance, from, to, reference, func(e Entry) bool {
+		return awaitingCash(e, reference, bills.dueOnReference)
 	})
 	lowest, firstNegative := lowestAndFirstNegative(points, reference)
 
