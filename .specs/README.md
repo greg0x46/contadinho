@@ -9,9 +9,11 @@ contexto e precisa entender o domínio antes de mexer em código.
 2. **Este arquivo** — o mapa do que tem aqui dentro.
 3. **`motores-de-dominio.md`** — as abstrações de domínio reutilizáveis
    (nível ideal/arquitetura), e os princípios que as conectam.
-4. **`contextos/<contexto>/reference.md`** — o que existe e funciona hoje,
+4. **`invariantes-financeiros.md`** — as regras financeiras centrais como
+   estão hoje, com o módulo dono e o teste que fixa cada uma.
+5. **`contextos/<contexto>/reference.md`** — o que existe e funciona hoje,
    feature por feature. Comece pelo contexto que você vai tocar.
-5. O spec de design daquele contexto, se existir (linkado a partir do
+6. O spec de design daquele contexto, se existir (linkado a partir do
    `reference.md`) — o racional/histórico da decisão, não repetido aqui.
    Hoje nenhum contexto tem um; ver convenção abaixo para quando criar um.
 
@@ -23,6 +25,15 @@ Doc único, guarda-chuva de **arquitetura**, não de feature. Descreve o
 domínio no nível ideal — onde o código diverge disso, a divergência é dita
 explicitamente ali, ou apontada a partir do `reference.md` do contexto
 correspondente.
+
+### `invariantes-financeiros.md`
+
+Matriz transversal e **viva**: saldo, receita/despesa, transferência,
+obrigações, investimentos, hipotéticos e reprocessamento — o comportamento
+atual de cada regra, o módulo dono e o teste que a fixa (os testes que
+cruzam motores ficam em `internal/invariants`). Divergências encontradas e
+ainda não decididas ficam listadas no fim dela. Atualize no mesmo PR que
+mudar qualquer uma dessas regras.
 
 ### `contextos/<contexto>/reference.md`
 

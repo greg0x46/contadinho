@@ -90,6 +90,9 @@ reportado (`transactions.CreditCardTransactionTotal`). O caixa em conta
 vem de `transactions.CashOnHand`, uma implementação só, compartilhada pela
 Timeline (âncora de hoje) e pelo Patrimônio Líquido.
 
+A matriz com cada uma dessas regras, o módulo dono e o teste que a fixa
+está em [`invariantes-financeiros.md`](invariantes-financeiros.md).
+
 ### 2. Motor de regras
 
 **Pacote:** `internal/rules`
