@@ -106,6 +106,13 @@ dominio.md` seção 1. Criar uma conta 100% manual (sem nenhum vínculo com
 Pluggy) fica fora de escopo por ora — todo lançamento manual aponta para
 uma conta que já existe.
 
+Decisões do usuário ficam em tabelas próprias que a ingestão nunca reescreve:
+categoria e inclusão manuais (`transaction_category_*`,
+`transaction_inclusion_*`), `payable_transaction_links` e
+`scenario_realizations`. Uma atualização do provedor (PENDING → POSTED,
+correções) mantém o `id` do lançamento. Política completa em
+[`sincronizacao-open-banking/reference.md`](../sincronizacao-open-banking/reference.md).
+
 O saldo de conta (`CashOnHand`, Patrimônio Líquido) nunca reflete um
 lançamento manual — só o que o provedor reporta em
 `financial_accounts.balance`. Um lançamento manual afeta o extrato e os

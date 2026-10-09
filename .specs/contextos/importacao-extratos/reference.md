@@ -28,8 +28,15 @@ nome do arquivo não determina o período.
   formato, versão e classificação das linhas; uma mudança exige nova prévia.
 - A identidade de cada movimento é derivada de conta, instante, descrição,
   valor, meio e ordinal entre linhas iguais. Isso evita duplicatas ao reenviar
-  o arquivo ou enviar períodos sobrepostos. Saldo diferente para um movimento
-  já importado é avisado para revisão; o lançamento anterior não é alterado.
+  o arquivo ou enviar períodos sobrepostos: a repetição grava só uma nova
+  execução e um novo registro de importação, sem lançamentos, decisões ou
+  mudança de saldo. Saldo diferente para um movimento já importado é avisado
+  para revisão; o lançamento anterior não é alterado.
+- Linhas idênticas no mesmo arquivo são movimentos distintos (ordinal 1, 2,
+  ...). Limite conhecido: um arquivo posterior com mais linhas idênticas do
+  que o anterior importa só as excedentes.
+- A identidade inclui a conta: o mesmo arquivo em duas contas gera
+  lançamentos independentes.
 - O saldo de conta avança somente com uma linha de instante posterior ao
   saldo atual e com saldo final não ambíguo. Ao importar somente as válidas,
   uma linha inválida com data ilegível ou não mais antiga que a última linha
@@ -38,7 +45,8 @@ nome do arquivo não determina o período.
   antigas não interferem. Diferenças de continuidade são exibidas como aviso;
   o sistema não cria movimentos para fechar diferenças.
 - Confirmação grava execução, CSV bruto, conta, movimentos e eventos em uma
-  transação de banco. O arquivo bruto fica no banco para auditoria, sem ser
+  transação de banco; qualquer falha desfaz tudo (inclusive linhas já
+  inseridas e a conta nova) e o mesmo envio pode ser repetido. O arquivo bruto fica no banco para auditoria, sem ser
   incluído em logs ou respostas. A execução fica separada das sincronizações
   Open Banking. A categorização aprendida e a automação são aplicadas aos
   lançamentos novos.
@@ -67,6 +75,6 @@ O upload aceita até 2 MiB e 10 mil linhas. O primeiro formato é limitado a
 contas de movimentação em BRL. Não há conciliação automática com transações
 de contas Pluggy; possíveis coincidências exatas com transações Pluggy ou
 com lançamento manual da mesma conta aparecem como aviso, sem fusão
-automática. O valor é comparado em todas as grafias com que pode estar
+automática: a linha do arquivo é gravada e as outras não são alteradas. O valor é comparado em todas as grafias com que pode estar
 gravado (`-10`, `-10.0`, `-10.00`), porque Pluggy e lançamentos manuais
 preservam a escala de origem.

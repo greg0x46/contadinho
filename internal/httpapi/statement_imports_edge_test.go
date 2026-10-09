@@ -203,8 +203,8 @@ func insertPluggyStatementRow(t *testing.T, conn *sql.DB, description, amount, o
 			id, sync_run_id, source_id, scope, page_sequence, request_attempt,
 			request_method, request_path, http_status, response_headers, payload,
 			payload_sha256, received_at
-		) VALUES (?, ?, ?, 'transactions', 1, 1, 'GET', '/x', 200, '{}', x'00', 'sha', ?)`,
-		rawID, runID, sourceID, occurredAt)
+		) VALUES (?, ?, ?, 'transactions', 1, 1, 'GET', '/x', 200, '{}', ?, 'sha', ?)`,
+		rawID, runID, sourceID, []byte{0}, occurredAt)
 	exec(`INSERT INTO financial_accounts (
 			id, source_id, external_id, currency_code, current_raw_import_id, normalized_hash,
 			created_at, updated_at

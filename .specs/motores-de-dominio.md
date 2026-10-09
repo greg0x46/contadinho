@@ -203,7 +203,8 @@ expressão dele na interface.
   critério 3 diretamente. Alimenta o motor de Lançamentos junto com o
   lançamento manual (`internal/transactions/manual.go`), que não tem nada a
   ver com Pluggy — a segunda via de entrada previu essa divergência antes
-  de existir, e agora existe.
+  de existir, e agora existe. A ingestão não escreve decisões do usuário
+  (princípio transversal 2).
 
 ## Princípios transversais (valem para todo motor novo)
 

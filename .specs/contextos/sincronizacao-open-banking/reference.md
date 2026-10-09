@@ -64,6 +64,36 @@ aplicação Pluggy — e cada sync run pertence a exatamente uma conexão.
     arquivo entre processos não é suportado). Múltiplas instâncias exigem
     Postgres.
 
+## Identidade e preservação de decisões do usuário
+
+- A identidade de um lançamento sincronizado é `(source_id, external_id)`
+  (único em SQLite e Postgres). A mesma conta/transação externa em duas
+  conexões gera duas linhas independentes.
+- Uma nova sync do mesmo registro compara o `normalized_hash`: igual é
+  `unchanged` (nada é gravado além do evento de normalização); diferente é
+  `updated` e reescreve só os campos do provedor. PENDING → POSTED e
+  correções do provedor mantêm o mesmo `id`.
+- Campos do provedor (sobrescritos numa atualização): descrição, valores,
+  status, `occurred_at`, merchant, categoria de origem, ids e datas do
+  provedor, `current_raw_import_id` e `normalized_hash`.
+- Dados do usuário (nunca escritos por uma atualização do provedor):
+  categoria manual e seus eventos, decisão manual de inclusão,
+  `payable_transaction_links`, `scenario_realizations` (quitação, alocação e
+  conciliação) e `financial_accounts.manual_closing_day`. Lançamentos não têm
+  campo de observação do usuário, então não há nota para preservar.
+- Decisões derivadas (automática, aprendida, card-payment) só são gravadas na
+  inserção; uma correção não as recalcula. A automação roda de novo em
+  `updated`, então uma regra pode passar a valer, mas nunca sobrepõe uma
+  decisão manual.
+- Se a mesma conexão devolver um `external_id` já gravado sob outra conta, o
+  registro é recusado (`unsafe_account_association`) e a linha existente,
+  seu hash e as decisões do usuário ficam intactos; os demais registros da
+  página continuam.
+- Coincidências entre Pluggy, lançamento manual e arquivo nunca são fundidas.
+- Cobertura: `internal/syncsvc/ingestion_test.go` e
+  `transaction_retry_test.go` rodam em SQLite e, com
+  `JULIUS_TEST_POSTGRES_DSN`, em Postgres (`internal/db/dbtest`).
+
 ## Rotas HTTP
 
 `GET/POST /api/data-sources`, `GET/PATCH /api/data-sources/{id}`.

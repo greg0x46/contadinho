@@ -596,8 +596,12 @@ func (s *Service) processTransactionPage(ctx context.Context, accountID, externa
 	for _, record := range page.Transactions {
 		if err := s.upsertTransaction(ctx, accountID, record, page.RawImportID); err != nil {
 			extID := record.ExternalID
+			code := "internal_error"
+			if errors.Is(err, errAccountMismatch) {
+				code = "unsafe_account_association"
+			}
 			if rerr := s.recordRejection(ctx, pluggy.RejectedRecord{
-				EntityType: "transaction", ExternalID: &extID, Code: "internal_error", SafeMessage: SafeMessage("internal_error"),
+				EntityType: "transaction", ExternalID: &extID, Code: code, SafeMessage: SafeMessage(code),
 			}, page.RawImportID, &accountID, &externalAccountID); rerr != nil {
 				return rerr
 			}
@@ -605,6 +609,11 @@ func (s *Service) processTransactionPage(ctx context.Context, accountID, externa
 	}
 	return nil
 }
+
+// errAccountMismatch rejects a record whose (source_id, external_id) already
+// belongs to another account: merging it would move user decisions across
+// accounts, so the stored row is left untouched instead.
+var errAccountMismatch = errors.New("transaction external id belongs to another account")
 
 // upsertTransaction runs in its own transaction per record — a deliberate
 // simplification of the reference's per-page transaction with a savepoint
@@ -652,10 +661,13 @@ func (s *Service) upsertTransaction(ctx context.Context, accountID string, snaps
 		return err
 	}
 
-	var transactionID, existingHash string
-	if err := tx.QueryRowContext(ctx, `SELECT id, normalized_hash FROM financial_transactions WHERE source_id = ? AND external_id = ?`,
-		s.SourceID, snapshot.ExternalID).Scan(&transactionID, &existingHash); err != nil {
+	var transactionID, existingHash, existingAccountID string
+	if err := tx.QueryRowContext(ctx, `SELECT id, normalized_hash, account_id FROM financial_transactions WHERE source_id = ? AND external_id = ?`,
+		s.SourceID, snapshot.ExternalID).Scan(&transactionID, &existingHash, &existingAccountID); err != nil {
 		return err
+	}
+	if existingAccountID != accountID {
+		return errAccountMismatch
 	}
 
 	outcome := "unchanged"
