@@ -78,6 +78,12 @@ duas vias em `.specs/motores-de-dominio.md` seção 1.
   usuário sempre vence o que a automação tiver decidido. Tudo na mesma
   transação de banco. `ledger.ApplyNewTransactionDecisions` é a mesma
   sequência, reutilizada pela confirmação de importação de extrato.
+- Clientes que precisam repetir `POST /api/transactions` com segurança enviam
+  `Idempotency-Key` (8 a 128 caracteres ASCII sem espaços). A mesma chave e
+  o mesmo lançamento retornam o ID original; a mesma chave com dados
+  diferentes retorna 409. A chave é reservada junto com o lançamento na
+  transação de banco e pertence ao proprietário da instalação. Sem o header,
+  o comportamento legado permanece: cada POST cria um lançamento novo.
 - Contas/cartões: `GET /api/accounts[/{id}][/cards|/bills]`,
   `PUT /api/accounts/{id}/closing-day`.
 - Investimentos: `GET /api/investments[/{id}][/transactions]`.
@@ -105,6 +111,13 @@ as duas vias de entrada hoje, ambas provedor de dado, não parte deste motor
 dominio.md` seção 1. Criar uma conta 100% manual (sem nenhum vínculo com
 Pluggy) fica fora de escopo por ora — todo lançamento manual aponta para
 uma conta que já existe.
+
+Decisões do usuário ficam em tabelas próprias que a ingestão nunca reescreve:
+categoria e inclusão manuais (`transaction_category_*`,
+`transaction_inclusion_*`), `payable_transaction_links` e
+`scenario_realizations`. Uma atualização do provedor (PENDING → POSTED,
+correções) mantém o `id` do lançamento. Política completa em
+[`sincronizacao-open-banking/reference.md`](../sincronizacao-open-banking/reference.md).
 
 O saldo de conta (`CashOnHand`, Patrimônio Líquido) nunca reflete um
 lançamento manual — só o que o provedor reporta em

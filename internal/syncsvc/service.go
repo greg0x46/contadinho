@@ -328,8 +328,12 @@ func (s *Service) processInvestments(ctx context.Context) error {
 					return err
 				}
 				txExtID := txRecord.ExternalID
+				code := "internal_error"
+				if errors.Is(err, errInvestmentMismatch) {
+					code = "unsafe_investment_association"
+				}
 				if rerr := s.recordInvestmentRejection(ctx, pluggy.RejectedRecord{
-					EntityType: "investment_transaction", ExternalID: &txExtID, Code: "internal_error", SafeMessage: SafeMessage("internal_error"),
+					EntityType: "investment_transaction", ExternalID: &txExtID, Code: code, SafeMessage: SafeMessage(code),
 				}, txPage.RawImportID, &investmentID, &extID); rerr != nil {
 					return rerr
 				}
@@ -596,8 +600,12 @@ func (s *Service) processTransactionPage(ctx context.Context, accountID, externa
 	for _, record := range page.Transactions {
 		if err := s.upsertTransaction(ctx, accountID, record, page.RawImportID); err != nil {
 			extID := record.ExternalID
+			code := "internal_error"
+			if errors.Is(err, errAccountMismatch) {
+				code = "unsafe_account_association"
+			}
 			if rerr := s.recordRejection(ctx, pluggy.RejectedRecord{
-				EntityType: "transaction", ExternalID: &extID, Code: "internal_error", SafeMessage: SafeMessage("internal_error"),
+				EntityType: "transaction", ExternalID: &extID, Code: code, SafeMessage: SafeMessage(code),
 			}, page.RawImportID, &accountID, &externalAccountID); rerr != nil {
 				return rerr
 			}
@@ -605,6 +613,11 @@ func (s *Service) processTransactionPage(ctx context.Context, accountID, externa
 	}
 	return nil
 }
+
+// errAccountMismatch rejects a record whose (source_id, external_id) already
+// belongs to another account: merging it would move user decisions across
+// accounts, so the stored row is left untouched instead.
+var errAccountMismatch = errors.New("transaction external id belongs to another account")
 
 // upsertTransaction runs in its own transaction per record — a deliberate
 // simplification of the reference's per-page transaction with a savepoint
@@ -652,10 +665,13 @@ func (s *Service) upsertTransaction(ctx context.Context, accountID string, snaps
 		return err
 	}
 
-	var transactionID, existingHash string
-	if err := tx.QueryRowContext(ctx, `SELECT id, normalized_hash FROM financial_transactions WHERE source_id = ? AND external_id = ?`,
-		s.SourceID, snapshot.ExternalID).Scan(&transactionID, &existingHash); err != nil {
+	var transactionID, existingHash, existingAccountID string
+	if err := tx.QueryRowContext(ctx, `SELECT id, normalized_hash, account_id FROM financial_transactions WHERE source_id = ? AND external_id = ?`,
+		s.SourceID, snapshot.ExternalID).Scan(&transactionID, &existingHash, &existingAccountID); err != nil {
 		return err
+	}
+	if existingAccountID != accountID {
+		return errAccountMismatch
 	}
 
 	outcome := "unchanged"
@@ -851,6 +867,8 @@ func (s *Service) upsertInvestment(ctx context.Context, snapshot pluggy.Investme
 	return investmentID, tx.Commit()
 }
 
+var errInvestmentMismatch = errors.New("investment transaction external id belongs to another investment")
+
 // upsertInvestmentTransaction mirrors upsertTransaction, minus the
 // categories.ApplyAutomatic/OnTransactionUpserted hooks: those are
 // spending-transaction-specific domain logic, and an investment movement
@@ -883,10 +901,13 @@ func (s *Service) upsertInvestmentTransaction(ctx context.Context, investmentID 
 		return err
 	}
 
-	var transactionID, existingHash string
-	if err := tx.QueryRowContext(ctx, `SELECT id, normalized_hash FROM financial_investment_transactions WHERE source_id = ? AND external_id = ?`,
-		s.SourceID, snapshot.ExternalID).Scan(&transactionID, &existingHash); err != nil {
+	var transactionID, existingHash, existingInvestmentID string
+	if err := tx.QueryRowContext(ctx, `SELECT id, normalized_hash, investment_id FROM financial_investment_transactions WHERE source_id = ? AND external_id = ?`,
+		s.SourceID, snapshot.ExternalID).Scan(&transactionID, &existingHash, &existingInvestmentID); err != nil {
 		return err
+	}
+	if existingInvestmentID != investmentID {
+		return errInvestmentMismatch
 	}
 
 	outcome := "unchanged"
