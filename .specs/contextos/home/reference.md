@@ -48,7 +48,9 @@ fontes**: Lançamentos e o fluxo unificado de projeção de Cenários
 O pacote **não conhece Payables**: o vínculo de um plano com um `Payable`
 fica encapsulado em `internal/scenarios` (`Scenario.PayableID`/`Kind`, via
 `ListPlanInstallments`/`SignedAmount`). O saldo âncora vem de
-`transactions.CashOnHand`.
+`transactions.CashOnHandIn(..., money.BRL)`: só o caixa em BRL; caixa em
+moeda estrangeira fica fora da âncora por ora (sem conversão; follow-up).
+Filtrar a Timeline para uma única conta em USD dá âncora 0 BRL.
 
 Cada `Entry` carrega duas leituras do mesmo dinheiro. A curva de saldo
 (`Points`) usa `Amount` e inclui todo movimento que moveu caixa — o filtro
