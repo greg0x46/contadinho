@@ -405,6 +405,9 @@ The Postgres integration tests are skipped unless
 `JULIUS_TEST_POSTGRES_DSN` points at a disposable database. They reset its
 `public` schema, so run them with `go test -p 1 ./...`, as CI does.
 
+The frontend suite runs as two Vitest projects (jsdom and plain Node); see
+[`frontend/TESTING.md`](frontend/TESTING.md) for the split and worker count.
+
 `npm run test:e2e` (Playwright) is declared in `package.json` but has no
 `playwright.config.*` or tests yet — scaffolded, not implemented.
 

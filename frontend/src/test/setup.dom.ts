@@ -1,3 +1,4 @@
+// Setup for the jsdom ("dom") Vitest project only.
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
