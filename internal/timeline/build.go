@@ -122,13 +122,17 @@ const noCategoryName = "Sem categoria"
 // day as the purchases it cancels out instead of a full cycle later.
 //
 // The second return value is the set of EventKeys of the card entries whose
-// bill already fell due on or before reference — the past half of the
-// series, where the re-dating is a substitute for a payment that is no
-// longer hypothetical. buildPoints must not walk those; see cashEntries.
-func realEntries(ctx context.Context, q Querier, items []transactions.Item, reference time.Time) ([]Entry, map[string]bool, error) {
+// bill fell due before reference — the past half of the series, where the
+// re-dating is a substitute for a payment that is no longer hypothetical.
+// buildPoints must not walk those; see cashEntries. The third is the set
+// whose bill falls due on reference itself: whether it was paid yet is
+// unknown here, so they are walked like any future bill (a payment already
+// made shows as a real bank leg in cash plus a card leg that cancels the
+// purchases), but anchored as not-yet-in-cash; see awaitingCash.
+func realEntries(ctx context.Context, q Querier, items []transactions.Item, reference time.Time) ([]Entry, map[string]bool, map[string]bool, error) {
 	creditAccounts, err := transactions.CreditAccountIDs(ctx, q)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	transactionIDs := make([]string, 0, len(items))
 	for _, item := range items {
@@ -138,22 +142,23 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item, refe
 	}
 	cardSignals, err := transactions.CardTransactionSignals(ctx, q, transactionIDs)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	var dueDates transactions.CardDueDates
 	if len(transactionIDs) > 0 {
 		dueDates, err = transactions.FetchCardDueDates(ctx, q)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 	}
 
 	entries := make([]Entry, 0, len(items))
 	settled := map[string]bool{}
+	dueOnReference := map[string]bool{}
 	for _, item := range items {
 		amount, err := decimal.NewFromString(item.EffectiveMoney.Value)
 		if err != nil {
-			return nil, nil, fmt.Errorf("parse transaction amount %q: %w", item.EffectiveMoney.Value, err)
+			return nil, nil, nil, fmt.Errorf("parse transaction amount %q: %w", item.EffectiveMoney.Value, err)
 		}
 		// Classification, not the raw value's sign, decides direction —
 		// mirrors currencyTotalsFor's Value.Abs() in transactions/query.go.
@@ -165,7 +170,7 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item, refe
 		if item.ReportableAmount != nil {
 			value, err := decimal.NewFromString(*item.ReportableAmount)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 			if item.Classification == money.Outflow {
 				value = value.Neg()
@@ -189,8 +194,10 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item, refe
 			signal := cardSignals[item.ID]
 			date = dates.Day(dueDates.ProjectedEntryDate(item.Account.ID, *item.OccurredAt, signal.Metadata, signal.IsPaymentLeg))
 			tier = TierConfirmado
-			if !date.After(reference) {
+			if date.Before(reference) {
 				settled[eventKey] = true
+			} else if date.Equal(reference) {
+				dueOnReference[eventKey] = true
 			}
 		}
 		entries = append(entries, Entry{
@@ -206,7 +213,7 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item, refe
 			EventKey:         eventKey,
 		})
 	}
-	return entries, settled, nil
+	return entries, settled, dueOnReference, nil
 }
 
 // BuildSeries merges real transactions and the unified Scenario projection
@@ -238,7 +245,7 @@ func BuildSeries(ctx context.Context, q Querier, params BuildParams) (Series, er
 	if err != nil {
 		return Series{}, err
 	}
-	entries, settled, err := realEntries(ctx, q, items, reference)
+	entries, settled, dueOnReference, err := realEntries(ctx, q, items, reference)
 	if err != nil {
 		return Series{}, err
 	}
@@ -303,7 +310,9 @@ func BuildSeries(ctx context.Context, q Querier, params BuildParams) (Series, er
 
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Date.Before(entries[j].Date) })
 
-	points := buildPoints(cashEntries(entries, settled), balance, from, to, reference)
+	points := buildPoints(cashEntries(entries, settled), balance, from, to, reference, func(e Entry) bool {
+		return awaitingCash(e, reference, dueOnReference)
+	})
 	lowest, firstNegative := lowestAndFirstNegative(points, reference)
 
 	return Series{
@@ -375,6 +384,26 @@ func cashEntries(entries []Entry, settled map[string]bool) []Entry {
 	return kept
 }
 
+// awaitingCash reports whether e is dated on reference without being in cash
+// on hand yet. The anchor is the bank's balance right now, so a real
+// transaction dated today is already in it, but an event that is only
+// projected for today (a recurrence, plan installment or scenario entry not
+// yet reconciled with a transaction) has not moved any money, and neither
+// has a card bill due today whose payment is not in the ledger.
+func awaitingCash(e Entry, reference time.Time, dueOnReference map[string]bool) bool {
+	if !e.Date.Equal(reference) {
+		return false
+	}
+	switch e.Source {
+	case SourceReal:
+		return dueOnReference[e.EventKey]
+	case SourceInvestment:
+		return false
+	default:
+		return true
+	}
+}
+
 // buildPoints produces one DayPoint per calendar day in [from, to] from the
 // entries that model cash (cashEntries, not Series.Entries),
 // anchoring the running balance so it equals startingBalance on
@@ -384,10 +413,15 @@ func cashEntries(entries []Entry, settled map[string]bool) []Entry {
 // there — so a purely historical M3 series (all entries <= reference)
 // reads as "how did the balance get to what it is today", while future
 // entries (from M4 on) read as a forward projection from today.
-func buildPoints(entries []Entry, startingBalance decimal.Decimal, from, to, reference time.Time) []DayPoint {
+//
+// The exception is awaitingCash: entries dated on reference that cash on hand
+// does not include yet are walked as future ones, so the point for reference
+// is the balance at the end of the day, startingBalance minus what is still
+// due today, not startingBalance itself.
+func buildPoints(entries []Entry, startingBalance decimal.Decimal, from, to, reference time.Time, pending func(Entry) bool) []DayPoint {
 	pastSum := decimal.Zero
 	for _, e := range entries {
-		if !e.Date.After(reference) {
+		if !e.Date.After(reference) && !pending(e) {
 			pastSum = pastSum.Add(e.Amount)
 		}
 	}
