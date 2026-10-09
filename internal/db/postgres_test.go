@@ -276,3 +276,27 @@ func TestPostgresPartialAndExpressionIndexesExist(t *testing.T) {
 		}
 	}
 }
+
+func TestPostgresPoolHonorsEnv(t *testing.T) {
+	t.Setenv("JULIUS_DB_MAX_OPEN_CONNS", "3")
+	conn := openPostgresTest(t)
+	if got := conn.Stats().MaxOpenConnections; got != 3 {
+		t.Fatalf("MaxOpenConnections = %d, want 3", got)
+	}
+}
+
+func TestPostgresPoolRejectsInvalidEnv(t *testing.T) {
+	dsn := os.Getenv("JULIUS_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("JULIUS_TEST_POSTGRES_DSN not set; skipping Postgres integration test")
+	}
+	t.Setenv("JULIUS_DB_CONN_MAX_LIFETIME", "forever")
+	conn, err := db.Open(dsn)
+	if err == nil {
+		conn.Close()
+		t.Fatal("Open succeeded with an invalid JULIUS_DB_CONN_MAX_LIFETIME")
+	}
+	if !strings.Contains(err.Error(), "JULIUS_DB_CONN_MAX_LIFETIME") {
+		t.Fatalf("error %q does not name the variable", err)
+	}
+}

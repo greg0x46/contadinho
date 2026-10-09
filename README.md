@@ -269,6 +269,19 @@ then skip them. The `auth init`, `auth migrate` and `auth reset-password`
 commands accept the same DSN in the `-db` flag or in `JULIUS_DB`. Sessions and the account live in
 the database; the encryption key stays outside it.
 
+The Postgres connection pool can be tuned through environment variables
+(SQLite ignores them and always uses a single connection):
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `JULIUS_DB_MAX_OPEN_CONNS` | `10` | Maximum open connections per instance (integer >= 1). |
+| `JULIUS_DB_MAX_IDLE_CONNS` | max open | Idle connections kept for reuse (integer >= 0, capped at max open). |
+| `JULIUS_DB_CONN_MAX_LIFETIME` | `30m` | Go duration after which a connection is recycled; `0` = unlimited. |
+| `JULIUS_DB_CONN_MAX_IDLE_TIME` | `5m` | Go duration an idle connection is kept; `0` = unlimited. |
+
+An invalid value makes startup (and any `-db` command) fail with an error
+naming the variable, instead of silently falling back to the default.
+
 The background sync worker assumes only one instance runs it at a time — it
 does not currently coordinate claiming sync runs across multiple
 processes/instances.
