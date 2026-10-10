@@ -193,6 +193,12 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item, refe
 				settled[eventKey] = true
 			}
 		}
+		// A foreign-currency account is outside the BRL anchor even when the
+		// transaction itself reports BRL (no amount_in_account_currency).
+		currency := item.EffectiveMoney.CurrencyCode
+		if account := item.Account.CurrencyCode; account != nil && *account != "" && *account != money.BRL {
+			currency = *account
+		}
 		entries = append(entries, Entry{
 			Date:             date,
 			Description:      description,
@@ -204,7 +210,7 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item, refe
 			Source:           SourceReal,
 			SourceRefID:      item.ID,
 			EventKey:         eventKey,
-			Currency:         item.EffectiveMoney.CurrencyCode,
+			Currency:         currency,
 		})
 	}
 	return entries, settled, nil

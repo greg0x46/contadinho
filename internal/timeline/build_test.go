@@ -102,6 +102,32 @@ func TestBuildSeriesBalanceWalkIgnoresNonBRLTransactions(t *testing.T) {
 	}
 }
 
+// TestBuildSeriesBalanceWalkIgnoresForeignAccountWithoutAccountAmount pins
+// that a USD account's transaction reporting BRL, with no account-currency
+// amount to fall back on, still does not move the BRL curve.
+func TestBuildSeriesBalanceWalkIgnoresForeignAccountWithoutAccountAmount(t *testing.T) {
+	f := newFixture(t)
+	f.addAccount("200.00")
+	usd := f.addAccount("100.00")
+	f.exec(`UPDATE financial_accounts SET currency_code = 'USD' WHERE id = ?`, usd)
+	for _, day := range []string{"2026-08-10", "2026-08-20"} {
+		id := f.addTransaction(txn{AccountID: usd, Amount: "100.00", OccurredAt: date(t, day)})
+		f.exec(`UPDATE financial_transactions SET amount_in_account_currency = NULL WHERE id = ?`, id)
+	}
+
+	series, err := timeline.BuildSeries(context.Background(), f.conn, timeline.BuildParams{
+		From: date(t, "2026-08-01"), To: date(t, "2026-08-31"), ReferenceDate: date(t, "2026-08-15"),
+	})
+	if err != nil {
+		t.Fatalf("BuildSeries: %v", err)
+	}
+	for _, p := range series.Points {
+		if p.Balance.String() != "200" {
+			t.Errorf("balance on %s = %s, want 200", p.Date.Format("2006-01-02"), p.Balance)
+		}
+	}
+}
+
 func TestBuildSeriesCreditCardEntryProjectsToBillDueDate(t *testing.T) {
 	f := newFixture(t)
 	card := f.addCreditCardAccount("0")
