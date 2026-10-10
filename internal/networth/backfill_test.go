@@ -88,6 +88,28 @@ func TestBackfillReconstructsCashWalkingEligibleTransactionsBackward(t *testing.
 	assertDecimalEqual(t, "twoDaysAgo.TotalAssets", snapTwoDaysAgo.Breakdown.TotalAssets, "10949")
 }
 
+// TestBackfillDoesNotReverseNonBRLTransactions pins that a USD inflow is not
+// subtracted from the BRL cash anchor when reconstructing earlier days.
+func TestBackfillDoesNotReverseNonBRLTransactions(t *testing.T) {
+	f := newFixture(t)
+	f.addAccount("", "200.00")
+	usd := f.addAccount("", "100.00")
+	f.exec(`UPDATE financial_accounts SET currency_code = 'USD' WHERE id = ?`, usd)
+
+	today := time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC)
+	twoDaysAgo := today.AddDate(0, 0, -2)
+	f.addCardTransaction(usd, twoDaysAgo, "100.00", "CREDIT")
+
+	if err := networth.Backfill(context.Background(), f.conn, today); err != nil {
+		t.Fatalf("Backfill: %v", err)
+	}
+	snap, ok := snapshotFor(t, f, twoDaysAgo)
+	if !ok {
+		t.Fatalf("no snapshot for twoDaysAgo")
+	}
+	assertDecimalEqual(t, "twoDaysAgo.CashBalance", snap.Breakdown.CashBalance, "200")
+}
+
 // TestBackfillSkipsDaysBeforeTheEarliestKnownTransaction proves Backfill
 // never invents a day it has no transaction coverage for: with a single
 // cash transaction three days back, only that day and days after it (up to

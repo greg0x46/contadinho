@@ -278,7 +278,8 @@ func cashDeltasDescending(ctx context.Context, q Querier) ([]cashTransactionDelt
 		// the transfer rule reach here would leave every day before a
 		// transfer off by its full amount.
 		included, _ := money.Eligibility(classification, providerStatus, effective, money.Considered, "")
-		if !included || effective == nil {
+		// cashBalance is BRL-only, so other currencies are not reversed out.
+		if !included || effective == nil || effective.CurrencyCode != money.BRL {
 			continue
 		}
 

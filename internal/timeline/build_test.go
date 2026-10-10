@@ -76,6 +76,32 @@ func TestBuildSeriesStartingBalanceIgnoresNonBRLCash(t *testing.T) {
 	}
 }
 
+// TestBuildSeriesBalanceWalkIgnoresNonBRLTransactions pins that past and
+// future USD movements do not shift the BRL curve, while staying in Entries.
+func TestBuildSeriesBalanceWalkIgnoresNonBRLTransactions(t *testing.T) {
+	f := newFixture(t)
+	f.addAccount("200.00")
+	usd := f.addAccount("100.00")
+	f.exec(`UPDATE financial_accounts SET currency_code = 'USD' WHERE id = ?`, usd)
+	f.addTransaction(txn{AccountID: usd, Amount: "100.00", OccurredAt: date(t, "2026-08-10")})
+	f.addTransaction(txn{AccountID: usd, Amount: "50.00", OccurredAt: date(t, "2026-08-20")})
+
+	series, err := timeline.BuildSeries(context.Background(), f.conn, timeline.BuildParams{
+		From: date(t, "2026-08-01"), To: date(t, "2026-08-31"), ReferenceDate: date(t, "2026-08-15"),
+	})
+	if err != nil {
+		t.Fatalf("BuildSeries: %v", err)
+	}
+	for _, p := range series.Points {
+		if p.Balance.String() != "200" {
+			t.Errorf("balance on %s = %s, want 200 (USD movements are not BRL)", p.Date.Format("2006-01-02"), p.Balance)
+		}
+	}
+	if len(series.Entries) != 2 {
+		t.Errorf("Entries = %d, want 2 (USD entries stay in the ledger)", len(series.Entries))
+	}
+}
+
 func TestBuildSeriesCreditCardEntryProjectsToBillDueDate(t *testing.T) {
 	f := newFixture(t)
 	card := f.addCreditCardAccount("0")

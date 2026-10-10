@@ -65,6 +65,7 @@ type Entry struct {
 	SourceRefID      string
 	EventKey         string  // stable identity for projected events; real events use transaction:<id>
 	ScenarioID       *string // set for every projected Scenario event
+	Currency         string  // real transactions only; empty (projected events) counts as BRL
 }
 
 // DayPoint is the running balance at the end of one calendar day.

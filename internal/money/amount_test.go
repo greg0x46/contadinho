@@ -92,6 +92,8 @@ func TestParseCurrency(t *testing.T) {
 		{s("B1L"), ErrInvalidCurrency},
 		{s("R$"), ErrInvalidCurrency},
 		{s(" BRL"), ErrInvalidCurrency},
+		{s("ABC"), ErrInvalidCurrency},
+		{s("ZZZ"), ErrInvalidCurrency},
 		{s("BRL"), nil},
 		{s("USD"), nil},
 		{s("EUR"), nil},

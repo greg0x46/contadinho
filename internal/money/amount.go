@@ -53,7 +53,7 @@ func mismatch(a, b Amount) error {
 	return fmt.Errorf("%w: %s and %s", ErrCurrencyMismatch, a.Currency, b.Currency)
 }
 
-// ParseCurrency accepts exactly three uppercase ASCII letters. It never
+// ParseCurrency accepts exactly an uppercase ISO 4217 code. It never
 // defaults to BRL and never normalizes case.
 func ParseCurrency(code *string) (string, error) {
 	if code == nil || strings.TrimSpace(*code) == "" {
@@ -67,6 +67,9 @@ func ParseCurrency(code *string) (string, error) {
 		if c[i] < 'A' || c[i] > 'Z' {
 			return "", fmt.Errorf("%w: %q", ErrInvalidCurrency, c)
 		}
+	}
+	if _, ok := iso4217[c]; !ok {
+		return "", fmt.Errorf("%w: unknown code %q", ErrInvalidCurrency, c)
 	}
 	return c, nil
 }

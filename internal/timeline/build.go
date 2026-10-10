@@ -204,6 +204,7 @@ func realEntries(ctx context.Context, q Querier, items []transactions.Item, refe
 			Source:           SourceReal,
 			SourceRefID:      item.ID,
 			EventKey:         eventKey,
+			Currency:         item.EffectiveMoney.CurrencyCode,
 		})
 	}
 	return entries, settled, nil
@@ -363,12 +364,10 @@ func withinWindow(entries []Entry, from, to time.Time) []Entry {
 // Financeiro's breakdowns read them as a ledger of what was spent, a
 // question the anchor's cash-only definition does not govern.
 func cashEntries(entries []Entry, settled map[string]bool) []Entry {
-	if len(settled) == 0 {
-		return entries
-	}
 	kept := make([]Entry, 0, len(entries))
 	for _, e := range entries {
-		if settled[e.EventKey] {
+		// The anchor is BRL cash only, so other currencies are not walked.
+		if settled[e.EventKey] || (e.Currency != "" && e.Currency != money.BRL) {
 			continue
 		}
 		kept = append(kept, e)

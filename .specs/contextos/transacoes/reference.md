@@ -59,7 +59,7 @@ duas vias em `.specs/motores-de-dominio.md` seção 1.
   há conversão. `CashOnHandIn(..., moeda)` devolve o total de uma moeda
   só; Timeline e Patrimônio Líquido usam só a parcela BRL. Uma conta
   não-crédito com saldo e `currency_code` ausente, vazio ou fora do
-  formato de três letras maiúsculas (inclusive `brl`) é erro explícito
+  código ISO 4217 em maiúsculas (inclusive `brl` e códigos desconhecidos) é erro explícito
   (`money.ErrMissingCurrency`/`ErrInvalidCurrency`, com o id da conta),
   nunca vira BRL; contas de crédito e sem saldo são filtradas antes.
   Ver a nota sobre saldo em `.specs/motores-de-dominio.md` seção 1 para

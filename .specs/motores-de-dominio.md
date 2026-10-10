@@ -94,8 +94,10 @@ Timeline (âncora de hoje) e o Patrimônio Líquido leem via
 Valores com moeda usam `money.Amount` (valor + código) e `money.Balances`
 (um total por moeda): somar ou subtrair moedas diferentes é erro
 (`ErrCurrencyMismatch`), e não há conversão nesta camada.
-`money.ParseCurrency` aceita só três letras ASCII maiúsculas; código ausente
-ou inválido é erro explícito, nunca vira BRL.
+`money.ParseCurrency` aceita só códigos ISO 4217 em maiúsculas; código
+ausente, malformado ou desconhecido (`ABC`) é erro explícito, nunca vira BRL.
+A caminhada de saldo da Timeline e a reconstrução do backfill de patrimônio
+só consideram movimentos em BRL, coerentes com a âncora BRL.
 
 ### 2. Motor de regras
 
