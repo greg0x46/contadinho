@@ -54,9 +54,10 @@ rendimentos realizados (`Income`), taxas (`Fees`) e impostos (`Taxes`),
 opcionalmente filtrados por conta de custódia. Taxas e impostos incluem os
 custos das compras e vendas. Os valores não descontam conciliações: vincular um
 lançamento bancário nunca reduz o aporte ou resgate bruto do mês. Valorização,
-principal de compra/venda e transferências entre custódias não entram. Ainda
-não há exposição via HTTP; `GET /api/investment-operations` segue entregando as
-operações brutas.
+principal de compra/venda e transferências entre custódias não entram. Expostos em
+`GET /api/investment-monthly-movements` (`?account_id=` opcional), que devolve
+`items` com `month`, `contributions`, `withdrawals`, `income`, `fees` e `taxes`;
+`GET /api/investment-operations` segue entregando as operações brutas.
 
 Valorização e ganho não realizado (`Summary.UnrealizedGain`) nunca são
 rendimento realizado: não entram em `ManualReportingEntries`, em
